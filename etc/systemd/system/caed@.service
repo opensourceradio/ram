@@ -1,0 +1,26 @@
+#
+# caed.service
+# handle the Rivendell Core Audio Engine daemon
+
+[Unit]
+Description=Rivendell Core Audio Engine
+
+# This service must wait until these services are already running
+#Requires=jackd.service libvirtd.service
+#After=jackd.service libvirtd.service
+
+[Service]
+ExecStartPre=/usr/bin/dbcheck.sh
+ExecStart=/usr/bin/caed
+Type=forking
+PIDFile=/var/run/rivendell/caed.pid
+User=%I
+KillMode=mixed
+Restart=always
+IgnoreSIGPIPE=no
+StandardOutput=syslog
+StandardError=inherit
+EnvironmentFile=-/etc/locale.conf
+
+[Install]
+WantedBy=rivendell.target
