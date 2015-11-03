@@ -87,7 +87,7 @@ else
         # successful purge, make a backup of the backup
         if [[ -d ${BACKUP_DIR} ]]
         then
-	  if rsync --archive --delete ${TMPDIR}/mysql* ${BACKUP_DIR}
+	  if rsync --archive --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
 	  then
             : all seems well, move on
 	  else
