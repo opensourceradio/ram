@@ -1,0 +1,75 @@
+#!/bin/bash
+
+##########################################################################################
+##########################################################################################
+#
+############################################################
+### DO NOT USE THIS SCRIPT WITHOUT MAKING MODIFICATIONS! ###
+############################################################
+#
+# NOTE:
+# This script is COMPLETELY installation-specific! See the "BUG ALERT" below.
+#
+# Note your modification acknowledgment here:
+# e.g., in vim, say  :map K !!date; logname<CR>A, <Esc>JI# <Esc>A@phantommachineworks.media<Esc>
+# then simply touch the 'K' key to 'fill in the blanks'
+# for example:
+# Fri Aug 31 13:54:09 CST 1923, dklann@phantommachineworks.media
+#
+##########################################################################################
+##########################################################################################
+
+# set up jack environment for Rivendell and off-board (add-on) audio adapter(s)
+# this is expected to be called from the "jack clients" list on a per-host basis
+
+# BUG ALERT!!
+# this script completely depends on the add-on audio adapter being a USB audio interface
+# that identifies in ALSA AS "CODEC".
+
+# log STDOUT and STDERR of this script and all commands called by this script to separate files
+exec 1> /var/tmp/pmw-jack-setup.out
+exec 2> /var/tmp/pmw-jack-setup.err
+
+RATE=${RATE:-48000}
+PERIODS=${PERIODS:-1024}
+NPERIODS=${NPERIODS:-2}
+
+# make $CARDS an array
+declare -a CARDS
+CardBasename=${CARD_BASENAME:-CODEC}
+Index=0
+
+# Use aplay(1) to list the installed audio cards and massage the data to get the card numbers.
+# See example output at the end of this script.
+CARDS=( $(aplay -l | fgrep ${CardBasename} | cut -d: -f1 | sort -u | awk '{print $2}') )
+
+for CARD in ${CARDS[*]}
+do
+  CardName=${CardBasename}
+  alsaOutLog=${VARTMP:-/var/tmp}/alsa_out-${CardName}.log
+
+  /usr/bin/jack_load -i "-d alsa -d hw:${CARD},0 -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${CardName} audioadapter
+
+  # this is for the output to the Arrakis USB device
+  # Note that alsa_out must be put into the background in order to keep running while jackd is running...
+   nohup /usr/bin/alsa_out -j ${CardName} -d hw:${CARD},0 -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaOutLog} &
+  ((Index++))
+
+done
+
+exit
+
+# Example output of
+# sudo -u pmwtech aplay -l
+cat << EOF
+**** List of PLAYBACK Hardware Devices ****
+card 0: PCH [HDA Intel PCH], device 0: ALC892 Analog [ALC892 Analog]
+  Subdevices: 0/1
+  Subdevice #0: subdevice #0
+card 0: PCH [HDA Intel PCH], device 1: ALC892 Digital [ALC892 Digital]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+card 1: CODEC [USB Audio CODEC], device 0: USB Audio [USB Audio]
+  Subdevices: 0/1
+  Subdevice #0: subdevice #0
+EOF
