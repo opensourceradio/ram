@@ -1,0 +1,25 @@
+#
+# rdcatchd.service
+# handle the Rivendell Catch daemon
+
+[Unit]
+Description=Rivendell Catch Dropbox daemon
+
+# This service must wait until these services are already running
+Requires=ripcd.service
+After=ripcd.service
+
+[Service]
+ExecStart=/usr/bin/rdcatchd
+Type=forking
+PIDFile=/var/run/rivendell/rdcatchd.pid
+User=%I
+KillMode=mixed
+Restart=always
+IgnoreSIGPIPE=no
+StandardOutput=syslog
+StandardError=inherit
+EnvironmentFile=-/etc/locale.conf
+
+[Install]
+WantedBy=rivendell.target

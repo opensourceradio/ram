@@ -1,0 +1,8 @@
+#
+# rivendell.target
+# this unit file aggregates the Rivendell service files
+
+[Unit]
+Description=Rivendell Services
+Documentation=man:systemd.special(7)
+StopWhenUnneeded=no

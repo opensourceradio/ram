@@ -1,0 +1,25 @@
+#
+# ripcd.service
+# handle the Rivendell InterProcess Communication daemon
+
+[Unit]
+Description=Rivendell IPC services
+
+# This service must wait until these services are already running
+Requires=caed.service
+After=caed.service
+
+[Service]
+ExecStart=/usr/bin/ripcd
+Type=forking
+PIDFile=/var/run/rivendell/ripcd.pid
+User=%I
+KillMode=mixed
+Restart=always
+IgnoreSIGPIPE=no
+StandardOutput=syslog
+StandardError=inherit
+EnvironmentFile=-/etc/locale.conf
+
+[Install]
+WantedBy=rivendell.target
