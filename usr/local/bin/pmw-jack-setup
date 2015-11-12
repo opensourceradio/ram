@@ -27,8 +27,8 @@
 # that identifies in ALSA AS "CODEC".
 
 # log STDOUT and STDERR of this script and all commands called by this script to separate files
-exec 1> /var/tmp/pmw-jack-setup.out
-exec 2> /var/tmp/pmw-jack-setup.err
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
 
 RATE=${RATE:-48000}
 PERIODS=${PERIODS:-1024}
