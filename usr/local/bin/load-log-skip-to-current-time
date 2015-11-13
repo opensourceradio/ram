@@ -1,0 +1,34 @@
+#!/bin/bash
+#Get the date now YYYY_MM_DD
+DATE=$(date +"%Y_%m_%d")
+SUFFIX=_LOG
+
+#Rivendell LOG format: YYYY_MM_DD_LOG
+LOG=$DATE$SUFFIX
+#Get the time now as milliseconds
+H=$(date +"%H")
+H=$((H*3600000))
+M=$(date +"%M")
+M=$((M*60000))
+S=$(date +"%S")
+S=$((S*1000))
+T=$((H+M+S))
+
+#Rivendell DB Details
+HOST=your_riv_host
+USER=rduser
+PASSWORD=letmein
+DATABASE=Rivendell
+
+#Query DB and get the line of the log to skip to
+QUERY="SELECT ID FROM "$LOG" WHERE START_TIME<="$T" ORDER BY COUNT DESC LIMIT 1;"
+CART=$(mysql -u $USER -p$PASSWORD -h $HOST $DATABASE -Bse "$QUERY")
+#Make Airplay load the log and skip to the correct time
+rmlsend LL\ 1\ $DATE\ -1\!
+rmlsend MN\ 1\ $CART\!
+
+#Start Playback
+rmlsend PN\ 1\!
+
+#Set Mode to Automatic
+rmlsend PM\ 2\!
