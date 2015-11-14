@@ -1,34 +1,110 @@
-#!/bin/bash
-#Get the date now YYYY_MM_DD
-DATE=$(date +"%Y_%m_%d")
-SUFFIX=_LOG
+#!/bin/zsh
 
-#Rivendell LOG format: YYYY_MM_DD_LOG
-LOG=$DATE$SUFFIX
+##############################################################################
+#
+# Originally posted to rivendell-dev by
+# Wayne Merricks <waynemerricks@thevoiceasia.com>
+# with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
+#
+# Original script in BASH, converted to ZSH and added a bit of
+# robustness by <dklann@phantommachineworks.com>
+#
+# This is meant to be run interactively from a terminal or
+# non-interactively if log name and station name are passed as command
+# line parameters.
+#
+##############################################################################
+
+zmodload zsh/datetime
+
+rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+
+# Use them if they were passed in, otherwise we will prompt for them
+# at the right time.
+logName=${1}
+stationHostname=${2}
+tableSuffix=_LOG
+
 #Get the time now as milliseconds
-H=$(date +"%H")
-H=$((H*3600000))
-M=$(date +"%M")
-M=$((M*60000))
-S=$(date +"%S")
-S=$((S*1000))
-T=$((H+M+S))
+timeNow=${EPOCHSECONDS}
+H=$(strftime "%H" ${timeNow})
+((H = H * 3600000 ))
+M=$(strftime "%M" ${timeNow})
+(( M = M * 60000 ))
+S=$(strftime "%S" ${timeNow})
+((S = S * 1000 ))
+(( T = H + M + S ))
 
-#Rivendell DB Details
-HOST=your_riv_host
-USER=rduser
-PASSWORD=letmein
-DATABASE=Rivendell
+# Rivendell DB Details
+# Get them from rd.conf if it exists, else from the environment, else
+# use defaults here.
+if [[ -r ${rdconfig} ]] ; then
+    HOST=$(awk -F'=' '/^Hostname=/{print $2}' ${rdconfig})
+    USER=$(awk -F'=' '/^Loginname=/{print $2}' ${rdconfig})
+    PASSWORD=$(awk -F'=' '/^Password=/{print $2}' ${rdconfig})
+    DATABASE=$(awk -F'=' '/^Database=/{print $2}' ${rdconfig})
+else
+    HOST=${RD_DB_HOST:-rd-database}
+    USER=${RD_USER:-rduser}
+    PASSWORD=${RD_PASS:-letmein}
+    DATABASE=${RD_DATABASE:-Rivendell}
+fi
 
-#Query DB and get the line of the log to skip to
-QUERY="SELECT ID FROM "$LOG" WHERE START_TIME<="$T" ORDER BY COUNT DESC LIMIT 1;"
-CART=$(mysql -u $USER -p$PASSWORD -h $HOST $DATABASE -Bse "$QUERY")
-#Make Airplay load the log and skip to the correct time
-rmlsend LL\ 1\ $DATE\ -1\!
-rmlsend MN\ 1\ $CART\!
+# Assume the user knows the exact name of the log if they passed it on
+# the command line.
+if [[ -z "${logName}" ]] ; then
+    # Prompt the user for which log to load
+    typeset -a logs
+    logs=( $(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "select NAME from LOGS") )
+    x=1; while : ; do
+	     for log in ${logs} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
+	     read choice\?"Please select a log by entering the number from above: "
+	     (( choice > 0 && choice < x )) && break
+	     x=1
+	 done
+    tableName=${logs[choice]}${tableSuffix}
+    logName=${logs[choice]}
+else
+    tableName=${logName}${tableSuffix}
+fi
 
-#Start Playback
-rmlsend PN\ 1\!
+#Query DB and get the line number of the log to skip to
+QUERY="SELECT ID FROM \`${tableName}\` WHERE START_TIME<=${T} ORDER BY COUNT DESC LIMIT 1;"
+CART=$(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "${QUERY}")
 
-#Set Mode to Automatic
-rmlsend PM\ 2\!
+if [[ -n "${CART}" ]] ; then
+    if [[ -z "${stationHostname}" ]] ; then
+	# Determine the host running RDairplay
+	# BUG ALERT! This assumes that hostnames in the Rivendell database
+	# match DNS names on the network.
+	typeset -a stations
+	stations=( $(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "SELECT NAME FROM STATIONS") )
+	x=1; while : ; do
+		 for station in ${stations} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
+		 read choice\?"Please select host on which RDAirplay is running: "
+		 (( choice > 0 && choice < x )) && break
+		 x=1
+	     done
+	station=${stations[choice]}
+    else
+	station=${stationHostname}
+    fi
+
+    if ping -w 1 -c 1 -q ${station} > /dev/null 2>&1 ; then
+	# Switch the display to "Main Log", make Airplay load the log, and skip to the correct time
+	rmlsend --to-host=${station} --from-file=- <<EOF
+PW 1!
+LL 1 ${logName} -1!
+MN 1 ${CART}!
+PN 1!
+PM 2!
+EOF
+
+    else
+	echo "ERROR: Could not ping ${station}. Is this the correct host? Is DNS working on this LAN?" >&2
+    fi
+else
+    echo "ERROR: Could not determine current cart at which to position the log (${?})." >&2
+fi
+
+exit
