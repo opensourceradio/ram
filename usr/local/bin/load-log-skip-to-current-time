@@ -27,13 +27,10 @@ tableSuffix=_LOG
 
 #Get the time now as milliseconds
 timeNow=${EPOCHSECONDS}
-H=$(strftime "%H" ${timeNow})
-((H = H * 3600000 ))
-M=$(strftime "%M" ${timeNow})
-(( M = M * 60000 ))
-S=$(strftime "%S" ${timeNow})
-((S = S * 1000 ))
-(( T = H + M + S ))
+H=$(( $(strftime "%H" ${timeNow}) * 3600000 ))
+M=$(( $(strftime "%M" ${timeNow}) * 60000 ))
+S=$(( $(strftime "%S" ${timeNow}) * 1000 ))
+millisecondsPastMidnight=$(( H + M + S ))
 
 # Rivendell DB Details
 # Get them from rd.conf if it exists, else from the environment, else
@@ -69,7 +66,7 @@ else
 fi
 
 #Query DB and get the line number of the log to skip to
-QUERY="SELECT ID FROM \`${tableName}\` WHERE START_TIME<=${T} ORDER BY COUNT DESC LIMIT 1;"
+QUERY="SELECT ID FROM \`${tableName}\` WHERE START_TIME > 0 AND START_TIME <= ${millisecondsPastMidnight} ORDER BY COUNT DESC LIMIT 1;"
 CART=$(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "${QUERY}")
 
 if [[ -n "${CART}" ]] ; then
