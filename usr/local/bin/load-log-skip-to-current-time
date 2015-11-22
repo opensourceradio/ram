@@ -17,7 +17,8 @@
 
 zmodload zsh/datetime
 
-rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 # Use them if they were passed in, otherwise we will prompt for them
 # at the right time.
@@ -32,27 +33,12 @@ M=$(( $(strftime "%M" ${timeNow}) * 60000 ))
 S=$(( $(strftime "%S" ${timeNow}) * 1000 ))
 millisecondsPastMidnight=$(( H + M + S ))
 
-# Rivendell DB Details
-# Get them from rd.conf if it exists, else from the environment, else
-# use defaults here.
-if [[ -r ${rdconfig} ]] ; then
-    HOST=$(awk -F'=' '/^Hostname=/{print $2}' ${rdconfig})
-    USER=$(awk -F'=' '/^Loginname=/{print $2}' ${rdconfig})
-    PASSWORD=$(awk -F'=' '/^Password=/{print $2}' ${rdconfig})
-    DATABASE=$(awk -F'=' '/^Database=/{print $2}' ${rdconfig})
-else
-    HOST=${RD_DB_HOST:-rd-database}
-    USER=${RD_USER:-rduser}
-    PASSWORD=${RD_PASS:-letmein}
-    DATABASE=${RD_DATABASE:-Rivendell}
-fi
-
 # Assume the user knows the exact name of the log if they passed it on
 # the command line.
 if [[ -z "${logName}" ]] ; then
     # Prompt the user for which log to load
     typeset -a logs
-    logs=( $(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "select NAME from LOGS") )
+    logs=( $(doSQL "SELECT NAME FROM LOGS") )
     x=1; while : ; do
 	     for log in ${logs} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
 	     read choice\?"Please select a log by entering the number from above: "
@@ -65,9 +51,8 @@ else
     tableName=${logName}${tableSuffix}
 fi
 
-#Query DB and get the line number of the log to skip to
-QUERY="SELECT ID FROM \`${tableName}\` WHERE START_TIME > 0 AND START_TIME <= ${millisecondsPastMidnight} ORDER BY COUNT DESC LIMIT 1;"
-CART=$(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "${QUERY}")
+# Query DB and get the line number of the log to skip to
+CART=$(doSQL "SELECT ID FROM \`${tableName}\` WHERE START_TIME > 0 AND START_TIME <= ${millisecondsPastMidnight} ORDER BY COUNT DESC LIMIT 1;")
 
 if [[ -n "${CART}" ]] ; then
     if [[ -z "${stationHostname}" ]] ; then
@@ -75,7 +60,7 @@ if [[ -n "${CART}" ]] ; then
 	# BUG ALERT! This assumes that hostnames in the Rivendell database
 	# match DNS names on the network.
 	typeset -a stations
-	stations=( $(mysql -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -Bse "SELECT NAME FROM STATIONS") )
+	stations=( $(doSQL "SELECT NAME FROM STATIONS") )
 	x=1; while : ; do
 		 for station in ${stations} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
 		 read choice\?"Please select host on which RDAirplay is running: "
