@@ -25,17 +25,18 @@ doSQL() {
 	if egrep --quiet '^(database|host|user|password)' ~/.my.cnf ; then
 	    useMyCNF=1
 	fi
-    fi
-    if [[ -r ${rdconfig} ]] ; then
-	HOST=$(awk -F'=' '/^Hostname=/{print $2}' ${rdconfig})
-	USER=$(awk -F'=' '/^Loginname=/{print $2}' ${rdconfig})
-	PASSWORD=$(awk -F'=' '/^Password=/{print $2}' ${rdconfig})
-	DATABASE=$(awk -F'=' '/^Database=/{print $2}' ${rdconfig})
     else
-	HOST=${RD_DB_HOST:-rd-database}
-	USER=${RD_USER:-rduser}
-	PASSWORD=${RD_PASS:-letmein}
-	DATABASE=${RD_DATABASE:-Rivendell}
+	if [[ -r ${rdconfig} ]] ; then
+	    HOST=$(awk -F'=' '/^Hostname=/{print $2}' ${rdconfig})
+	    USER=$(awk -F'=' '/^Loginname=/{print $2}' ${rdconfig})
+	    PASSWORD=$(awk -F'=' '/^Password=/{print $2}' ${rdconfig})
+	    DATABASE=$(awk -F'=' '/^Database=/{print $2}' ${rdconfig})
+	else
+	    HOST=${RD_DB_HOST:-rd-database}
+	    USER=${RD_USER:-rduser}
+	    PASSWORD=${RD_PASS:-letmein}
+	    DATABASE=${RD_DATABASE:-Rivendell}
+	fi
     fi
 
     if (( useMyCNF )) ; then
