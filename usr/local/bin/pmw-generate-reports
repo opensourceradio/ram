@@ -1,0 +1,30 @@
+#!/bin/zsh
+
+##############################################################################
+#
+# Generate all defined Rivendell reports. See rdadmin->Manage Reports for the
+# complete list.
+# 
+##############################################################################
+
+zmodload zsh/datetime
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files. Note that these files will not contain
+# time-stamped messages, this script uses logger(1) to log messages to
+# /var/log/syslog with timestamps.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+#Get the time now as milliseconds
+timeNow=${EPOCHSECONDS}
+H=$(( $(strftime "%H" ${timeNow}) * 3600000 ))
+M=$(( $(strftime "%M" ${timeNow}) * 60000 ))
+S=$(( $(strftime "%S" ${timeNow}) * 1000 ))
+millisecondsPastMidnight=$(( H + M + S ))
+
+
+exit

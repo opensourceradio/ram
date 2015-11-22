@@ -1,0 +1,46 @@
+#!/bin/zsh
+
+##############################################################################
+#
+# This is a "library" of zsh(1) functions used by all the Phantom
+# Machine Works Z-Shell scripts. All scripts that need any functions
+# should "source" this file. It is not intended to be "run" from the
+# command line.
+#
+##############################################################################
+
+# Make mysql calls look a bit more asthetically pleasing. The return
+# value of this shell funtion is the exit value of the mysql command
+# invocation.
+doSQL() {
+    local statement="${1:?Need a database query to run.}"
+    local useMyCNF=0
+    local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+
+    # Rivendell DB Details:
+    # Use credentials in ~/.my.cnf if it exists, else get credentials
+    # from rd.conf if it exists, else from the environment, else use
+    # defaults here.
+    if [[ -r ~/.my.cnf ]] ; then
+	if egrep --quiet '^(database|host|user|password)' ~/.my.cnf ; then
+	    useMyCNF=1
+	fi
+    fi
+    if [[ -r ${rdconfig} ]] ; then
+	HOST=$(awk -F'=' '/^Hostname=/{print $2}' ${rdconfig})
+	USER=$(awk -F'=' '/^Loginname=/{print $2}' ${rdconfig})
+	PASSWORD=$(awk -F'=' '/^Password=/{print $2}' ${rdconfig})
+	DATABASE=$(awk -F'=' '/^Database=/{print $2}' ${rdconfig})
+    else
+	HOST=${RD_DB_HOST:-rd-database}
+	USER=${RD_USER:-rduser}
+	PASSWORD=${RD_PASS:-letmein}
+	DATABASE=${RD_DATABASE:-Rivendell}
+    fi
+
+    if (( useMyCNF )) ; then
+	mysql -s -N Rivendell -e "${statement}"
+    else
+	mysql -s -N -B -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -e "${statement}"
+    fi
+}
