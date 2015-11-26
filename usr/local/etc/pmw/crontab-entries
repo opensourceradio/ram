@@ -1,0 +1,21 @@
+#!/bin/sh
+
+##############################################################################
+#
+# This file contains input you can feed to crontab(1) to populate
+# useful, default scheduled events
+#
+# Simply run this file with something like: bash ${0} "Service-name"
+#
+
+service="${1:?Please specify a Rivendell SERVICE name for which to generate daily logs.}"
+
+crontab << EOF
+# starting at 2:12am every day, generate all defined reports
+12 02 * * * /usr/local/bin/pmw-generate-reports
+
+# at 4:08pm every day, make a Rivendell log for tomorrow
+08 16 * * * /usr/bin/rdlogmanager -g -s "${service}" > /var/tmp/rdlogmanager-generate.out 2>&1
+EOF
+
+exit
