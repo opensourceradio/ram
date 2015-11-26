@@ -1,20 +1,24 @@
-#
-# caed.service
-# handle the Rivendell Core Audio Engine daemon
-
 [Unit]
 Description=Rivendell Core Audio Engine
 
-# This service must wait until these services are already running
-#Requires=jackd.service libvirtd.service
-#After=jackd.service libvirtd.service
+# This service (and the other Rivendell services) is instantiated for
+# each user as which the daemons will run. Enable with
+# sudo systemctl enable caed@<USERNAME>.service
+
+# This service must wait until these services are already running:
+# (enable these only on the workstation that is hosting the CAE for
+# virtual machines)
+#Requires=libvirtd.service
+#After=libvirtd.service
 
 [Service]
+User=%i
 ExecStartPre=/usr/bin/dbcheck.sh
 ExecStart=/usr/bin/caed
 Type=forking
+RuntimeDirectory=rivendell
+RuntimeDirectoryMode=775
 PIDFile=/var/run/rivendell/caed.pid
-User=%I
 KillMode=mixed
 Restart=always
 IgnoreSIGPIPE=no
