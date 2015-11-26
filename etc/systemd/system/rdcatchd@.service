@@ -1,19 +1,19 @@
-#
-# rdcatchd.service
-# handle the Rivendell Catch daemon
-
 [Unit]
 Description=Rivendell Catch Dropbox daemon
 
+# This service (and the other Rivendell services) is instantiated for
+# each user as which the daemons will run. Enable with
+# sudo systemctl enable rdcatchd@<USERNAME>.service
+
 # This service must wait until these services are already running
-Requires=ripcd.service
-After=ripcd.service
+Requires=ripcd@%i.service
+After=ripcd@%i.service
 
 [Service]
 ExecStart=/usr/bin/rdcatchd
 Type=forking
 PIDFile=/var/run/rivendell/rdcatchd.pid
-User=%I
+User=%i
 KillMode=mixed
 Restart=always
 IgnoreSIGPIPE=no
