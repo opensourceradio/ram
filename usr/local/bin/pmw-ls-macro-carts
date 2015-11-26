@@ -1,0 +1,35 @@
+#!/bin/zsh
+
+##############################################################################
+#
+# List macro carts: simply selects the CART number, TITLE and MACROS
+# from Rivendell.CART.
+#
+##############################################################################
+
+[[ -f ${ROOT:-/}usr/local/bin/pmw-zsh-functions ]] && source ${ROOT:-/}usr/local/bin/pmw-zsh-functions
+
+# cartColumns must be set to a SQL SELECT string representing the
+# column names from the Rivendell table "CART". Default is to be brief
+# with the output.
+cartColumns="NUMBER,TITLE"
+
+# With the "-l (--long)" option, display the contents of the macro as
+# well as the number and title.
+TEMP=$(getopt -o l --long long -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+# Note the quotes around `$TEMP': they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+      -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
+      --) shift ; break ;;
+      *) echo "Internal error!" ; exit 1 ;;
+  esac
+done
+
+# Macros are stored in the database with TYPE set to 2.
+doSQL "select ${cartColumns} from CART where TYPE = 2"
+
+exit
