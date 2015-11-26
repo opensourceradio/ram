@@ -1,20 +1,20 @@
-#
-# ripcd.service
-# handle the Rivendell InterProcess Communication daemon
-
 [Unit]
 Description=Rivendell IPC services
 
+# This service (and the other Rivendell services) is instantiated for
+# each user as which the daemons will run. Enable with
+# sudo systemctl enable ripcd@<USERNAME>.service
+
 # This service must wait until these services are already running
-Requires=caed.service
-After=caed.service
+Requires=caed@%i.service
+After=caed@%i.service
 
 [Service]
+User=%i
 ExecStart=/usr/bin/ripcd
 Type=forking
-PIDFile=/var/run/rivendell/ripcd.pid
-User=%I
 KillMode=mixed
+PIDFile=/var/run/rivendell/ripcd.pid
 Restart=always
 IgnoreSIGPIPE=no
 StandardOutput=syslog
