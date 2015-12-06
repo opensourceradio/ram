@@ -4,6 +4,9 @@
 #
 # Generate all defined Rivendell reports. See rdadmin->Manage Reports for the
 # complete list.
+#
+# NOTE: Unless otherwise specified, rdlogmanager creates reports for
+# the day preceeding the day on which reports are created.
 # 
 ##############################################################################
 
@@ -14,6 +17,17 @@
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
+MKDIR=$(which mkdir) ; MKDIR=${MKDIR:-${ROOT:-/}bin/mkdir}
+RDLOGMANAGER=$(which rdlogmanager) ; RDLOGMANAGER=${RDLOGMANAGER:-${ROOT:-/}usr/bin/rdlogmanager}
+LOGGER=$(which logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+
+defaultReportRoot=${DEFAULT_REPORT_ROOT:-${ROOT:-/}var/tmp}
+
+# One day in seconds. We need to subract this many seconds from the
+# ZSH variable ${EPOCHSECONDS} in order to make sure the directory
+# exists for "%d".
+oneDay=$(( 60 * 60 * 24 ))
+
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
@@ -23,14 +37,23 @@ doSQL "SELECT NAME FROM REPORTS" | while read report ; do
     service=$(doSQL "SELECT SERVICE_NAME FROM REPORTS WHERE NAME='${report}'")
 
     # Ensure the directory path exists for the report
-    path=$(doSQL "SELECT EXPORT_PATH FROM REPORTS WHERE NAME='${report}'")
-    reportDir=$(strftime "$(echo ${path:h})" ${EPOCHSECONDS})
-    [[ -d "${reportDir}" ]] || mkdir -p "${reportDir}"
+    # Note that this depends on EXPORT_PATH containing strftime(3) '%'-style conversion specifications,
+    # in which we presume that a hierarcy of YYYY/MM/DD is represented with "%Y/%m/%d".
+    # Example settings look something like: /var/tmp/rivendell-reports/%Y/%m/%d/music
+    reportPath=$(doSQL "SELECT EXPORT_PATH FROM REPORTS WHERE NAME='${report}'")
+    reportDir=$(strftime "$(echo ${reportPath:h})" $(( EPOCHSECONDS - oneDay )) )
+
+    # Ensure the report directory points to a full path name. And make
+    # sure the directory exists.
+    if [[ "${reportDir}" =~ '^[^/]' ]] ; then
+	reportDir=${defaultReportRoot}/${reportDir}
+    fi
+    [[ -d "${reportDir}" ]] || ${MKDIR} -p "${reportDir}"
 
     if [[ -d "${reportDir}" ]] ; then
-	/usr/bin/rdlogmanager -r "${report}" -s "${service}"
+	${RDLOGMANAGER} -r "${report}" -s "${service}"
     else
-	logger --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not create report folder ${reportDir} (${?})."
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not create report folder ${reportDir} (${?})."
     fi
 done
 
