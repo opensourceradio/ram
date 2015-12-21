@@ -17,9 +17,9 @@
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
-MKDIR=$(which mkdir) ; MKDIR=${MKDIR:-${ROOT:-/}bin/mkdir}
-RDLOGMANAGER=$(which rdlogmanager) ; RDLOGMANAGER=${RDLOGMANAGER:-${ROOT:-/}usr/bin/rdlogmanager}
-LOGGER=$(which logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+MKDIR=$(whence mkdir) ; MKDIR=${MKDIR:-${ROOT:-/}bin/mkdir}
+RDLOGMANAGER=$(whence rdlogmanager) ; RDLOGMANAGER=${RDLOGMANAGER:-${ROOT:-/}usr/bin/rdlogmanager}
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 
 defaultReportRoot=${DEFAULT_REPORT_ROOT:-${ROOT:-/}var/tmp}
 
