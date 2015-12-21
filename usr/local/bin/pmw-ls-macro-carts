@@ -7,7 +7,7 @@
 #
 ##############################################################################
 
-[[ -f ${ROOT:-/}usr/local/bin/pmw-zsh-functions ]] && source ${ROOT:-/}usr/local/bin/pmw-zsh-functions
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 # cartColumns must be set to a SQL SELECT string representing the
 # column names from the Rivendell table "CART". Default is to be brief
