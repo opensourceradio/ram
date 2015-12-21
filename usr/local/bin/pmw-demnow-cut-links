@@ -30,7 +30,7 @@ today=$(strftime "%A" ${EPOCHSECONDS})
 # Get the Democracy Now cart number for today. BUG ALERT: proper
 # operation of this depends on Democracy Now carts being titled with
 # the string "Democray Now <Weekday-name>" as the cart TITLE.
-cartNumber=$(doSQL "select NUMBER from CART where TITLE = 'Democracy Now ${today[1]}'")
+cartNumber=$(doSQL "select NUMBER from CART where TITLE = 'Democracy Now ${today}'")
 
 if [[ -f ${sndDir}/0${cartNumber}_001.wav ]] ; then
     ${RM} -f ${sndDir}/0${cartNumber}_00[23].wav
