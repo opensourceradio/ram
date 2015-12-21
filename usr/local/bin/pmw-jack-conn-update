@@ -1,102 +1,76 @@
 #!/bin/zsh
 
-# This script updates a "JACK connections" file with Rivendell Macro
-# carts that represent the currently connected JACK audio ports. It is
-# intended that the Macro carts listed in the "state" file will be
+# This script updates a "JACK connections" table in the Rivendell
+# database (connection_state) with Rivendell Macro carts that
+# represent the currently connected JACK audio ports. It is intended
+# that the Macro carts listed in the connection_state table will be
 # re-connected when Rivendell is restarted on the associated computer.
 #
 # This script will normally be run as the Rivendell system user (see
-# AudioOwner in /etc/rd.conf) on the workstation that is defined as
-# CAE_STATION (in the datbase table STATIONS) for any given Rivendell
-# "workstation".
+# AudioOwner in /etc/rd.conf) for any given Rivendell "workstation".
 
 # Arguments:
 # ${1} must be a Rivendell CART number representing a Macro cart that runs either the JC or the JD macro
 # ${2} must be flag indicating JACK port "connect" or "disconnect"
 
+zmodload zsh/datetime
+
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+
+# Assume success.
+exitValue=0
+
 # Log STDOUT and STDERR of this script and all commands called by this
 # script to separate files. Note that these files will not contain
 # time-stamped messages, this script uses logger(1) to log messages to
 # /var/log/syslog with timestamps.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+#exec 1> /var/tmp/${0##*/}.out
+#exec 2> /var/tmp/${0##*/}.err
 
-# Note that we save the specified Macro cart number in a ZSH
-# array. This array MUST contain ONE element.
-macroCart=( ${1:?"${0##*/}: ERROR: no macro cart was specified on the command line."} )
+macroCart=${1:?"${0##*/}: ERROR: no macro cart was specified on the command line."}
 cartState=${2:?"${0##*/}: ERROR: no state indicator was specified on the command line."}
 
-connectionStateFile=${CONNECTION_STATE_FILE:=${ROOT:-/}usr/local/etc/pmw/rd-jack-connected}
-connected=0
+connectionStateTable=${CONNECTION_STATE_TABLE:-"connection_state"}
 
-# make sure the connection state directory exists
-# Note: this directory must be writable by the Rivendell 'system' user (
-[[ -w ${connectionStateFile:h} ]] ||
-    # ++ unit-tested ++
-    mkdir ${connectionStateFile:h} ||
-    {
-	logger --stderr -t ${0##*/} -p local7.err -i "ERROR: missing ${connectionStateFile:h}, and could not create it (${?})." ;
-	exit ;
-    }
+# Note: the hostame MUST match the workstation name that is configured
+# in the Rivendell database.
+myHostName=${HOST:-$(${HOSTNAME} -s)}
+if [[ -z "${myHostName}" ]] ; then
 
-# ++ progress-tested ++
+    if [[ ${cartState} =~ '^CONNECT' ]] ; then
 
-# slurp in the current connections to an array
-typeset -a currentConnections
-# ++ unit-tested ++
-currentConnections=( $(< ${connectionStateFile}) )
+	sqlStatement="REPLACE INTO connection_state VALUES ( ${macroCart},'${myHostName}' )"
 
-if [[ ${cartState} =~ '^CONNECT' ]] ; then
+    elif [[ ${cartState} =~ '^DISCONNECT' ]] ; then
 
-    # Add the specified Macro cart if it is not already in the list of
-    # connected cart numbers. See zshparam(1) for the meaning of "(r)"
-    # in the expression below.
-    # ++ unit-tested ++
-    (( currentConnections[(r)${macroCart}] )) || currentConnections+=${macroCart}
+	sqlStatement="DELETE FROM ${connectionStateTable} WHERE number = ${macroCart}"
 
-    # ++ progress-tested ++
+    else
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unknown state indicator '${cartState}'." >&2
+	exitValue=5
+    fi
 
-elif [[ ${cartState} =~ '^DISCONNECT' ]] ; then
+    if doSQL "${sqlStatement}" ; then
 
-    # Remove the specified cart number from the array containing the
-    # list of currently connected Macro carts. See zshexpn(1) for the
-    # meaning of ":|" in the expression below.
-    # ++ unit-tested ++
-    currentConnections=( ${currentConnections:|macroCart} )
+	# This is the only "SUCCESS" path in the flow of the script.
+	${LOGGER} -t ${0##*/} -p local7.info -i "INFO: mysql(1) statement '${sqlStatement}': SUCCESS."
 
-    # ++ progress-tested ++
+    else
+
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: cannot determine my hostname with the hostname(1) command."
+	exitValue=4
+
+    fi
 
 else
 
-    logger --stderr -t ${0##*/} -p local7.err -i "ERROR: Unknown state indicator '${cartState}'." >&2
-    exit
-
-    # ++ progress-tested ++
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: cannot determine my hostname with the hostname(1) command."
+    exitValue=3
 
 fi
 
-# ++ unit-tested ++
-tempCarts=$(mktemp)
-
-# Clean up after ourselves.
-trap "rm -f ${tempCarts} ; exit ;" 0 1 2 3
-
-# Save the currently connected carts to a temp file, then rename that
-# file to the master list of current connections.
-# ++ unit-tested ++
-for cartNumber in ${currentConnections} ; do
-    echo ${cartNumber}
-done > ${tempCarts}
-
-# We do an 'atomic' re-name of the temp file to the connections file
-# to avoid deadlock conditions.
-if mv ${tempCarts} ${connectionStateFile} ; then
-    : all is well, keep moving, nothing to see here
-else
-    logger --stderr -t ${0##*/} -p local7.err -i "ERROR: could not move temporary cart file ${tempCarts} to current connection state file ${connectionStateFile}."
-    trap "" 0 1 2 3		# Keep the tempfile around for troubleshooting.
-fi
-
-exit
-
-# ++ progress-tested ++
+exit ${exitValue}
