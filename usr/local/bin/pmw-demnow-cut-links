@@ -19,7 +19,7 @@ zmodload zsh/datetime
 [[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 RM=$(whence rm) ; RM=${RM:-${ROOT:-/}bin/rm}
-LN=$(whence rm) ; RM=${RM:-${ROOT:-/}bin/rm}
+LN=$(whence ln) ; LN=${LN:-${ROOT:-/}bin/ln}
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 
 sndDir=${SND_DIR:-${ROOT:-/}var/snd}
