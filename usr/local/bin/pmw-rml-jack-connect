@@ -1,0 +1,56 @@
+#!/bin/zsh
+
+##############################################################################
+#
+# This script (intended to be run when a host is restored) looks up
+# the macro cart numbers in the "JACK connections" table in the
+# Rivendell database (connection_state). It then uses rmlsend(1) to
+# "run" those macros. The purpose is to re-establish the JACK
+# connections that had been created before the host was rebooted.
+#
+# This script will normally be run as the Rivendell system user (see
+# AudioOwner in /etc/rd.conf) for any given Rivendell "workstation".
+#
+# Arguments:
+# None
+##############################################################################
+
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+
+# Assume success.
+exitValue=0
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files. Note that these files will not contain
+# time-stamped messages, this script uses logger(1) to log messages to
+# /var/log/syslog with timestamps.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+connectionStateTable=${CONNECTION_STATE_TABLE:-"connection_state"}
+
+# Note: the hostame MUST match the workstation name that is configured
+# in the Rivendell database.
+myHostName=${HOST:-$(${HOSTNAME} -s)}
+if [[ -n "${myHostName}" ]] ; then
+
+    # Suck all the "connected" carts into the ZSH array
+    connectedCarts=( $(doSQL "SELECT number FROM ${connectionStateTable} WHERE host = '${myHostName}'") )
+
+    for cartNumber in ${connectedCarts} ; do
+	${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend: EX ${cartNumber}"
+	rmlsend "EX ${cartNumber}!"
+    done
+
+else
+
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: cannot determine my hostname with the hostname(1) command."
+    exitValue=3
+
+fi
+
+exit ${exitValue}
