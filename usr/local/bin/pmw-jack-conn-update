@@ -18,7 +18,7 @@ zmodload zsh/datetime
 # Get zsh functions necessary for this script
 [[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
-HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname
+HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 
 # Assume success.
@@ -28,8 +28,8 @@ exitValue=0
 # script to separate files. Note that these files will not contain
 # time-stamped messages, this script uses logger(1) to log messages to
 # /var/log/syslog with timestamps.
-#exec 1> /var/tmp/${0##*/}.out
-#exec 2> /var/tmp/${0##*/}.err
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
 
 macroCart=${1:?"${0##*/}: ERROR: no macro cart was specified on the command line."}
 cartState=${2:?"${0##*/}: ERROR: no state indicator was specified on the command line."}
@@ -39,7 +39,7 @@ connectionStateTable=${CONNECTION_STATE_TABLE:-"connection_state"}
 # Note: the hostame MUST match the workstation name that is configured
 # in the Rivendell database.
 myHostName=${HOST:-$(${HOSTNAME} -s)}
-if [[ -z "${myHostName}" ]] ; then
+if [[ -n "${myHostName}" ]] ; then
 
     if [[ ${cartState} =~ '^CONNECT' ]] ; then
 
@@ -61,7 +61,7 @@ if [[ -z "${myHostName}" ]] ; then
 
     else
 
-	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: cannot determine my hostname with the hostname(1) command."
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: execution of mysql(1) statement '${sqlStatement}' failed (${?})."
 	exitValue=4
 
     fi
