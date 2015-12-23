@@ -24,8 +24,8 @@ LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 
 sndDir=${SND_DIR:-${ROOT:-/}var/snd}
 
-# Get the current weeday name in full (%A) and abbreviated (%a) forms.
-today=$(strftime "%A" ${EPOCHSECONDS})
+# Get the current weeday name in full (%A).
+today=${TODAY:-$(strftime "%A" ${EPOCHSECONDS})}
 
 # Get the Democracy Now cart number for today. BUG ALERT: proper
 # operation of this depends on Democracy Now carts being titled with
