@@ -1,0 +1,54 @@
+#!/bin/zsh
+
+##############################################################################
+##
+## pmw-netjack-airplay-connect
+##
+## Connect Rivendell to a running instance of 'jackd -d netone'.
+##
+## Assumptions: this host is configured in rdadmin(1) to start jackd
+## when caed(8) starts, jackd has been started, the 'system' ports are
+## up, meaning that the local slave has successfully connected to the
+## master (most likely running on the RAM host).
+##
+## We do not use RML 'JC' macros here because this is a set of
+## one-time, must-complete connections that *should* only be run at
+## system startup.
+##
+##############################################################################
+
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+# Try to find the necessary executables, and use known pathnames as the default.
+JACK_CONNECT=$(whence jack_connect) ; JACK_CONNECT=${JACK_CONNECT:-${ROOT:-/}usr/bin/jack_connect}
+JACK_LSP=$(whence jack_lsp) ; JACK_LSP=${JACK_LSP:-${ROOT:-/}usr/bin/jack_lsp}
+GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+
+# Assume success.
+exitValue=0
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files. Note that these files will not contain
+# time-stamped messages, this script uses logger(1) to log messages to
+# /var/log/syslog with timestamps.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+if [[ -x ${JACK_CONNECT} ]] ; then
+    ${JACK_CONNECT} rivendell_0:playout_0L system:playback_1
+    ${JACK_CONNECT} rivendell_0:playout_0R system:playback_2
+
+    if ${JACK_LSP} -c | ${GREP} -P -q '[[:space:]]+system:' ; then
+	${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Rivendell is connected to netjack."
+    else
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to connect Rivendell to netjack." >&2
+	exitValue=2
+    fi
+else
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to find 'jack_connect' executable file." >&2
+    exitValue=1
+fi
+
+exit ${exitValue}
