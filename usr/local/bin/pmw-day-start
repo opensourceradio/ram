@@ -1,0 +1,80 @@
+#!/bin/zsh
+
+##############################################################################
+##
+## Based partially on a message that was originally posted to
+## rivendell-dev by Wayne Merricks <waynemerricks@thevoiceasia.com>
+## with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
+##
+## BUT ALERT: This script assumes that tomorrows log has already been prepared!
+##
+## This script does not start the next log, it simply loads tomorrows
+## log and makes (what should be) the Legal ID the next cart to
+## play. This is to work around the seemingly broken setting at
+## rdadmin -> Manage Services -> "Insert CHAIN TO at log end". You
+## should most likely DISABLE that setting when using this script and
+## the associated RML Macro.
+##
+## This is meant to be run non-interactively from either a cron job,
+## or from another job scheduler such as rdcatch(1) at several seconds
+## before midnight.
+##
+##############################################################################
+
+# Log STDOUT and STDERR to separate files.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+zmodload zsh/datetime
+
+station=${1:?"For which STATION (host) should I load a log?"}
+
+# Get zsh functions necessary for this script.
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+# Calculate the the name of tomorrows log based on the current time.
+timeNow=${EPOCHSECONDS}
+oneDay=$(( 60 * 60 * 24 ))
+hours=$(( $(strftime "%H" ${timeNow}) * 60 * 60 ))
+minutes=$(( $(strftime "%M" ${timeNow}) * 60 ))
+seconds=$(strftime "%S" ${timeNow})
+secondsPastMidnight=$(( hours + minutes + seconds ))
+tomorrow=$(( EPOCHSECONDS - secondsPastMidnight + oneDay ))
+
+#
+# Get the currently loaded log.
+#
+# ASSUMPTION: the currently playing log is loaded in the "Main Log"
+# position (LOG0 in the database).
+currentLog=$(doSQL "select LOG0_CURRENT_LOG from RDAIRPLAY where STATION='${station}'")
+if [[ -n "${currentLog}" ]] ; then
+
+    # ASSUMPTION: log names are of the form: <Service>_YYYYMMDD. See
+    # rdadmin -> Manage Services -> Log Name Template
+    service=${currentLog%%_*}
+    nextLog=$(strftime "${service}_%Y%m%d" ${tomorrow})
+
+    # BUG ALERT! This assumes that hostnames in the Rivendell database
+    # match DNS names on the network.
+    if ping -w 1 -c 1 -q ${station} > /dev/null 2>&1 ; then
+
+	# What this here-doc does:
+	# PW 1: Select Widget, "Main Log"
+	# LL 1: Load Log, RDAirPlay load tomorrows log
+	# MN 1: Make Next, the second cart in the log (should be a legal ID)
+	# PM 2: Set Mode, RDAirPlay mode "Auto"
+	rmlsend --to-host=${station} --from-file=- <<EOF
+PW 1!
+LL 1 ${nextLog} -1!
+MN 1 1!
+PM 2!
+EOF
+
+    else
+	echo "ERROR: Could not ping ${station}. Is ${station} running? Is DNS working on this LAN?" >&2
+    fi
+else
+    echo "ERROR: Could not determine the current running log for ${station} (${?})." >&2
+fi
+
+exit
