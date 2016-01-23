@@ -58,7 +58,7 @@ tags() {
     elif [[ "${track##*.}" =~ '[Mm][Pp]3' ]] ; then
         id3Tags "${track}"
     else
-        echo "Cannot figure out what kind of file this is. I give up!" >&2
+        echo "${BOLD}Cannot figure out what kind of file this is. I give up!${NORM}" >&2
         exit
     fi
 }
@@ -98,7 +98,12 @@ id3Tags() {
 }
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+    source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+    echo "${BOLD}Cannot read /usr/local/bin/zsh-functions, which is necessary for this script to operate.${NORM}"
+    usage ${0##*/}
+fi
 
 # these depends on having ~/.my.cnf configured with valid credentials
 # for accessing the Rivendell database
@@ -107,7 +112,7 @@ rivendellGroupList=$(doSQL "select NAME from GROUPS")
 
 # use getopt to parse the command line args
 TEMP=$(getopt -o hc:g:l:n: --long help,codes:,group:,label:,normalization: -n ${0:t} -- "${@}")
-if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
 while :
@@ -119,125 +124,146 @@ do
       -n|--norm*) normalization=${2} ; shift 2 ;;
       -h|--help) usage ${0} ; exit ;;
       --) shift ; break ;;
-      *) echo "Internal error!" ; exit 1 ;;
+      *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
   esac
 done
 unset TEMP
 
-# List the codes and prompt the user for codes to use in this import.
-# See also, below where we attempt to assign the "genre" to a
-# Scheduler Code.
-if [[ -n "${ourSchedCodes}" ]] ; then
-    if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
-	echo "Current list of Scheduler codes:\n${rivendellSchedCodes}"
-	read ourSchedCodes\?"Enter a comma-separated list of scheduler codes: "
+BOLD="$(tput bold)"
+NORM="$(tput sgr0)"
+
+if [[ -r "${1}" ]] ; then
+
+    # List the codes and prompt the user for codes to use in this import.
+    # See also, below where we attempt to assign the "genre" to a
+    # Scheduler Code.
+    if [[ -n "${ourSchedCodes}" ]] ; then
+	if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
+	    echo "Current list of Scheduler codes:\n${rivendellSchedCodes}"
+	    read ourSchedCodes\?"Enter a comma-separated list of scheduler codes: "
+	fi
+
+	# We have to echo(1) this else the expanded and edited variable is
+	# still a single word.
+	for code in $(echo ${ourSchedCodes//,/ })
+	do
+	    validSchedCode ${rivendellSchedCodes} ${code} || { echo "${BOLD}${code} is not in the list. Please use a valid scheduler code.${NORM}" 1>&2 ; exit 2 ; }
+	done
     fi
 
-    # We have to echo(1) this else the expanded and edited variable is
-    # still a single word.
-    for code in $(echo ${ourSchedCodes//,/ })
-    do
-	validSchedCode ${rivendellSchedCodes} ${code} || { echo "${code} is not in the list. Please use a valid scheduler code." 1>&2 ; exit 2 ; }
-    done
-fi
+    initialSchedCodes="${ourSchedCodes}"
 
-initialSchedCodes="${ourSchedCodes}"
-
-# list the groups and prompt them for a group to use in this import
-if [[ -n "${group}" ]] ; then
-    if [[ "${group}" =~ 'list' ]] ; then
-	echo "Current list of GROUPs:\n${rivendellGroupList}"
-	read group\?"Enter a GROUP to import into: "
-    fi
-else
-    echo "Current list of GROUPs:\n${rivendellGroupList}"
-    read group\?"Enter a GROUP for this import: "
-fi
-
-validGroup ${rivendellGroupList} ${group} || { echo "${group} is not in the list. Please use a valid GROUP name." 1>&2 ; exit 2 ; }
-
-# snarf each track one by one, extract metadata and import with
-# rdimport(1) TODO: add support for other import audio file formats
-for track
-do
-    # Reset the list of scheduler Codes for this track.
-    ourSchedCodes="${initialSchedCodes}"
-
-    # Store the file location of the source material for reference.
-    if [[ "${track}" =~ '^/.*' ]] ; then
-        # Track is a full path, save it as is.
-        location=${track#/*/*/}
-    elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
-        # Track is a relative path, leave it alone.
-        location=${track}
-    else
-        # Track is in the current directory, get the full path.
-        location=${PWD}/${track}
-    fi
-
-    meta=$(tags ${track})
-    artist=$(echo ${meta} | perl -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
-    title=$(echo ${meta} | perl -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
-    album=$(echo ${meta} | perl -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
-    year=$(echo ${meta} | perl -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
-    tracknum=$(echo ${meta} | perl -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
-    genre=$(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }')
-    trackLabel=$(echo ${meta} | perl -ne 'if ( /comment.*: organization=/i ) { @x=split(/\=/); print $x[1]; }')
-
-    # Attempt to tease out the year from the DATE string; we assume
-    # that the year is ALWAYS a four-digit string.
-    if [[ ${year} =~ '[[:digit:]]{4}[-/][[:digit:]]{2}[-/][[:digit:]]{2}' ]] ; then
-        # YYYY-MM-DD format (separated with "/" or "-")
-	year=${year%%[-/]*}
-    elif [[ ${year} =~ '[[:digit:]]{2}[-/][[:digit:]]{2}[-/][[:digit:]]{4}' ]] ; then
-        # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-")
-        year=${year##*[-/]}
-    fi
-
-    # Prefer the embedded label (publisher), but use the one passed on
-    # the command line if necessary.
-    if [[ -n "${trackLabel}" ]] ; then
-	label="${trackLabel}"
-    fi
-
-    # If there is an embedded genre, see if it is in our chosen list
-    # of scheduler codes, or if we already have the 'genre' in our
-    # scheduler code list.  We need to put a comma the beginning of
-    # the string in order for the parameter expansion below (in the
-    # rdimport invocation) to work properly.
-    if [[ -n "${genre}" ]] ; then
-        # Ignore the embedded 'genre' if it is not in the list of
-        # Rivendell Scheduler Codes
-	if validSchedCode ${rivendellSchedCodes} "${genre}" ; then
-            # Add the embedded 'genre' to our list of Scheduler Codes
-            # if it is not already there.
-	    if ! validSchedCode "${ourSchedCodes}" "${genre}" ; then
-		ourSchedCodes=,${genre}${ourSchedCodes:+",${ourSchedCodes}"}
-	    fi
-	else
-	    # We do not know about this genre, ignore it and prepare
-	    # the list of Scheduler Codes for parmeter substitution.
-	    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+    # list the groups and prompt them for a group to use in this import
+    if [[ -n "${group}" ]] ; then
+	if [[ "${group}" =~ 'list' ]] ; then
+	    echo "Current list of GROUPs:\n${rivendellGroupList}"
+	    read group\?"Enter a GROUP to import into: "
 	fi
     else
-	# No embedded genre, so prepare the list of Scheduler Codes
-	# for parmeter substitution.
-	ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+	echo "Current list of GROUPs:\n${rivendellGroupList}"
+	read group\?"Enter a GROUP for this import: "
     fi
-    
-    ${DEBUG} rdimport \
-	     --log-mode \
-	     --verbose \
-	     --normalization-level=${normalization:-"-4"} \
-	     --set-string-artist=${artist} \
-	     --set-string-title=${title} \
-	     --set-string-album=${album} \
-	     --set-string-year=${year} \
-	     --set-string-description="Track ${tracknum}" \
-	     --set-string-label=${label:-XXXXXX} \
-	     --set-string-user-defined="source=${location}" \
-	     $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
-	     ${group} ${track}
-done
+
+    validGroup ${rivendellGroupList} ${group} || { echo "${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}" 1>&2 ; exit 2 ; }
+
+    # snarf each track one by one, extract metadata and import with
+    # rdimport(1) TODO: add support for other import audio file formats
+    for track
+    do
+	# Reset the list of scheduler Codes for this track.
+	ourSchedCodes="${initialSchedCodes}"
+
+	# Store the file location of the source material for reference.
+	if [[ "${track}" =~ '^/.*' ]] ; then
+            # Track is a full path, save it as is.
+            location=${track#/*/*/}
+	elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
+            # Track is a relative path, leave it alone.
+            location=${track}
+	else
+            # Track is in the current directory, get the full path.
+            location=${PWD}/${track}
+	fi
+
+	meta=$(tags ${track})
+	artist=$(echo ${meta} | perl -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
+	title=$(echo ${meta} | perl -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
+	album=$(echo ${meta} | perl -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
+	year=$(echo ${meta} | perl -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
+	tracknum=$(echo ${meta} | perl -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
+	genre=$(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }')
+	trackLabel=$(echo ${meta} | perl -ne 'if ( /comment.*: organization=/i ) { @x=split(/\=/); print $x[1]; }')
+
+	# Attempt to tease out the year from the DATE string; we assume
+	# that the year is ALWAYS a four-digit string.
+	if [[ ${year} =~ '[[:digit:]]{4}[-/][[:digit:]]{2}[-/][[:digit:]]{2}' ]] ; then
+            # YYYY-MM-DD format (separated with "/" or "-")
+	    year=${year%%[-/]*}
+	elif [[ ${year} =~ '[[:digit:]]{2}[-/][[:digit:]]{2}[-/][[:digit:]]{4}' ]] ; then
+            # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-")
+            year=${year##*[-/]}
+	fi
+
+	# Prefer the embedded label (publisher), but use the one passed on
+	# the command line if necessary.
+	if [[ -n "${trackLabel}" ]] ; then
+	    label="${trackLabel}"
+	fi
+
+	# If there is an embedded genre, see if it is in our chosen list
+	# of scheduler codes, or if we already have the 'genre' in our
+	# scheduler code list.  We need to put a comma the beginning of
+	# the string in order for the parameter expansion below (in the
+	# rdimport invocation) to work properly.
+	if [[ -n "${genre}" ]] ; then
+            # Ignore the embedded 'genre' if it is not in the list of
+            # Rivendell Scheduler Codes
+	    if validSchedCode ${rivendellSchedCodes} "${genre}" ; then
+		# Add the embedded 'genre' to our list of Scheduler Codes
+		# if it is not already there.
+		if ! validSchedCode "${ourSchedCodes}" "${genre}" ; then
+		    ourSchedCodes=,${genre}${ourSchedCodes:+",${ourSchedCodes}"}
+		fi
+	    else
+		# We do not know about this genre, ignore it and prepare
+		# the list of Scheduler Codes for parmeter substitution.
+		ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+	    fi
+	else
+	    # No embedded genre, so prepare the list of Scheduler Codes
+	    # for parmeter substitution.
+	    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+	fi
+	
+	${DEBUG} rdimport \
+		 --log-mode \
+		 --verbose \
+		 --normalization-level=${normalization:-"-4"} \
+		 --set-string-artist=${artist} \
+		 --set-string-title=${title} \
+		 --set-string-album=${album} \
+		 --set-string-year=${year} \
+		 --set-string-description="Track ${tracknum}" \
+		 --set-string-label=${label:-"UNKNOWN LABEL"} \
+		 --set-string-user-defined="source=${location}" \
+		 $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
+		 ${group} ${track}
+    done
+
+else
+
+    if [[ -z "${1}" ]] ; then
+	message="No audio file name specified."
+    elif [[ -r "${1}" ]] ; then
+	message="Cannot read audio file '${1}'."
+    else
+	message="File '${1}' does not seem to exist (check the name)."
+    fi
+
+    echo "${BOLD}${message} Please name at least one audio file to import.${NORM}"
+
+    usage ${0##*/}
+
+fi
 
 exit
