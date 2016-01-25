@@ -1,0 +1,35 @@
+#!/bin/zsh
+
+##############################################################################
+##
+## pmw-now-next
+##
+## Accept a bunch of args on the command line and stuff details into a file.
+##
+## See also rdadmin -> Manage Hosts -> airplay -> RDAirPlay -> Now and Next
+##
+##############################################################################
+
+# Log STDOUT and STDERR to separate files.
+exec 1> ${ROOT:-/}var/tmp/${0##*/}.out
+exec 2> ${ROOT:-/}var/tmp/${0##*/}.err
+
+zmodload zsh/datetime
+
+# Get zsh functions necessary for this script
+[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+typeset -A now next
+now=${1}
+next=${2}
+
+nowFile=${NOW_FILE:-${ROOT:-/}var/tmp/now.txt}
+nxtFile=${NXT_FILE:-${ROOT:-/}var/tmp/next.txt}
+
+###this creates files on the mysql server, not on this host
+###doSQL "select NUMBER,ARTIST,TITLE,ALBUM into outfile '${nowFile}' fields terminated by '|' optionally enclosed by '\"' lines terminated by '\r\n' from CART where NUMBER=${now}"
+###doSQL "select NUMBER,ARTIST,TITLE,ALBUM into outfile '${nxtFile}' fields terminated by '|' optionally enclosed by '\"' lines terminated by '\r\n' from CART where NUMBER=${next}"
+doSQL "select NUMBER,ARTIST,TITLE,ALBUM from CART where NUMBER=${now}" > ${nowFile}
+doSQL "select NUMBER,ARTIST,TITLE,ALBUM from CART where NUMBER=${next}" > ${nextFile}
+
+exit
