@@ -24,7 +24,7 @@ now=${1}
 next=${2}
 
 nowFile=${NOW_FILE:-${ROOT:-/}var/tmp/now.txt}
-nxtFile=${NXT_FILE:-${ROOT:-/}var/tmp/next.txt}
+nextFile=${NEXT_FILE:-${ROOT:-/}var/tmp/next.txt}
 
 ###this creates files on the mysql server, not on this host
 ###doSQL "select NUMBER,ARTIST,TITLE,ALBUM into outfile '${nowFile}' fields terminated by '|' optionally enclosed by '\"' lines terminated by '\r\n' from CART where NUMBER=${now}"
