@@ -13,7 +13,7 @@ Description=Rivendell Core Audio Engine
 
 [Service]
 User=%i
-ExecStartPre=/usr/bin/dbcheck.sh
+ExecStartPre=/usr/local/bin/pmw-dbcheck
 ExecStart=/usr/bin/caed
 Type=forking
 RuntimeDirectory=rivendell
