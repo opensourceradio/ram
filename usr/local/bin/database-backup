@@ -11,7 +11,7 @@ sendEmail() {
   local MSG="${1}" ; shift
   local MSGFILE="${1}"
 
-  local MSMTP_CONFIG=${MSMTP_CONFIG:-${ROOT:-/}usr/local/etc/conf.msmtp}
+  local MSMTP_CONFIG=${MSMTP_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
   local PRETEND=${PRETEND}
 
   msmtp --file ${MSMTP_CONFIG} ${PRETEND} --read-envelope-from --read-recipients <<ENDOFMAIL
@@ -38,7 +38,7 @@ BACKUP_DIR=${BACKUP_DIR:-${ROOT:-/}var/snd/rivendell-database-backup}
 
 MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/pmwtech}/.my.cnf-root}
 
-MAILTO=${MAILTO:-"dklann@phantommachineworks.media simon@kmud.org"}
+MAILTO=${MAILTO:-"support@phantommachineworks.media"}
 
 trap "rm -f ${DUMP_OUTPUT}; exit" 0
 
