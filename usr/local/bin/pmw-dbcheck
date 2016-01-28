@@ -58,12 +58,17 @@ fi
 ## database and retrieve a count of carts in the CART table.
 ##
 dbRunning() {
-    local cartCount=0 returnValue=1
+    local cartCount=0
+    local returnValue=1
 
-    cartCount=$(doSQL "SELECT COUNT(*) FROM CART")
-    ${LOGGER} -t ${0##*/} -p local7.info -i "Found ${cartCount} CARTs in the ${db} database."
+    local cartCount=$(doSQL "SELECT COUNT(*) FROM CART")
 
-    (( cartCount )) && returnValue=0
+    if [[ -n "${cartCount}" ]] ; then
+	${LOGGER} -t ${0##*/} -p local7.info -i "Found ${cartCount} CARTs in the Rivendell database."
+	returnValue=0
+    else
+	${LOGGER} -t ${0##*/} -p local7.info -i "ERROR: unable to retrieve CART count from the Rivendell database."
+    fi
 
     return ${returnValue}
 }
@@ -75,6 +80,7 @@ exitValue=1
 loopCount=1
 while :
 do
+    echo "Check for running MySQL database: attempt number ${loopCount}. Expect Errors." 1>&2
     # wait for the database to be started before proceeding further
     dbRunning && { exitValue=0 ; break ; }
 
