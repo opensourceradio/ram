@@ -25,7 +25,7 @@ RM=$(whence rm) ; RM=${RM:-${ROOT:-/}bin/rm}
 LN=$(whence ln) ; LN=${LN:-${ROOT:-/}bin/ln}
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 
-if [[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
     if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
 	source ${ROOT:-/}usr/local/bin/zsh-functions
     else

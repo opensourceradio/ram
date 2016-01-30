@@ -18,7 +18,7 @@
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 # Use them if they were passed in, otherwise we will prompt for them
 # at the right time.

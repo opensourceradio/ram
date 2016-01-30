@@ -30,7 +30,7 @@ zmodload zsh/datetime
 station=${1:?"For which STATION (host) should I load a log?"}
 
 # Get zsh functions necessary for this script.
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 # Calculate the the name of tomorrows log based on the current time.
 timeNow=${EPOCHSECONDS}

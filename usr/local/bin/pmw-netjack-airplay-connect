@@ -18,7 +18,7 @@
 ##############################################################################
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 # Try to find the necessary executables, and use known pathnames as the default.
 JACK_CONNECT=$(whence jack_connect) ; JACK_CONNECT=${JACK_CONNECT:-${ROOT:-/}usr/bin/jack_connect}

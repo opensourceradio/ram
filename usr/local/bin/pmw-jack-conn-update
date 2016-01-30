@@ -16,7 +16,7 @@
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}

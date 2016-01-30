@@ -17,7 +17,7 @@ exec 2> ${ROOT:-/}var/tmp/${0##*/}.err
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 typeset -A now next
 now=${1}

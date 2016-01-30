@@ -31,7 +31,7 @@ oneDay=$(( 60 * 60 * 24 ))
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
-[[ -f ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 doSQL "SELECT NAME FROM REPORTS" | while read report ; do
     service=$(doSQL "SELECT SERVICE_NAME FROM REPORTS WHERE NAME='${report}'")
