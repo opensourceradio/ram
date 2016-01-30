@@ -1,11 +1,20 @@
 #!/bin/zsh
 
-# in which we find strftime() and $EPOCHSECONDS
+##############################################################################
+##
+## database-backup
+##
+## Backup all MySQL databases with aging. Optionally rsync(1) a copy
+## of the backup to a separate location.
+##
+##############################################################################
+
+# In which we find strftime() and $EPOCHSECONDS.
 zmodload zsh/datetime
-# in which we find the '=~' test(1) operator
+# In which we find the '=~' test(1) operator.
 zmodload zsh/regex
 
-# use msmtp(1) to send email to one or more addresses
+# Use msmtp(1) to send email to one or more addresses.
 sendEmail() {
   local MAILTO="${1}" ; shift
   local MSG="${1}" ; shift
@@ -27,84 +36,90 @@ ${MSGFILE:+$(cat ${MSGFILE})}
 ENDOFMAIL
 }
 
-DEBUG=${DEBUG}
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
+# Current date and time.
 TODAY=$(strftime '%Y-%m-%d-%H%M%S' ${EPOCHSECONDS})
 
 TMPDIR=${ROOT:-/}var/tmp
 DUMPDIR=${DUMPDIR:-${TMPDIR}/mysql}
 DUMP_OUTPUT=$(mktemp --tmpdir=${TMPDIR} mysqldump-output.XXXXXXXXXX)
-BACKUP_DIR=${BACKUP_DIR:-${ROOT:-/}var/snd/rivendell-database-backup}
 
+# Optional: specify the name of an additional backup directory in
+# which to rsync(1) the backup tarball.
+#BACKUP_DIR=${BACKUP_DIR:-${ROOT:-/}var/snd/rivendell-database-backup}
+
+# Database credentials. Keep these secure.
 MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/pmwtech}/.my.cnf-root}
 
+# To whom we should send email if anything breaks.
 MAILTO=${MAILTO:-"support@phantommachineworks.media"}
 
 trap "rm -f ${DUMP_OUTPUT}; exit" 0
 
-# hang on to this many days of backups
+# Hang on to this many days of backups.
 KEEP=${KEEP:-61}
 
 test -d ${DUMPDIR} || mkdir -p ${DUMPDIR}
-test -d ${BACKUP_DIR} || mkdir -p ${BACKUP_DIR}
+test -n "${BACKUP_DIR}" && { test -d ${BACKUP_DIR} || mkdir -p ${BACKUP_DIR} }
 
-databases=( $(mysql -s -N -e 'show databases') )
-# dump master data only if binary logging is enabled
-masterData=$(mysql -s -N -e 'show master status' | fgrep -q 'mysqld-bin.' && echo '--master-data')
+# Get a list of all the databases.
+databases=( $(mysql --defaults-file=${MY_CNF} -s -N -e 'show databases') )
+# Dump master data only if binary logging is enabled.
+masterData=$(mysql --defaults-file=${MY_CNF} -s -N -e 'show master status' | fgrep -q 'mysqld-bin.' && echo '--master-data')
 
 # u=r,g=,o=
 umask 0377
 
-# dump each database into two separate files: one with data and one without (to recreate an empty database)
-for database in ${databases}
-do
-  # skip these databases
-  [[ "${database}" -regex-match '(information|performance)_schema' ]] && continue
+# Dump each database into two separate files: one with data and one
+# without (to recreate an empty database).
+for database in ${databases} ; do
+    # Skip these databases.
+    [[ "${database}" -regex-match '(information|performance)_schema' ]] && continue
 
-  mysqldump --defaults-file=${MY_CNF} --comments --dump-date ${masterData} --single-transaction --add-drop-database --add-drop-table --databases ${database} > ${DUMPDIR}/${database}-${TODAY}.sql
-  dbDumpVal=${?}
-  mysqldump --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
-  schemaDumpVal=${?}
+    # Dump the database.
+    mysqldump --defaults-file=${MY_CNF} --comments --dump-date ${masterData} --single-transaction --add-drop-database --add-drop-table --databases ${database} > ${DUMPDIR}/${database}-${TODAY}.sql
+    dbDumpVal=${?}
+    # Dump just the database schema.
+    mysqldump --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
+    schemaDumpVal=${?}
 
-  test -s ${DUMPDIR}/${database}-${TODAY}.sql || echo "Error dumping ${database} (${dbDumpVal})."
-  test -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql || echo "Error dumping Schema for ${database} (${schemaDumpVal})."
+    test -s ${DUMPDIR}/${database}-${TODAY}.sql || echo "Error dumping ${database} (${dbDumpVal})." >&2
+    test -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql || echo "Error dumping Schema for ${database} (${schemaDumpVal})." >&2
 done 2>&1 > ${DUMP_OUTPUT}
 
 
-# do not proceed if there is output in $DUMP_OUTPUT
-if test -s ${DUMP_OUTPUT}
-then
-  sendEmail "${MAILTO}" "Found messages in database dump log. See below." ${DUMP_OUTPUT}
+# Do not proceed if there is output in $DUMP_OUTPUT (we had errors if
+# there is).
+if [[ -s ${DUMP_OUTPUT} ]] ; then
+    sendEmail "${MAILTO}" "Found messages in database dump log. See below." ${DUMP_OUTPUT}
 else
-  if tar --create --bzip2 --atime-preserve --directory=${TMPDIR} --file ${TMPDIR}/mysql-backup-${TODAY}.tar.bz2 mysql
-  then
-    # clean up after archiving the database dumps
-    if rm -rf ${DUMPDIR}
-    then
-      # remove backup archives that are more than $KEEP days old
-      if find ${TMPDIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -print -delete
-      then
-        # successful purge, make a backup of the backup
-        if [[ -d ${BACKUP_DIR} ]]
-        then
-	  if rsync --archive --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
-	  then
-            : all seems well, move on
-	  else
-            sendEmail "${MAILTO}" "Trouble with making a backup of the backup of the database (ERROR CODE ${!})."
-	  fi
+    if tar --create --bzip2 --atime-preserve --directory=${TMPDIR} --file ${TMPDIR}/mysql-backup-${TODAY}.tar.bz2 mysql ; then
+	# clean up after archiving the database dumps
+	if rm -rf ${DUMPDIR} ; then
+	    # remove backup archives that are more than ${KEEP} days old
+	    if find ${TMPDIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -print -delete ; then
+		# successful purge, (optionally) make a backup of the backup
+		if [[ -n "${BACKUP_DIR}" ]] ; then
+		    if [[ -d ${BACKUP_DIR} ]] ; then
+			if rsync --archive --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR} ; then
+			    : all seems well, move on
+			else
+			    sendEmail "${MAILTO}" "Trouble with making a backup of the backup of the database (ERROR CODE ${!})."
+			fi
+		    else
+			sendEmail "${MAILTO}" "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${!})."
+		    fi
+		fi
+	    else
+		sendEmail "${MAILTO}" "Trouble removing backup archives (ERROR CODE ${!})."
+	    fi
 	else
-	  sendEmail "${MAILTO}" "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${!})."
+	    sendEmail "${MAILTO}" "Error removing '${DUMPDIR}' (ERROR CODE ${!})."
 	fi
-      else
-        sendEmail "${MAILTO}" "Trouble removing backup archives (ERROR CODE ${!})."
-      fi
     else
-      sendEmail "${MAILTO}" "Error removing '${DUMPDIR}' (ERROR CODE ${!})."
+	sendEmail "${MAILTO}" "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${!})."
     fi
-  else
-    sendEmail "${MAILTO}" "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${!})."
-  fi
 fi
 
 exit
