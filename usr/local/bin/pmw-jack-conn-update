@@ -43,11 +43,11 @@ if [[ -n "${myHostName}" ]] ; then
 
     if [[ ${cartState} =~ '^CONNECT' ]] ; then
 
-	sqlStatement="REPLACE INTO connection_state VALUES ( ${macroCart},'${myHostName}' )"
+	sqlStatement="REPLACE INTO connection_state ( number, host ) VALUES ( ${macroCart},'${myHostName}' )"
 
     elif [[ ${cartState} =~ '^DISCONNECT' ]] ; then
 
-	sqlStatement="DELETE FROM ${connectionStateTable} WHERE number = ${macroCart}"
+	sqlStatement="DELETE FROM ${connectionStateTable} WHERE number = ${macroCart} AND host = '${myHostName}'"
 
     else
 	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unknown state indicator '${cartState}'." >&2
