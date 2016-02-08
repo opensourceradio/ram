@@ -1,75 +1,179 @@
-#!/bin/bash
+#!/bin/zsh
 
 ##########################################################################################
 ##########################################################################################
-#
-############################################################
-### DO NOT USE THIS SCRIPT WITHOUT MAKING MODIFICATIONS! ###
-############################################################
-#
-# NOTE:
-# This script is COMPLETELY installation-specific! See the "BUG ALERT" below.
-#
-# Note your modification acknowledgment here:
-# e.g., in vim, say  :map K !!date; logname<CR>A, <Esc>JI# <Esc>A@phantommachineworks.media<Esc>
-# then simply touch the 'K' key to 'fill in the blanks'
-# for example:
-# Fri Aug 31 13:54:09 CST 1923, dklann@phantommachineworks.media
-#
+##
+## pmw-jack-setup
+##
+## Set up jack environment for Rivendell and off-board (add-on) audio adapter(s).
+##
+## This is expected to be called from the Rivendell "Jack Clients"
+## list on a per-host.
+##
 ##########################################################################################
 ##########################################################################################
 
-# set up jack environment for Rivendell and off-board (add-on) audio adapter(s)
-# this is expected to be called from the "jack clients" list on a per-host basis
-
-# BUG ALERT!!
-# this script completely depends on the add-on audio adapter being a USB audio interface
-# that identifies in ALSA AS "CODEC".
-
-# log STDOUT and STDERR of this script and all commands called by this script to separate files
+## log STDOUT and STDERR of this script and all commands called by this script to separate files
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
+## Locate the commands we need in this script.
+ALSA_IN=$(whence alsa_in) ; ALSA_IN=${ALSA_IN:-${ROOT:-/}usr/bin/alsa_in}
+ALSA_OUT=$(whence alsa_out) ; ALSA_OUT=${ALSA_OUT:-${ROOT:-/}usr/bin/alsa_out}
+APLAY=$(whence aplay) ; APLAY=${APLAY:-${ROOT:-/}usr/bin/aplay}
+AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}bin/awk}
+CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
+GETOPT=$(whence getopt) ; GETOPT=${GETOPT:-${ROOT:-/}usr/bin/getopt}
+GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
+JACK_LOAD=$(whence jack_load) ; JACK_LOAD=${JACK_LOAD:-${ROOT:-/}usr/bin/jack_load}
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+
+## How does this work again?
+usage() {
+    myName=${1}
+
+    ${CAT} << EOF
+${myName}: add audio device to the JACK connection graph
+
+Summary: ${myName##*/} [ --in (-i) ] [ --out (-o) ] [ --subdevice <Subdevice ID> (-s) ] Device-Name jack-client-name
+
+This script loads the audio device "Device-Name" into the
+currently-running jackd process and names the device
+"jack-client-name".
+
+With no options, both input and output ports are made available. With
+the --in option, only input ports are added. With only the --out
+option, only output ports are added.
+
+Use the "--subdevice <ID>" option to load a "device within a device" (e.g., HDMI on-board audio).
+
+EOF
+}
+
+## Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+## Assume they want to connect both input AND output ports.
+direction=both
+
+## Assume that we are not working on a subdevice (pass -s on the
+## command line if so).
+subdevice=
+
+## Use getopt to parse the command line arguments.
+TEMP=$(${GETOPT} -o hios: --long help,in,out,subdevice: -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+## Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+      -i|--in*) direction=in ; shift ;;
+      -o|--out*) direction=out ; shift ;;
+      -s|--sub*) subdevice=${2} ; shift 2 ;;
+      -h|--help) usage ${0} ; exit ;;
+      --) shift ; break ;;
+      *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+## JACK settings.
 RATE=${RATE:-48000}
 PERIODS=${PERIODS:-1024}
 NPERIODS=${NPERIODS:-2}
 
-# make $CARDS an array
-declare -a CARDS
-CardBasename=${CARD_BASENAME:-CODEC}
-Index=0
+## Log errors if insufficient arguments.
+if [[ -z "${1}" ]] ; then
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing audio card specification. Cannot continue without an audio card on the command line."
+    exit 1
+fi
+if [[ -z "${2}" ]] ; then
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing jack client name as the second argument on the command line. Cannot continue."
+    exit 2
+fi
 
-# Use aplay(1) to list the installed audio cards and massage the data to get the card numbers.
-# See example output at the end of this script.
-CARDS=( $(aplay -l | fgrep ${CardBasename} | cut -d: -f1 | sort -u | awk '{print $2}') )
+## Invocation requires both an ALSA device name and a JACK client name.
+cardPattern=${1}
+jackClientName=${2}
 
-for CARD in ${CARDS[*]}
-do
-  CardName=${CardBasename}
-  alsaOutLog=${VARTMP:-/var/tmp}/alsa_out-${CardName}.log
+## Find the card in the output from aplay(1). We need to look at
+## different output sections when adding a subdevice.
+if (( subdevice )) ; then
+    cardIndexAndName=$(${APLAY} -l | ${AWK} "/device ${subdevice}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
+else
+    cardIndexAndName=$(${APLAY} -l | ${AWK} '/^card/{print $2 $3}' | ${SORT} -u | ${GREP} ${cardPattern})
+fi
 
-  /usr/bin/jack_load -i "-d alsa -d hw:${CARD},0 -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${CardName} audioadapter
+## Set up the JACK configuration if we found an audio device that
+## matches the CLI argument.
+if [[ -n "${cardIndexAndName}" ]] ; then
+    cardIndex=${cardIndexAndName%:*}
+    cardName=${cardIndexAndName#*:}
 
-  # this is for the output to the Arrakis USB device
-  # Note that alsa_out must be put into the background in order to keep running while jackd is running...
-   nohup /usr/bin/alsa_out -j ${CardName} -d hw:${CARD},0 -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaOutLog} &
-  ((Index++))
+    alsaOutLog=${VARTMP:-/var/tmp}/alsa_out-${cardName}.log
+    alsaInLog=${VARTMP:-/var/tmp}/alsa_in-${cardName}.log
 
-done
+    case ${direction} in
+
+	both)
+	    # Load the audio card into the running instance of
+	    # jackd. This sets up input and output ports.
+	    if ${JACK_LOAD} -i "-d alsa -d hw:${cardIndex} -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${jackClientName} audioadapter ; then
+		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: loaded ${cardIndex}:${cardName} as ${jackClientName}."
+	    else
+		${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to load ${cardIndex}:${cardName} as ${jackClientName}."
+	    fi
+	    ;;
+
+	in)
+	    # Use the card for audio input.
+	    # Note that alsa_in must be put into the background in
+	    # order to keep running while jackd is running...
+	    nohup ${ALSA_IN} -j ${jackClientName} -d hw:${cardIndex},${subdevice} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaInLog} &
+	    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: added ${cardIndex}${subdevice:+,${subdevice}}:${cardName} as ${jackClientName} for INPUT."
+	    ;;
+
+	out)
+	    # Use the card for audio output.
+	    # Note that alsa_out must be put into the background in
+	    # order to keep running while jackd is running...
+	    nohup ${ALSA_OUT} -j ${jackClientName} -d hw:${cardIndex}${subdevice:+,${subdevice}} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaOutLog} &
+	    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: added ${cardIndex}${subdevice:+,${subdevice}}:${cardName} as ${jackClientName} for OUTPUT."
+	    ;;
+
+    esac
+
+else
+
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to find audio device matching '${cardPattern}'. Cannot continue."
+
+fi
 
 exit
 
-# Example output of
-# sudo -u pmwtech aplay -l
+## Example output of
+## sudo -u ramuser aplay -l
+## on a Studio Audio Workstation
 cat << EOF
 **** List of PLAYBACK Hardware Devices ****
-card 0: PCH [HDA Intel PCH], device 0: ALC892 Analog [ALC892 Analog]
+card 0: PCH [HDA Intel PCH], device 0: ALC662 rev1 Analog [ALC662 rev1 Analog]
   Subdevices: 0/1
   Subdevice #0: subdevice #0
-card 0: PCH [HDA Intel PCH], device 1: ALC892 Digital [ALC892 Digital]
+card 0: PCH [HDA Intel PCH], device 3: HDMI 0 [HDMI 0]
+  Subdevices: 0/1
+  Subdevice #0: subdevice #0
+card 0: PCH [HDA Intel PCH], device 7: HDMI 1 [HDMI 1]
   Subdevices: 1/1
   Subdevice #0: subdevice #0
-card 1: CODEC [USB Audio CODEC], device 0: USB Audio [USB Audio]
+card 1: VX222e0 [Digigram VX222e [PCM #0]], device 0: pcxhr 0 [pcxhr 0]
+  Subdevices: 3/4
+  Subdevice #0: subdevice #0
+  Subdevice #1: subdevice #1
+  Subdevice #2: subdevice #2
+  Subdevice #3: subdevice #3
+card 2: CODEC [USB Audio CODEC], device 0: USB Audio [USB Audio]
   Subdevices: 0/1
   Subdevice #0: subdevice #0
 EOF
