@@ -192,7 +192,7 @@ if [[ -r "${1}" ]] ; then
 	year=$(echo ${meta} | perl -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
 	tracknum=$(echo ${meta} | perl -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
 	genre=$(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }')
-	trackLabel=$(echo ${meta} | perl -ne 'if ( /comment.*: organization=/i ) { @x=split(/\=/); print $x[1]; }')
+	trackLabel=$(echo ${meta} | perl -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }')
 
 	# Attempt to tease out the year from the DATE string; we assume
 	# that the year is ALWAYS a four-digit string.
