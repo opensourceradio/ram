@@ -132,6 +132,8 @@ unset TEMP
 BOLD="$(tput bold)"
 NORM="$(tput sgr0)"
 
+if [[ -d "${1}" ]] ; then
+
 if [[ -r "${1}" ]] ; then
 
     # List the codes and prompt the user for codes to use in this import.
@@ -196,12 +198,12 @@ if [[ -r "${1}" ]] ; then
 
 	# Attempt to tease out the year from the DATE string; we assume
 	# that the year is ALWAYS a four-digit string.
-	if [[ ${year} =~ '[[:digit:]]{4}[-/][[:digit:]]{2}[-/][[:digit:]]{2}' ]] ; then
-            # YYYY-MM-DD format (separated with "/" or "-")
-	    year=${year%%[-/]*}
-	elif [[ ${year} =~ '[[:digit:]]{2}[-/][[:digit:]]{2}[-/][[:digit:]]{4}' ]] ; then
-            # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-")
-            year=${year##*[-/]}
+	if [[ "${year}" =~ '[[:digit:]]{4}[-/ ][[:digit:]]{2}[-/ ][[:digit:]]{2}' ]] ; then
+            # YYYY-MM-DD format (separated with "/" or "-" or " ")
+	    year="${year%%[-/ ]*}"
+	elif [[ "${year}" =~ '[[:digit:]]{2}[-/ ][[:digit:]]{2}[-/ ][[:digit:]]{4}' ]] ; then
+            # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
+            year="${year##*[-/ ]}"
 	fi
 
 	# Prefer the embedded label (publisher), but use the one passed on
