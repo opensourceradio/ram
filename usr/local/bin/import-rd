@@ -132,8 +132,6 @@ unset TEMP
 BOLD="$(tput bold)"
 NORM="$(tput sgr0)"
 
-if [[ -d "${1}" ]] ; then
-
 if [[ -r "${1}" ]] ; then
 
     # List the codes and prompt the user for codes to use in this import.
