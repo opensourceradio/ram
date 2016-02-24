@@ -1,0 +1,13 @@
+; This file contains the automatic jack connections that we want 
+; jack-plumbing to watch for. It is intended to be used on the 
+; PMW Studio Audio Workstation.
+
+; Pulseaudio connects to system:playback by default. We want to
+; disconnect it from there as it is just a dummy device.
+(disconnect "PulseAudio JACK Sink(.*):front-left" "system:playback_1")
+(disconnect "PulseAudio JACK Sink(.*):front-right" "system:playback_2")
+
+; Connect Pulseaudio to the HDMI output for playback through the
+; speakers on the touchscreen display.
+(connect "PulseAudio JACK Sink(.*):front-left" "HDMI:playback_1")
+(connect "PulseAudio JACK Sink(.*):front-right" "HDMI:playback_2")
