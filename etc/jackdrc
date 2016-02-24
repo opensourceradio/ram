@@ -1,0 +1,2 @@
+/usr/bin/jackd -R -P 89 -n default -d dummy
+
