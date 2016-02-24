@@ -4,10 +4,13 @@
 ## See rdadmin->Manage Hosts->wnuc-saw->Jack Settings->Jack Clients
 
 ## Log dir
-set ( "log.file.path", "/var/log/liquidsoap/pmw-stream-feed.log" )
+set( "log.file.path", "/var/log/liquidsoap/pmw-stream-feed.log" )
+
+## PID file location for this instance of liquidsoap
+set( "init.daemon.pidfile.path", "/usr/local/etc/pmw/liquidsoap.pid" )
 
 ## Use the telnet server for run-time access
-set ( "server.telnet", true )
+set( "server.telnet", true )
 
 ## Get input from JACK
 ## NB: pay attention to JACK connections!
