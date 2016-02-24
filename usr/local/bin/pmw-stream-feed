@@ -13,7 +13,7 @@ exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
 AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}bin/awk}
-CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
+CUT=$(whence cut) ; CUT=${CUT:-${ROOT:-/}usr/bin/cut}
 GETOPT=$(whence getopt) ; GETOPT=${GETOPT:-${ROOT:-/}usr/bin/getopt}
 GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
 JACK_CONNECT=$(whence jack_connect) ; JACK_CONNECT=${JACK_CONNECT:-${ROOT:-/}usr/bin/jack_connect}
@@ -26,9 +26,16 @@ streamURL=${1:?"What stream URL?"}
 sourceClientPassword=${2:?"What is the source client password?"}
 
 streamScript=${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/pmw/pmw-stream-feed.liq}
+## This is defined in $streamScript
+encoderClientName=${ENCODER_CLIENT_NAME:-"encode-in"}
+## This gets created by Liquidsoap (or maybe JACK?)
+encoderPortBasename=${ENCODER_PORT_BASENAME:-"in"}
 
 ## Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+sleepDuration=${SLEEP_DURATION:-5}
+maxAttempts=${MAX_ATTEMPTS:-5}
 
 ## parse the pieces out of the stream URL
 streamProtocol=${streamURL%%:*}
@@ -38,18 +45,25 @@ streamMountPoint=${streamURL##*/}
 
 if [[ -r ${streamScript} ]] ; then
 
-    if nohup ${LIQUIDSOAP} ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${sourceClientPassword}" 2>&1 > /dev/null & ; then
+    if ${LIQUIDSOAP} --daemon ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${sourceClientPassword}" ; then
 	${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Started ${streamScript} in liquidsoap."
 
-	if ${JACK_LSP} | ${GREP} -q encode-in ; then
-	    ${JACK_CONNECT} encode-in:capture_1 rivendell_0:playout_0L
-	    ${JACK_CONNECT} encode-in:capture_2 rivendell_0:playout_0R
-	    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to Rivendell main output."
-	else
-	    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot see liquidsoap ports; is liquidsoap running?"
+	count=1
+	while (( count <= maxAttempts )) ; do
+	    if ${JACK_LSP} | ${GREP} -q encode-in ; then
+		${JACK_CONNECT} ${encoderClientName}:${encoderPortBasename}_0 rivendell_0:playout_0L
+		${JACK_CONNECT} ${encoderClientName}:${encoderPortBasename}_1 rivendell_0:playout_0R
+		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to Rivendell main output."
+	    fi
+	    (( count++ ))
+	    sleep ${sleepDuration}
+	done
+
+	if (( count >= maxAttempts )) ; then
+	    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot see liquidsoap ports. Liquidsoap appears to be not running."
 	fi
     else
-	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot see liquidsoap ports; is liquidsoap running?"
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: unable to properly start liquidsoap. Check the configuration and log files."
     fi
 else
     ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot read liquidsoap script ${streamScript}."
