@@ -1,7 +1,20 @@
+## Rivendell target unit
+
+##
+## Set this as the default "run level" (in SysV init terms) with
+## sudo systemctl set-default rivendell.target
+##
+
 [Unit]
 Description=Rivendell Services target
 Documentation=man:systemd.special(7) man:systemd.unit(5)
 StopWhenUnneeded=no
+
+# If this server is used to access the GUI apps change the next two
+# settings to:
+#Requires=graphical.target
+#After=graphical.target
 Requires=multi-user.target
 After=multi-user.target
+
 AllowIsolate=yes
