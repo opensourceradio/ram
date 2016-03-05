@@ -22,14 +22,13 @@ LIQUIDSOAP=$(whence liquidsoap) ; LIQUIDSOAP=${LIQUIDSOAP:-${ROOT:-/}usr/bin/liq
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
 
+##
+## the stream URL should be of the form
+## http://source:<PASSWORD>@<HOSTNAME-OR-IP-ADDRESS>:<PORT>/<MOUNTPOINT>
+##
 streamURL=${1:?"What stream URL?"}
-sourceClientPassword=${2:?"What is the source client password?"}
 
 streamScript=${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/pmw/pmw-stream-feed.liq}
-## This is defined in $streamScript
-encoderClientName=${ENCODER_CLIENT_NAME:-"encode-in"}
-## This gets created by Liquidsoap (or maybe JACK?)
-encoderPortBasename=${ENCODER_PORT_BASENAME:-"in"}
 
 ## Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -39,21 +38,31 @@ maxAttempts=${MAX_ATTEMPTS:-5}
 
 ## parse the pieces out of the stream URL
 streamProtocol=${streamURL%%:*}
-streamHost=${${streamURL#*//}%%:*}
+streamUser=${${streamURL#*://}%%:*}
+streamPassword=${${streamURL#*://*:}%%@*}
+streamHost=${${streamURL#*@}%%:*}
 streamPort=${${streamURL##*:}%/*}
 streamMountPoint=${streamURL##*/}
 
 if [[ -r ${streamScript} ]] ; then
 
-    if ${LIQUIDSOAP} --daemon ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${sourceClientPassword}" ; then
+    ## snag the encoder jack client name from the script
+    ## BUG ALERT: this completely depends on the formatting of the "input.jack" lines in that script!
+    ## default to the PMW standard: "encode-in"
+    encoderID=$(fgrep -A 1 "input.jack" ${streamScript} | tail -n 1 | cut -d'"' -f2)
+    encoderID=${encoderID:-"encode-in"}
+
+    if ${LIQUIDSOAP} --daemon ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${streamPassword}" ; then
 	${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Started ${streamScript} in liquidsoap."
 
 	count=1
 	while (( count <= maxAttempts )) ; do
+	    ## BUG ALERT: this assumes that Rivendell "Port 0" is the main playout port!
 	    if ${JACK_LSP} | ${GREP} -q encode-in ; then
-		${JACK_CONNECT} ${encoderClientName}:${encoderPortBasename}_0 rivendell_0:playout_0L
-		${JACK_CONNECT} ${encoderClientName}:${encoderPortBasename}_1 rivendell_0:playout_0R
+		${JACK_CONNECT} ${encoderID}:in_0 rivendell_0:playout_0L
+		${JACK_CONNECT} ${encoderID}:in_1 rivendell_0:playout_0R
 		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to Rivendell main output."
+		break
 	    fi
 	    (( count++ ))
 	    sleep ${sleepDuration}
