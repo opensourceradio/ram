@@ -107,8 +107,8 @@ fi
 
 # these depends on having ~/.my.cnf configured with valid credentials
 # for accessing the Rivendell database
-rivendellSchedCodes=$(doSQL "select CODE from SCHED_CODES")
-rivendellGroupList=$(doSQL "select NAME from GROUPS")
+rivendellSchedCodes=( $(doSQL "select CODE from SCHED_CODES") )
+rivendellGroupList=( $(doSQL "select NAME from GROUPS") )
 
 # use getopt to parse the command line args
 TEMP=$(getopt -o hc:g:l:n: --long help,codes:,group:,label:,normalization: -n ${0:t} -- "${@}")
@@ -134,37 +134,42 @@ NORM="$(tput sgr0)"
 
 if [[ -r "${1}" ]] ; then
 
-    # List the codes and prompt the user for codes to use in this import.
-    # See also, below where we attempt to assign the "genre" to a
-    # Scheduler Code.
+    # list the groups and prompt them for a group to use in this import
+    if [[ -n "${group}" ]] ; then
+	if [[ "${group}" =~ 'list' ]] ; then
+	    echo "Current list of GROUPs:"
+	    echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+	    read group\?"Enter a GROUP to import into: "
+	fi
+    else
+	echo "Current list of GROUPs:"
+	echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+	read group\?"Enter a GROUP for this import: "
+    fi
+
+    validGroup "${rivendellGroupList}" ${group} || { echo
+    "${BOLD}${group} is not in the list. Please use a valid GROUP
+    name.${NORM}" 1>&2 ; exit 2 ; }
+
+    # List the codes and prompt the user for codes to use in this
+    # import.  See also, below where we attempt to assign the "genre"
+    # to a Scheduler Code.
     if [[ -n "${ourSchedCodes}" ]] ; then
 	if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
-	    echo "Current list of Scheduler codes:\n${rivendellSchedCodes}"
+	    echo "Current list of Scheduler codes:"
+	    echo ${(F)rivendellSchedCodes} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
 	    read ourSchedCodes\?"Enter a comma-separated list of scheduler codes: "
 	fi
 
-	# We have to echo(1) this else the expanded and edited variable is
-	# still a single word.
+	# We have to echo(1) this else the expanded and edited
+	# variable is still a single word.
 	for code in $(echo ${ourSchedCodes//,/ })
 	do
-	    validSchedCode ${rivendellSchedCodes} ${code} || { echo "${BOLD}${code} is not in the list. Please use a valid scheduler code.${NORM}" 1>&2 ; exit 2 ; }
+	    validSchedCode "${rivendellSchedCodes}" ${code} || { echo "${BOLD}${code} is not in the list. Please use a valid scheduler code.${NORM}" 1>&2 ; exit 2 ; }
 	done
     fi
 
     initialSchedCodes="${ourSchedCodes}"
-
-    # list the groups and prompt them for a group to use in this import
-    if [[ -n "${group}" ]] ; then
-	if [[ "${group}" =~ 'list' ]] ; then
-	    echo "Current list of GROUPs:\n${rivendellGroupList}"
-	    read group\?"Enter a GROUP to import into: "
-	fi
-    else
-	echo "Current list of GROUPs:\n${rivendellGroupList}"
-	read group\?"Enter a GROUP for this import: "
-    fi
-
-    validGroup ${rivendellGroupList} ${group} || { echo "${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}" 1>&2 ; exit 2 ; }
 
     # snarf each track one by one, extract metadata and import with
     # rdimport(1) TODO: add support for other import audio file formats
@@ -191,8 +196,16 @@ if [[ -r "${1}" ]] ; then
 	album=$(echo ${meta} | perl -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
 	year=$(echo ${meta} | perl -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
 	tracknum=$(echo ${meta} | perl -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
-	genre=$(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }')
-	trackLabel=$(echo ${meta} | perl -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }')
+	# The track may have multiple 'genre' and 'label' tags, so
+	# stash them in arrays for later processing; set IFS to only
+	# NEWLINE while processing.
+	tempIFS="${IFS}"
+	IFS="
+"
+	genre=( $(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }') )
+	trackLabel=( $(echo ${meta} | perl -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }') )
+	IFS="${tempIFS}"
+	unset tempIFS
 
 	# Attempt to tease out the year from the DATE string; we assume
 	# that the year is ALWAYS a four-digit string.
@@ -206,29 +219,35 @@ if [[ -r "${1}" ]] ; then
 
 	# Prefer the embedded label (publisher), but use the one passed on
 	# the command line if necessary.
+	# The track may have had multiple embedded label names, so
+	# separate them with a semicolon (';')
 	if [[ -n "${trackLabel}" ]] ; then
-	    label="${trackLabel}"
+	    label="$(echo ${(apj';')trackLabel})"
 	fi
 
-	# If there is an embedded genre, see if it is in our chosen list
-	# of scheduler codes, or if we already have the 'genre' in our
-	# scheduler code list.  We need to put a comma the beginning of
-	# the string in order for the parameter expansion below (in the
-	# rdimport invocation) to work properly.
+	# If there are one or more embedded genres, see if any are in
+	# our chosen list of scheduler codes, or if we already have
+	# the 'genre' in our scheduler code list.  We need to put a
+	# comma at the beginning of the string in order for the
+	# parameter expansion below (in the rdimport invocation) to
+	# work properly.
 	if [[ -n "${genre}" ]] ; then
-            # Ignore the embedded 'genre' if it is not in the list of
-            # Rivendell Scheduler Codes
-	    if validSchedCode ${rivendellSchedCodes} "${genre}" ; then
-		# Add the embedded 'genre' to our list of Scheduler Codes
-		# if it is not already there.
-		if ! validSchedCode "${ourSchedCodes}" "${genre}" ; then
-		    ourSchedCodes=,${genre}${ourSchedCodes:+",${ourSchedCodes}"}
+            # Ignore the embedded 'genre' tags if they are not in the
+            # list of Rivendell Scheduler Codes
+	    for g in ${genre} ; do
+		if validSchedCode "${rivendellSchedCodes}" "${g}" ; then
+		    # Add the embedded 'genre' to our list of
+		    # Scheduler Codes if it is not already there.
+		    if ! validSchedCode "${ourSchedCodes}" "${g}" ; then
+			ourSchedCodes=,${g}${ourSchedCodes:+",${ourSchedCodes}"}
+		    fi
+		else
+		    # We do not know about this genre, ignore it and
+		    # prepare the list of Scheduler Codes for parmeter
+		    # substitution.
+		    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
 		fi
-	    else
-		# We do not know about this genre, ignore it and prepare
-		# the list of Scheduler Codes for parmeter substitution.
-		ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
-	    fi
+	    done
 	else
 	    # No embedded genre, so prepare the list of Scheduler Codes
 	    # for parmeter substitution.
