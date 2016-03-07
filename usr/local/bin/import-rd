@@ -17,7 +17,10 @@ Summary: ${myName##*/} [ --code (-c) { <SchedulerCodes> or 'list' } ]
 
 You may use the word "list" for the --code (-c) and --group (-g)
 options. This will cause ${myName##*/} to list the available codes or
-groups and prompt for which one(s) to use.
+groups and prompt for which one(s) to use. You may specify multiple
+Scheduler Codes with the "-c" (aka "--code") option; do this by
+specifying the codes separated by commas (you must quote the list of
+Scheduler Codes if you include spaces between the codes).
 
 This script will set Scheduler Code to the "genre" meta tag if the
 "genre" matches a valid Rivendell Scheduler code. Otherwise the
@@ -158,7 +161,7 @@ if [[ -r "${1}" ]] ; then
 	if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
 	    echo "Current list of Scheduler codes:"
 	    echo ${(F)rivendellSchedCodes} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-	    read ourSchedCodes\?"Enter a comma-separated list of scheduler codes: "
+	    read ourSchedCodes\?"Enter a comma-separated list of scheduler codes (no spaces): "
 	fi
 
 	# We have to echo(1) this else the expanded and edited
@@ -169,7 +172,8 @@ if [[ -r "${1}" ]] ; then
 	done
     fi
 
-    initialSchedCodes="${ourSchedCodes}"
+    # Save the initial list of Scheduler Codes (stripping whitespace from the list).
+    initialSchedCodes="${ourSchedCodes// /}"
 
     # snarf each track one by one, extract metadata and import with
     # rdimport(1) TODO: add support for other import audio file formats
