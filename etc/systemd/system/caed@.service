@@ -12,10 +12,13 @@ Description=Rivendell Core Audio Engine
 #After=libvirtd.service
 
 [Service]
+# %i is replaced with the word after the "@" in the unit file name
 User=%i
+# pmw-dbcheck waits in a "sleep-check loop" until the database is running
 ExecStartPre=/usr/local/bin/pmw-dbcheck
 ExecStart=/usr/bin/caed
 Type=forking
+# create this directory under /var/run and set the perms accordingly
 RuntimeDirectory=rivendell
 RuntimeDirectoryMode=775
 PIDFile=/var/run/rivendell/caed.pid
