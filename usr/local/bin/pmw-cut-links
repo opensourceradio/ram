@@ -5,18 +5,21 @@
 ## pmw-cut-links
 ##
 ## Called from a scheduled macro cart (set up using rdcatch), or
-## cron(8) to create Linux hard links from Cut001 to cuts 002, 003,
-## and so on (depending on the number-of-links argument passed on the
-## command line) in the specified cart.
+## cron(8) to create hard links from Cut001 to cuts 002, 003, and so
+## on in the specified cart.
 ##
 ## Basically, the number of hard links to create corresponds to the
-## number of local breaks that are available in the program.
+## number of segments, separated by local breaks that are available in
+## the program.
 ##
 ## See also: rdcatch(1) and the setup for Democracy Now in that
 ## application.
 ##
 ##############################################################################
 
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
@@ -38,29 +41,59 @@ today=${TODAY:-$(strftime "%A" ${EPOCHSECONDS})}
 # The cart number must be the first argument on the command line.
 typeset -Z 6 cartNumber
 cartNumber=${1}
-${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: No cart number specified on the command line (${?})."
-# And the number of hard linked cuts to create.
-cutCount=${2}
-${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing the number of cut links to create."
 
-# Make sure the cart file exists.
-if [[ -f ${sndDir}/${cartNumber}_001.wav ]] ; then
+if [[ -n "${1}" ]] ; then
 
-    typeset -Z 3 cut=2
-    while (( cut <= cutCount )) ; do
-	${RM} -f ${sndDir}/${cartNumber}_${cut}.wav
-	${LN} ${sndDir}/${cartNumber}_001.wav ${sndDir}/${cartNumber}_${cut}.wav
-	(( cut++ ))
-    done
+    if [[ "${cartNumber}" =~ '\d+' ]] ; then
+
+	cutCount=$(doSQL "select CUT_QUANTITY from CART where NUMBER=${cartNumber}")
+
+	if [[ -n "${cutCount}" ]] ; then
+
+	    if (( cutCount > 1 )) ; then
+
+		# Make sure the cart file exists.
+		if [[ -f ${sndDir}/${cartNumber}_001.wav ]] ; then
+
+		    typeset -Z 3 cut=2
+		    while (( cut <= cutCount )) ; do
+
+			${RM} -f ${sndDir}/${cartNumber}_${cut}.wav
+			${LN} ${sndDir}/${cartNumber}_001.wav ${sndDir}/${cartNumber}_${cut}.wav
+			(( cut++ ))
+
+		    done
 
 
-    if doSQL "update CUTS set PLAY_COUNTER = 0, LOCAL_COUNTER = 0 where CART_NUMBER = ${cartNumber}" ; then
-        ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset play counter for cart ${cartNumber}."
+		    if doSQL "update CUTS set PLAY_COUNTER = 0, LOCAL_COUNTER = 0 where CART_NUMBER = ${cartNumber}" ; then
+
+			${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset play counter for all cuts in cart ${cartNumber}."
+
+			if doSQL "update CUTS set LAST_PLAY_DATETIME = NULL where CART_NUMBER = ${cartNumber}" ; then
+
+			    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset last played date for all cuts in cart ${cartNumber}."
+
+			else
+			    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset last played date for cuts in cart ${cartNumber} (${?})."
+			fi
+
+		    else
+			${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset play counter for cuts in cart ${cartNumber} (${?})."
+		    fi
+		else
+		    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not find audio file ${sndDir}/${cartNumber}_001.wav (${?})."
+		fi
+	    else
+		${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "WARNING: This cart has only one cut. Nothing to do here."
+	    fi
+	else
+	    ${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "ERROR: Unable to determine the cut count for cart ${cartNumber}."
+	fi
     else
-        ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset play counter for cart ${cartNumber} (${?})."
+	${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "ERROR: Cart number ${cartNumber} is not numeric. Please try again."
     fi
 else
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not find audio file ${sndDir}/0${cartNumber}_001.wav (${?})."
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: No cart number specified on the command line (${?})."
 fi
 
 exit
