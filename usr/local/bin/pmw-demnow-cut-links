@@ -13,6 +13,9 @@
 ##
 ##############################################################################
 
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
 zmodload zsh/datetime
 
 # Get zsh functions necessary for this script
@@ -34,23 +37,31 @@ today=${TODAY:-$(strftime "%A" ${EPOCHSECONDS})}
 # Get the Democracy Now cart number for today. BUG ALERT: proper
 # operation of this depends on Democracy Now carts being titled with
 # the string "Democray Now <Weekday-name>" in the cart TITLE.
-cartNumber=$(doSQL "select NUMBER from CART where TITLE like 'Democracy Now%${today}%'")
+typeset -Z 6 cartNumber=$(doSQL "select NUMBER from CART where TITLE like 'Democracy Now%${today}%'")
 
-if [[ -n "${cartNumber}" ]] ; then
+if [[ "${cartNumber}" =~ '\d+' ]] ; then
+
     if [[ -f ${sndDir}/0${cartNumber}_001.wav ]] ; then
 
-	${RM} -f ${sndDir}/0${cartNumber}_00[23].wav
-	${LN} ${sndDir}/0${cartNumber}_001.wav ${sndDir}/0${cartNumber}_002.wav
-	${LN} ${sndDir}/0${cartNumber}_001.wav ${sndDir}/0${cartNumber}_003.wav
+	${RM} -f ${sndDir}/${cartNumber}_00[23].wav
+	${LN} ${sndDir}/${cartNumber}_001.wav ${sndDir}/${cartNumber}_002.wav
+	${LN} ${sndDir}/${cartNumber}_001.wav ${sndDir}/${cartNumber}_003.wav
 
 	if doSQL "update CUTS set PLAY_COUNTER = 0, LOCAL_COUNTER = 0 where CART_NUMBER = ${cartNumber}" ; then
-            ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset play counter for cart ${cartNumber}."
+            ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset play counter for cuts in cart ${cartNumber}."
+
+	    if doSQL "update CUTS set LAST_PLAY_DATETIME = NULL where CART_NUMBER = ${cartNumber}" ; then
+		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: reset last played date for all cuts in cart ${cartNumber}."
+	    else
+		${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset last played date for cuts in cart ${cartNumber} (${?})."
+	    fi
 	else
-            ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset play counter for cart ${cartNumber} (${?})."
+            ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset play counter for cuts in cart ${cartNumber} (${?})."
 	fi
     else
 	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not find audio file ${sndDir}/0${cartNumber}_001.wav (${?})."
     fi
+
 else
     ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to locate cart number for Democracy Now '${today}' (${?})."
 fi
