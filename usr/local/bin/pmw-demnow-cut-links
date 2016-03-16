@@ -41,7 +41,7 @@ typeset -Z 6 cartNumber=$(doSQL "select NUMBER from CART where TITLE like 'Democ
 
 if [[ "${cartNumber}" =~ '\d+' ]] ; then
 
-    if [[ -f ${sndDir}/0${cartNumber}_001.wav ]] ; then
+    if [[ -f ${sndDir}/${cartNumber}_001.wav ]] ; then
 
 	${RM} -f ${sndDir}/${cartNumber}_00[23].wav
 	${LN} ${sndDir}/${cartNumber}_001.wav ${sndDir}/${cartNumber}_002.wav
@@ -59,7 +59,7 @@ if [[ "${cartNumber}" =~ '\d+' ]] ; then
             ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could reset play counter for cuts in cart ${cartNumber} (${?})."
 	fi
     else
-	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not find audio file ${sndDir}/0${cartNumber}_001.wav (${?})."
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not find audio file ${sndDir}/${cartNumber}_001.wav (${?})."
     fi
 
 else
