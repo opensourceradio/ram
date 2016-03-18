@@ -112,7 +112,7 @@ id3Tags() {
             TPOS*) : ;; # (Part of a set)
             APIC*) : ;; # (Attached picture)
             PRIV*) : ;; # (Private frame):  (unimplemented)
-            TPUB*) echo "comment[7]: organization=${line#*: }" ;; # (Publisher)
+            TPUB*) echo "comment[7]: label=${line#*: }" ;; # (Publisher)
             TCOM*) : ;; # (Composer)
             COMM*) : ;; # (Comments)
             *) : ;; # WTF? Unknown ID3 keyword.
@@ -242,7 +242,7 @@ if [[ -r "${1}" ]] ; then
 	fi
 
 	# Prefer the embedded label (publisher), but use the one passed on
-	# the command line if necessary.
+	# the command line if necessary (set above).
 	# The track may have had multiple embedded label names, so
 	# separate them with a semicolon (';')
 	if [[ -n "${trackLabel}" ]] ; then
