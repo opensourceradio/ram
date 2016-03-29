@@ -29,7 +29,7 @@ exec 2> /var/tmp/${0##*/}.err
 
 zmodload zsh/datetime
 
-station=${1:?"For which STATION (host) should I load a log?"}
+station=${1:?"On which STATION (host) should I load a log?"}
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -52,7 +52,7 @@ currentLog=$(doSQL "select LOG0_CURRENT_LOG from RDAIRPLAY where STATION='${stat
 if [[ -n "${currentLog}" ]] ; then
 
     # ASSUMPTION: log names are of the form: <Service>_YYYYMMDD. See
-    # rdadmin -> Manage Services -> Log Name Template
+    # rdadmin -> Manage Services -> <SERVICE> -> Log Name Template
     service=${currentLog%%_*}
     nextLog=$(strftime "${service}_%Y%m%d" ${tomorrow})
 
