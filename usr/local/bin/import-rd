@@ -281,6 +281,7 @@ if [[ -r "${1}" ]] ; then
 	${DEBUG} rdimport \
 		 --log-mode \
 		 --verbose \
+		 --fix-broken-formats \
 		 --normalization-level=${normalization:-"-4"} \
 		 --set-string-artist=${artist} \
 		 --set-string-title=${title} \
