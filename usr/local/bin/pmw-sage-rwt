@@ -1,0 +1,116 @@
+#!/bin/zsh
+
+# Based on sage_endec_rwt.sh in the Rivendell source distribution
+#
+# Run a Required Weekly Test on a Sage Digital ENDEC
+#
+#   (C) Copyright 2016 David Klann <dxklann@riseup.net>
+#   (C) Copyright 2012 Fred Gleason <fredg@paravelsystems.com>
+#
+#      $Id: sage_endec_rwt.sh,v 1.1.2.1 2012/10/11 19:16:27 cvs Exp $
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License version 2 as
+#   published by the Free Software Foundation.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public
+#   License along with this program; if not, write to the Free Software
+#   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+
+## log STDOUT and STDERR of this script and all commands called by this script to separate files
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+## Locate the commands we need in this script.
+CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
+CURL=$(whence curl) ; CURL=${CURL:-${ROOT:-/}usr/bin/curl}
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+PING=$(whence ping) ; PING=${PING:-${ROOT:-/}bin/ping}
+SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+
+## How does this work again?
+usage() {
+    myName=${1}
+
+    ${CAT} << EOF
+
+${myName}: issue a required weekly test (RWT) on the specified EAS
+device
+
+Summary: ${myName##*/} <hostname or IP address> <username> <password>
+
+Set the shell environment variable DEBUG to 'echo' to run this script
+without actually triggering the EAS test.
+
+EOF
+}
+
+## Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+if [[ -z "${1}" ]] ; then
+  usage ${0##*/}
+  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing host." 2>&1
+  exit 256
+fi
+if [[ -z "${2}" ]] ; then
+  usage ${0##*/}
+  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing the device username." 2>&1
+  exit 255
+fi
+if [[ -z "${3}" ]] ; then
+  usage ${0##*/}
+  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing the device password." 2>&1
+  exit 254
+fi
+
+DEBUG=echo
+
+SAGEHOST=${1}
+SAGEUSER=${2}
+SAGEPASS=${3}
+
+CURL_OUTPUT=${CURL_OUTPUT:-${ROOT:-/}var/tmp/${0##*/}-curl.out}
+
+if [[ -x ${LOGGER} ]] ; then
+    if [[ -x ${CURL} ]] ; then
+
+	if ${PING} -q -c 1 -w 1 ${SAGEHOST} 2>&1 > /dev/null ; then
+
+	    ${LOGGER} -t ${0##*/} -p local7.info -i -- "INFO: Running curl(1) to ${SAGEHOST}."
+	    ${DEBUG} ${CURL} \
+		     --silent \
+		     --output ${CURL_OUTPUT} \
+		     --anyauth \
+		     --user ${SAGEUSER}:${SAGEPASS} \
+		     --data 'rwt=1\&handle=1' \
+		     "http://${SAGEHOST}/cgi-bin/pend.cgi"
+
+	else
+
+	    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: ping '${SAGEHOST}', cannot continue." 2>&1
+	    exit 3
+
+	fi
+
+    else
+
+	${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Cannot find curl app." 2>&1
+	exit 2
+
+    fi
+
+else
+
+    echo "Cannot find logger app. Did not run curl(1)." 2>&1
+    exit 1
+
+fi
+
+exit
