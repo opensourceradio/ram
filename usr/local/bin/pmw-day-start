@@ -30,6 +30,14 @@ exec 2> /var/tmp/${0##*/}.err
 zmodload zsh/datetime
 
 station=${1:?"On which STATION (host) should I load a log?"}
+shift
+# Second (optional) argument names a log to load in the Auxiliary Log 1 machine.
+auxLog="${2}"
+shift
+
+## Locate the commands we need in this script.
+LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+RMLSEND=$(whence rmlsend) ; RMLSEND=${RMLSEND:-${ROOT:-/}usr/bin/rmlsend}
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -51,25 +59,44 @@ tomorrow=$(( EPOCHSECONDS - secondsPastMidnight + oneDay ))
 currentLog=$(doSQL "select LOG0_CURRENT_LOG from RDAIRPLAY where STATION='${station}'")
 if [[ -n "${currentLog}" ]] ; then
 
+    # Extract the service name from the currently running log.
     # ASSUMPTION: log names are of the form: <Service>_YYYYMMDD. See
     # rdadmin -> Manage Services -> <SERVICE> -> Log Name Template
     service=${currentLog%%_*}
     nextLog=$(strftime "${service}_%Y%m%d" ${tomorrow})
 
-    # What this here-doc does:
-    # PW 1: Select Widget, "Main Log"
-    # LL 1: Load Log, RDAirPlay load tomorrows log
-    # MN 1: Make Next, the second cart in the log (should be a legal ID)
-    # PM 2: Set Mode, RDAirPlay mode "Auto"
-    rmlsend --from-file=- <<EOF
+    # Verify that the log exists before running the macros
+    nextLogLookup=$(doSQL "select NAME from LOGS where NAME = '${nextLog}'")
+
+    if [[ -n "${nextLogLookup}" ]] ; then
+
+	# What this here-doc does:
+	# PW 1: Select Widget, "Main Log"
+	# LL 1: Load Log, RDAirPlay load tomorrows log, but do not start it (-1)
+	# auxLog: if the shell variable auxLog is set, load the named log in Auxiliary Log 1 (log machine 2)
+	# MN 1: Make Next, the first cart in the log (line ID 0, should be a legal ID)
+	# auxLog: if the shell variable auxLog is set, Make Next, the first cart in Auxiliary Log 1 (line ID 0)
+	# PM 2: Set Mode, RDAirPlay mode "Auto"
+	${RMLSEND} --from-file=- <<EOF
 PW 1!
 LL 1 ${nextLog} -1!
-MN 1 1!
+${auxLog:+LL 2 ${auxLog}! -1}
+MN 1 0!
+${auxLog:+MN 2 0!}
 PM 2!
 EOF
+	${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's log ${nextLog}."
+
+    else
+
+	${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "WARNING: the log '${nextLog}' is not in the Rivendell database. Did you generate the log?"
+
+    fi
 
 else
-    echo "ERROR: Could not determine the current running log for ${station} (${?})." >&2
+
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Could not determine the current running log for ${station} (${?})."
+
 fi
 
 exit
