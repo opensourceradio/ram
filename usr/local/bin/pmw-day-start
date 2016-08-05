@@ -32,7 +32,7 @@ zmodload zsh/datetime
 station=${1:?"On which STATION (host) should I load a log?"}
 shift
 # Second (optional) argument names a log to load in the Auxiliary Log 1 machine.
-auxLog="${2}"
+auxLog="${1}"
 shift
 
 ## Locate the commands we need in this script.
