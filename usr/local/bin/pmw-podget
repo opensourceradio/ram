@@ -1,0 +1,410 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+##
+## pmw-podget
+##
+## A PMW podget too to add podcast (i.e., RSS, ATOM, etc.) feeds to
+## the podget "serverlist" file and for later import into a Rivendell
+## library.
+##
+##########################################################################################
+##########################################################################################
+
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+# Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} << EOF
+${myName}: add a new RSS feed to the list of podcasts.
+
+Summary: ${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+                       [ --config (-c) <podget_configuration_file> ]
+                       [ --dir_config (-d) <podget_configruation_directory> ]
+                       [ --group (-g) { <Rivendell Group Name> or 'list' } ]
+
+You may use the word "list" for the --group (-g) option.
+This will cause ${myName##*/} to list the available groups and
+prompt you for which one to use for this podcast.
+
+EOF
+}
+
+addOrReplaceFeed() {
+  local group=${1:?"${BOLD}Need a group name.${NORM}"} ; shift
+  local name=${1:?"${BOLD}Need a podcast feed name.${NORM}"} ; shift
+  local url=${1:?"${BOLD}Need a URL for the feed ${name}.${NORM}"} ; shift
+  local feedUser=${1}
+  local feedPass=${2}
+
+  local tmpfile=$(mktemp)
+  trap "rm -f ${tmpfile}; exit;" 0 1 2 3
+
+  [[ -w ${DIR_CONFIG}/${CONFIG_SERVERLIST} ]] ||
+    exit $(error "Missing access rights to modify the file ${DIR_CONFIG}/${CONFIG_SERVERLIST}")
+
+  # Same group and name (possibly different URL?).
+  if ${GREP} -P -q "^[^#].*\s+${group}\s+${name}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+
+    read -q ok\?"${name} already exists in group ${group}. Replace? [y,N] "
+    if [[ "${ok}" = y ]] ; then
+
+      ${GREP} -P -v "^[^#].*\s+${group}\s+${name}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+
+    fi
+
+  # Same name, different group.
+  elif ${GREP} -P -q "^[^#].*\s+${name}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+
+    read -q ok\?"${name} already exists in a different group. Replace? [y,N] "
+    if [[ "${ok}" = y ]] ; then
+
+      ${GREP} -P -v "^[^#].*\s+${name}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+
+    fi
+
+  # New feed.
+  else
+
+    ${CP} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${tmpfile} ||
+      exit $(error "Could not make a copy of ${DIR_CONFIG}/${CONFIG_SERVERLIST} (${?}). Bailing out.")
+
+    ${CAT} >> ${tmpfile} <<EOF
+${url} ${group} ${name}${feedUser:+" USER:${feedUser}"}${feedPass:+" PASS:${feedPass}"}
+EOF
+
+  fi
+
+  if [[ -s ${tmpfile} ]] ; then
+
+    # We made a tmpfile, so replace serverlist with its contents.
+    ${MV} ${tmpfile} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ||
+      exit $(error "Could not replace ${DIR_CONFIG}/${CONFIG_SERVERLIST}.")
+
+    ${CHMOD} 644 ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+
+    ${MKDIR} ${DIR_LIBRARY}/${group}/${name} ||
+      exit $(error "ERROR: failed to create new podcast directory ${DIR_LIBRARY}/${group}/${name}. (${?}).")
+
+  fi
+
+  trap "" 0 1 2 3
+}  
+
+makeParser() {
+  local selection=${1:?"Need an XML selection."}
+  local tempfile=$(mktemp)
+  
+  ${CAT} > ${tempfile} <<EOF
+<?xml version="1.0"?>
+<stylesheet version="1.0"
+	xmlns="http://www.w3.org/1999/XSL/Transform">
+	<output method="text"/>
+	<template match="/">
+		<apply-templates select="${selection}"/>
+	</template>
+	<template match="enclosure">
+		<value-of select="@url"/><text>&#10;</text>
+	</template>
+</stylesheet>
+EOF
+
+  echo ${tempfile}
+}
+
+warning() {
+  local message=${1}
+
+  ${CAT} <<EOF | ${FMT} -w 79
+${BOLD}
+WARNING: ${message}
+${NORM}
+EOF
+}
+
+error() {
+  local message=${1}
+
+  ${CAT} <<EOF | ${FMT} -w 79
+${BOLD}
+ERROR: ${message}
+${NORM}
+EOF
+  echo 254
+  return 254
+}
+
+##########################################################################################
+## Script main line
+##########################################################################################
+
+# The shell commands we will use in this script.
+typeset -a ourCommands
+ourCommands=(
+  cat
+  chmod
+  cp
+  find
+  fmt
+  getopt
+  grep
+  mkdir
+  mv
+  podget
+  rm
+  sed
+  touch
+  tput
+  xsltproc
+)
+
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the commands later in this function.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+
+# Set some defaults, and see below for more ways to set these.
+DIR_CONFIG=${ROOT:-/}var/snd/podget/.podget
+CONFIG_CORE=podgetrc
+
+TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,debug,dir-config:,version,verbose,group:,help -n "${0:t}" -- "${@}")
+if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -D|--debu*) DEBUG=1 ; shift ;;
+    -c|--conf*) CONFIG_CORE=${2} ; shift 2 ;;
+    -d|--dir-*) DIR_CONFIG=${2} ; shift 2 ;;
+    -g|--grou*) group=${2} ; shift 2 ;;
+    -h|--help*) HELP=1 ; shift ;;
+    -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "Internal error!" >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%\$}"
+  exit 0
+fi
+
+BOLD="$(${TPUT} bold)"
+NORM="$(${TPUT} sgr0)"
+
+# Ensure the configuration directory exists.
+if [[ ! -d ${DIR_CONFIG} ]] ; then
+  if ! ${MKDIR} -p ${DIR_CONFIG} ; then
+
+    ${CAT} <<EOF
+${BOLD}
+
+ERROR: unable to create configuration directory '${DIR_CONFIG}'. Make
+sure your permissions are set so that you have file create and write
+rights to the ${DIR_CONFIG} directory.
+
+Cannot continue.
+
+EOF
+    exit 2
+
+  fi
+fi
+
+# Run podget(1) if it appears it has never been run.
+failCount=1
+maxAttempts=10
+until [[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] ; do
+
+  warning "Unable to read configuration file ${DIR_CONFIG}/${CONFIG_CORE}. Running podget to create a new configuration..."
+
+  ${PODGET} --dir_config ${DIR_CONFIG}
+
+  ((failCount++ > maxAttempts )) &&
+    exit $(error "Unable to create ${DIR_CONFIG}/${CONFIG_CORE} ${maxAttempts} times. I quit.")
+
+done
+
+source ${DIR_CONFIG}/${CONFIG_CORE}
+
+##########################################################################################
+## The guts of why we are here.
+##########################################################################################
+
+##########################################################################################
+read url\?"Enter or paste the RSS feed URL for this podcast: "
+
+read -q ok\?"Does this URL require a username? [y,N] "
+echo
+if [[ "${ok}" = y ]] ; then
+  read feedUser\?"Enter the feed username: "
+
+  read -q ok\?"Does this URL require a password for the user ${feedUser}? [y,N] "
+  echo
+  if [[ "${ok}" = y ]] ; then
+    read feedPassword\?"Enter the password for the user ${feedUser}: "
+  fi
+
+  protocol=${url%://*}
+  hostANDport=${${url#${protocol}://}%%/*}
+  route=${url#${protocol}://${hostANDport}}
+
+  # urlWithCredentials is only used below to try to obtain the feed title.
+  urlWithCredentials=${protocol}://${feedUser}${feedPassword:+:${feedPassword}}@${hostANDport}/${route}
+fi
+
+titleParserXSL=$(makeParser /rss/channel/title)
+trap "${RM} -f ${titleParserXSL} ; exit ;" 0 1 2 3
+
+##########################################################################################
+## Get the feed title, either by its own XML (with xsltproc), or by
+## brute force with (wget). This code snippet and the XSL parser
+## snippet lifted from bashpodder, http://www.lincgeek.org/bashpodder/
+## (link retrieved Tue Aug 9 11:27:36 CDT 2016)
+##########################################################################################
+feedTitle=$(${XSLTPROC} ${titleParserXSL} "${urlWithCredentials:-${url}}" 2>/dev/null ||
+	       wget -q "${urlWithCredentials:-${url}}" -O - | grep -m 1 '<title>' | sed -e 's,^ *<title>\(.*\)</title>.*$,\1,')
+if [[ -z "${feedTitle}" ]] ; then
+
+  # Try it without the username and password.
+  if [[ -n "${urlWithCredentials}" ]] ; then
+
+    feedTitle=$(${XSLTPROC} ${titleParserXSL} "${url}" 2>/dev/null ||
+		   wget -q "${url}" -O - | grep -m 1 '<title>' | sed -e 's,^ *<title>\(.*\)</title>.*$,\1,')
+
+  else
+
+    warning "I could not discern the title for this feed. Please make sure the URL, username (if needed) and password (if needed) are correct and if necessary, re-run ${0##*/}."
+
+  fi
+fi
+
+${RM} -f ${titleParserXSL}
+trap "" 0 1 2 3
+
+##########################################################################################
+## Prompt for a name, use the feed title previously obtained if the
+## user does not enter anything.
+##########################################################################################
+read name\?"Enter a name for this podcast (${BOLD}Note: I may do some manipulation of the name${NORM}): ${feedTitle:+[${feedTitle}]} "
+[[ -z "${name}" ]] && name=${feedTitle}
+# From the inside out, this parameter substitution does the following:
+#    converts ":", "<Space>", ",", and "!" to a dash ("-")
+#    deletes single (') and double (") quotes
+#    converts double-dash ("--") to single dash ("-")
+#    deletes a single dash ("-") at the end of the string
+read -q ok\?"Using ${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/} for the podcast name. OK? [y,N]: "
+until [[ ${ok} = y ]] ; do
+
+  read name\?"OK, try again. Enter a name for this podcast: "
+  read -q ok\?"Using '${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}' for the podcast name. OK? [y,N]: "
+  echo
+
+done
+feedName="${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}"
+
+##########################################################################################
+## Get the "category" for this podcast. Use a Rivendell GROUP for the category name.
+##########################################################################################
+# See zsh-functions for the definition of doSQL.
+rivendellGroupList=( $(doSQL "select NAME from GROUPS order by NAME") )
+
+# List the groups and prompt them for a group to use if they asked for
+# a list or if they did not name a group.
+if [[ -z "${group}" ]] || [[ "${group}" =~ 'list' ]] ; then
+
+  echo "\nCurrent list of GROUPs:"
+  # The (F) modifier joins the array elements into a newline-separated string.
+  echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  read group\?"Type the name of the Rivendell GROUP into which this podcast will be imported: "
+
+fi
+
+# Validate the group against the current known list of groups in the
+# Rivendell database.
+until [[ "${rivendellGroupList}" =~ ".*${group}.*" ]] ; do
+
+  ${CAT} "ERROR: ${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}"
+
+  echo "Current list of GROUPs:"
+  echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  read group\?"Enter the Rivendell GROUP into which this podcast will be imported: "
+
+done
+
+(( verbose )) && echo ${url} ${group} ${feedName}${feedUser:+" USER:${feedUser}"}${feedPassword:+" PASS:${feedPassword}"}
+
+##########################################################################################
+## Finally, add (or replace) the feed to the podget "serverlist" file
+## so that podget can retrieve the audio file and rdimport can
+## automatically import the file into the library.
+##########################################################################################
+addOrReplaceFeed \
+  ${group} \
+  ${feedName} \
+  "${url}" \
+  ${feedUser} \
+  ${feedPassword}
+
+cat <<EOF
+
+Podcast added. Now set up a Rivendell dropbox, and paste the path
+
+  ${DIR_LIBRARY}${group}${feedName}/*.mp3
+
+in the "Path Spec" field in rdadmin->Manage Hosts->HOST->Dropbox Configuration.
+
+EOF
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
