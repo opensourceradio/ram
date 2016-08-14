@@ -1,0 +1,349 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+## pmw-podget-wrapper
+##
+## A PMW podget wrapper to do some sooper sofisiticated exception handling
+## for the awesome podget bash script.
+##
+##########################################################################################
+##########################################################################################
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+# Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} << EOF
+${myName}: run podget with exception handling and notifications
+
+Summary: ${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+                       [ --config (-c) <podget-configuration-file> ]
+                       [ --dir_config (-d) <podget-directory-path> ]
+
+Description
+
+pmw-podget-wrapper is a ZSH sript that performs some sanity checking
+before launching podget, then performing cleanup and further sanity
+checking after the podget run completes.
+
+EOF
+}
+
+sendNotification() {
+  local type=${1:?"Need a notification type."}
+  local message=${2:?"Need a message to send for the notification."}
+
+  case ${type} in
+    DOWNLOAD)
+    ;;
+    INTERNAL_ERROR)
+    ;;
+    TERMINATE)
+    ;;
+    TIMEOUT)
+    ;;
+    *)
+    ;;
+  esac
+}
+
+# Relevant runtime data in a key-value text file.
+# Returns 0 on success, else 1 or other positive integer (see below for possibilities).
+updateRuntimeData() {
+  local key=${1:?"Need a key to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
+  local value=${2:?"Need a value for key '${key}' to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
+
+  local tmpfile=$(mktemp)
+  local returnValue=1
+
+  trap "rm -f ${tmpfile} ; exit ; " 0 1 2 3
+
+  # Make sure the runtime data state file exists.
+  [[ -w ${DIR_LOG}/${PODGET_RUNTIME_DATA} ]] || ${TOUCH} ${DIR_LOG}/${PODGET_RUNTIME_DATA}
+
+  if ${GREP} -q "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
+
+    if [[ "${value}" = "DELETE" ]] ; then
+
+      # Grab everything except the line with our key on it
+      ${GREP} -v "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} > ${tmpfile}
+
+      if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
+
+	returnValue=0
+	trap "" 0 1 2 3
+
+      else
+
+	sendNotification INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
+	returnValue=32
+
+      fi
+
+    else
+
+      # Found this key, replace the value.
+      ${SED} -i.bak -e "/^${key} /s/^.*/${key} ${value}/" ${DIR_LOG}/${PODGET_RUNTIME_DATA}
+
+      # There should be exactly one line of difference between the
+      # edited file and the original file (.bak)
+      if (( $(${DIFF} -y --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak) == 1 )) ; then
+
+	${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+
+      else
+
+	sendNotification INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
+	${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+	returnValue=34
+
+      fi
+    fi
+
+  else
+
+    # Add the new key, and keep the runtime data file sorted.
+    (
+      echo "${key} ${value}"
+      ${CAT} ${DIR_LOG}/${PODGET_RUNTIME_DATA}
+    ) | ${SORT} > ${tmpfile}
+
+    if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
+
+      returnValue=0
+      trap "" 0 1 2 3
+
+    else
+
+      sendNotification INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
+      returnValue=36
+
+    fi
+  fi
+
+  return ${returnValue}
+}
+
+
+
+warning() {
+  local message=${1}
+
+  ${LOGGER} -t ${0##*/} -p local7.warn -i "WARNING: ${message}"
+
+}
+
+error() {
+  local message=${1}
+
+  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${message}"
+
+  echo 254
+  return 254
+}
+
+##############################################################################
+## Script main line
+##############################################################################
+
+# The shell commands we will use in this script.
+typeset -a ourCommands
+ourCommands=(
+  awk
+  cat
+  chmod
+  cp
+  diff
+  find
+  getopt
+  grep
+  kill
+  mkdir
+  mv
+  pidof
+  podget
+  rm
+  sed
+  touch
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the commands later in this function.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+
+# Set some defaults, and see below for ways to override these defaults.
+DIR_CONFIG=${ROOT:-/}var/snd/podget/.podget
+CONFIG_CORE=podgetrc
+CONFIG_NOTIFY=notifyrc
+
+# Process command line options.
+# We use the same option names and values as podget.
+TEMP=$(${GETOPT} -o c:Dd:n:Vvh --long config:,debug,dir_config:,config_notify:,version,verbose,help -n "${0:t}" -- "${@}")
+if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -D|--debu*) DEBUG=1 ; shift ;;
+    -c|--config) CONFIG_CORE=${2} ; shift 2 ;;
+    -d|--dir_c*) DIR_CONFIG=${2} ; shift 2 ;;
+    -n|--config_n*) CONFIG_NOTIFY=${2} ; shift 2 ;;
+    -h|--help*) HELP=1 ; shift ;;
+    -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "Internal error!" >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%\$}"
+  exit 0
+fi
+
+source ${DIR_CONFIG}/${CONFIG_CORE}
+source ${DIR_CONFIG}/${CONFIG_NOTIFY}
+
+# Remember when we started running.
+startTime=${EPOCHSECONDS}
+
+##############################
+# The guts of why we are here.
+##############################
+
+####################################################
+# Make sure no other instances of podget are running
+####################################################
+
+# Is podget running?
+if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
+
+  # Figure out how long that instance has been running and kill it,
+  # then notify if it has been running for too long.
+  if [[ -r ${DIR_LOG}/${PODGET_RUNTIME_DATA} ]] ; then
+
+    lastStart=$(${AWK} '/^start-time/{print $2}' ${DIR_LOG}/${PODGET_RUNTIME_DATA})
+
+    if (( ( startTime - lastStart ) > PODGET_REASONABLE_RUNTIME )) ; then
+
+      sendNotification TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
+
+      for pid in ${podgetPIDs} ; do
+
+	# Try to be kind in killing the process
+	${KILL} -HUP ${pid}
+	${SLEEP} 3
+	if [[ -d /proc/${pid} ]] ; then
+
+	  # Be a little more persistent.
+	  ${KILL} ${pid}
+	  ${SLEEP} 3
+	  if [[ -d /proc/${pid} ]] ; then
+
+	    # The nuclear option -- just kill it.
+	    ${KILL} -9 ${pid}
+	    ${SLEEP} 3
+	    if [[ -d /proc/${pid} ]] ; then
+
+	      sendNotification TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
+	      exit $(error "Cannot terminate running podget. PID is ${pid}.")
+	    fi
+	  fi
+	fi
+      done
+
+    else
+
+      # podget is running but for less than the "reasonable" time. Just quit.
+      updateRuntimeData check-time ${startTime}
+
+    fi
+
+  else
+
+    sendNotification INTERNAL_ERROR "WHAT? podget seems to be running, but missing '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting."
+    exit $(error "podget running but missing ${DIR_LOG}/${PODGET_RUNTIME_DATA}.")
+
+  fi
+else
+
+  updateRuntimeData start-time ${startTime}
+
+  # podget is not running, so go ahead and launch it.
+  # Convert our "--verbose" to a "-vv" for podget, add up to two more
+  # "v" to increase the verbosity of podget.
+  ${PODGET} ${verbose:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
+
+  # Make a note of the completion time
+  updateRuntimeData start-time DELETE
+
+  # Check the various output and log files to make sure things went well.
+  if [[ -s ${DIR_LOG}/${LOG_FAIL} ]] ; then
+
+    # It seems there was a failure, investigate further. LOG_FAIL contains one URL per line.
+    failures=( $(${CAT} ${DIR_LOG}/${LOG_FAIL}) )
+    for failure in ${failures} ; do
+
+      sendNotification DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things."
+      warning "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
+
+    done
+  fi
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
