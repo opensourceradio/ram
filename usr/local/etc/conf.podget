@@ -1,0 +1,18 @@
+# conf.msmtp for pmw-podget-wrapper
+# see examples in /usr/share/doc/msmtp
+# Set default values for all following accounts.
+defaults
+tls on
+tls_certcheck off
+#tls_starttls on
+syslog LOG_MAIL
+from envelope_from
+
+account podget
+host %MAIL-HOST%
+port %MAIL-PORT%
+user %MAIL-USER%
+password %MAIL-PASSWORD%
+auth login
+
+account default : podget
