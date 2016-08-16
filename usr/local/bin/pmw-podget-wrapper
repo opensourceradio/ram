@@ -11,11 +11,6 @@
 ##########################################################################################
 ##########################################################################################
 
-# Log STDOUT and STDERR of this script and all commands called by this
-# script to separate files.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
-
 setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
@@ -38,7 +33,7 @@ vHash='$Hash$'
 usage() {
   myName=${1}
 
-  ${CAT} << EOF
+  ${CAT} <<EOF
 ${myName}: run podget with exception handling and notifications
 
 Summary
@@ -55,7 +50,8 @@ before launching podget, then performing cleanup and further sanity
 checking after the podget run completes.
 
 pmw-podget-wrapper sends email notification of unexpected events to
-all the addresses listed in the PODGET_MAILTO parameter in the notifyrc file.
+all the addresses listed in the 'PODGET_MAILTO' parameter in the file
+'${DIR_CONFIG}/${CONFIG_NOTIFY}'.
 
 EOF
 }
@@ -73,7 +69,7 @@ sendNotification() {
 
     ${PODGET_MAILER} ${PODGET_MAILER_ARGS} ${PRETEND} <<ENDOFMAIL
 From: No-Reply@$(${HOSTNAME} -f)
-To: ${PODGET_MAILTO// /,}
+To: ${${PODGET_MAILTO//( |[ ,][ ,])/,}%,}
 Subject: ATTENTION: podget ${type} Notification
 X-Script-Name: ${0}
 X-Message-ID: $(${UUID})-${EPOCHSECONDS}@$(${HOSTNAME} -f)
@@ -240,11 +236,11 @@ while : ; do
     -c|--config) CONFIG_CORE=${2} ; shift 2 ;;
     -d|--dir_c*) DIR_CONFIG=${2} ; shift 2 ;;
     -n|--config_n*) CONFIG_NOTIFY=${2} ; shift 2 ;;
-    -h|--help*) HELP=1 ; shift ;;
+    -h|--help*) usage ${0##*/} ; exit ;;
     -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "Internal error!" >&2 ; return 1 ;;
+    *) echo "${0##*/}: getopt internal error!" >&2 ; return 1 ;;
   esac
 done
 
@@ -252,6 +248,11 @@ if ((showVersion)) ; then
   echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash$}"
   exit 0
 fi
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
 
 source ${DIR_CONFIG}/${CONFIG_CORE}
 source ${DIR_CONFIG}/${CONFIG_NOTIFY}
@@ -304,7 +305,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
 
     else
 
-      # podget is running but for less than the "reasonable" time. Just quit.
+      # podget is running but for less than the reasonable time. Just quit.
       updateRuntimeData check-time ${startTime}
 
     fi
