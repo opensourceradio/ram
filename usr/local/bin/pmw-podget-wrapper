@@ -41,9 +41,12 @@ usage() {
   ${CAT} << EOF
 ${myName}: run podget with exception handling and notifications
 
-Summary: ${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
-                       [ --config (-c) <podget-configuration-file> ]
-                       [ --dir_config (-d) <podget-directory-path> ]
+Summary
+
+${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+                   [ --config (-c) <podget-configuration-file> ]
+                   [ --config_notify (-n) <noification-configuration-file> ]
+                   [ --dir_config (-d) <podget-directory-path> ]
 
 Description
 
@@ -51,25 +54,40 @@ pmw-podget-wrapper is a ZSH sript that performs some sanity checking
 before launching podget, then performing cleanup and further sanity
 checking after the podget run completes.
 
+pmw-podget-wrapper sends email notification of unexpected events to
+all the addresses listed in the PODGET_MAILTO parameter in the notifyrc file.
+
 EOF
 }
 
+# Use the configured mailer to send email to one or more addresses.
 sendNotification() {
-  local type=${1:?"Need a notification type."}
-  local message=${2:?"Need a message to send for the notification."}
+  local type=${1:?"Need a notification type."} ; shift
+  local message=${1:?"Need a message to send for the notification."} ; shift
+  local messagefile="${1}"
 
-  case ${type} in
-    DOWNLOAD)
-    ;;
-    INTERNAL_ERROR)
-    ;;
-    TERMINATE)
-    ;;
-    TIMEOUT)
-    ;;
-    *)
-    ;;
-  esac
+  local PODGET_MAILER_CONFIG=${PODGET_MAILER_CONFIG:-${DIR_CONFIG}/conf.msmtp}
+  local PRETEND=${PRETEND}
+
+  if [[ -x ${PODGET_MAILER} ]] ; then
+
+    ${PODGET_MAILER} ${PODGET_MAILER_ARGS} ${PRETEND} <<ENDOFMAIL
+From: No-Reply@$(${HOSTNAME} -f)
+To: ${PODGET_MAILTO// /,}
+Subject: ATTENTION: podget ${type} Notification
+X-Script-Name: ${0}
+X-Message-ID: $(${UUID})-${EPOCHSECONDS}@$(${HOSTNAME} -f)
+
+${message}
+
+${messagefile:+$(${CAT} ${messagefile})}
+ENDOFMAIL
+
+  else
+
+    warning "Cannot find executable program '${PODGET_MAILER}'."
+
+  fi
 }
 
 # Relevant runtime data in a key-value text file.
@@ -86,43 +104,44 @@ updateRuntimeData() {
   # Make sure the runtime data state file exists.
   [[ -w ${DIR_LOG}/${PODGET_RUNTIME_DATA} ]] || ${TOUCH} ${DIR_LOG}/${PODGET_RUNTIME_DATA}
 
-  if ${GREP} -q "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
+  # Attempt to delete the key and value.
+  if [[ "${value}" = "DELETE" ]] ; then
 
-    if [[ "${value}" = "DELETE" ]] ; then
+    # Grab everything except the line with our key on it (we do not
+    # care if the key is present in the file).
+    ${GREP} -v "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} > ${tmpfile}
 
-      # Grab everything except the line with our key on it
-      ${GREP} -v "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} > ${tmpfile}
+    if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
 
-      if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
-
-	returnValue=0
-	trap "" 0 1 2 3
-
-      else
-
-	sendNotification INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
-	returnValue=32
-
-      fi
+      returnValue=0
+      trap "" 0 1 2 3
 
     else
 
-      # Found this key, replace the value.
-      ${SED} -i.bak -e "/^${key} /s/^.*/${key} ${value}/" ${DIR_LOG}/${PODGET_RUNTIME_DATA}
+      sendNotification INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
+      returnValue=32
 
-      # There should be exactly one line of difference between the
-      # edited file and the original file (.bak)
-      if (( $(${DIFF} -y --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak) == 1 )) ; then
+    fi
 
-	${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+  elif ${GREP} -q "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
 
-      else
+    # Found this key, replace the value.
+    ${SED} -i.bak -e "/^${key} /s/^.*/${key} ${value}/" ${DIR_LOG}/${PODGET_RUNTIME_DATA}
 
-	sendNotification INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
-	${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
-	returnValue=34
+    # There should be exactly one line of difference between the
+    # edited file and the original file (.bak)
+    if (( $(${DIFF} -y --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak) == 1 )) ; then
 
-      fi
+      ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+      returnValue=0
+      trap "" 0 1 2 3
+
+    else
+
+      sendNotification INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
+      ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+      returnValue=34
+
     fi
 
   else
@@ -182,6 +201,7 @@ ourCommands=(
   find
   getopt
   grep
+  hostname
   kill
   mkdir
   mv
@@ -190,6 +210,7 @@ ourCommands=(
   rm
   sed
   touch
+  uuid
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
@@ -228,7 +249,7 @@ while : ; do
 done
 
 if ((showVersion)) ; then
-  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%\$}"
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash$}"
   exit 0
 fi
 
@@ -238,13 +259,10 @@ source ${DIR_CONFIG}/${CONFIG_NOTIFY}
 # Remember when we started running.
 startTime=${EPOCHSECONDS}
 
-##############################
-# The guts of why we are here.
-##############################
 
-####################################################
-# Make sure no other instances of podget are running
-####################################################
+##########################################################################################
+## Make sure no other instances of podget are running
+##########################################################################################
 
 # Is podget running?
 if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
@@ -255,6 +273,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
 
     lastStart=$(${AWK} '/^start-time/{print $2}' ${DIR_LOG}/${PODGET_RUNTIME_DATA})
 
+    # If lastStart is not set it gets evaluated as zero.
     if (( ( startTime - lastStart ) > PODGET_REASONABLE_RUNTIME )) ; then
 
       sendNotification TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
