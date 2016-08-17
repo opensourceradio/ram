@@ -110,7 +110,7 @@ updateRuntimeData() {
     if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
 
       returnValue=0
-      trap "" 0 1 2 3
+      trap - 0 1 2 3
 
     else
 
@@ -130,7 +130,7 @@ updateRuntimeData() {
 
       ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
       returnValue=0
-      trap "" 0 1 2 3
+      trap - 0 1 2 3
 
     else
 
@@ -151,7 +151,7 @@ updateRuntimeData() {
     if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
 
       returnValue=0
-      trap "" 0 1 2 3
+      trap - 0 1 2 3
 
     else
 
