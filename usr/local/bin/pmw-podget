@@ -52,7 +52,11 @@ EOF
 
 addOrReplaceFeed() {
   local myName=${1} ; shift
-  local verbose=${1} ; shift
+  local verbose=${1}
+
+  local feedURL feedUser feedPassword protocol hostANDport route urlWithCredentials titleParserXSL
+  local feedTitle name group rivendellGroupList
+  local ok
 
   read feedURL\?"Type or paste the RSS feed URL for this podcast: "
 
@@ -96,13 +100,13 @@ addOrReplaceFeed() {
 
     else
 
-      warning "I could not discern the title for this feed. Please make sure the URL, username (if needed) and password (if needed) are correct and if necessary, re-run ${0##*/}."
+      warning "I could not discern the title for this feed. Please make sure the URL, username (if needed) and password (if needed) are correct and if necessary, re-run ${myName}."
 
     fi
   fi
 
   ${RM} -f ${titleParserXSL}
-  trap "" 0 1 2 3
+  trap - 0 1 2 3
 
   ##########################################################################################
   ## Prompt for a name, use the feed title previously obtained if the
@@ -118,9 +122,9 @@ addOrReplaceFeed() {
   read -q ok\?"Using ${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/} for the podcast name. OK? [y,N]: "
   until [[ ${ok} = y ]] ; do
 
+    echo
     read name\?"OK, try again. Enter a name for this podcast: "
     read -q ok\?"Using '${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}' for the podcast name. OK? [y,N]: "
-    echo
 
   done
   feedName="${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}"
@@ -129,27 +133,26 @@ addOrReplaceFeed() {
   ## Get the "category" for this podcast. Use a Rivendell GROUP for the category name.
   ##########################################################################################
   # See zsh-functions for the definition of doSQL.
-  rivendellGroupList=( $(doSQL "select NAME from GROUPS order by NAME") )
+  rivendellGroupList=$(doSQL "select NAME from GROUPS order by NAME")
 
   # List the groups and prompt them for a group to use if they asked for
   # a list or if they did not name a group.
   if [[ -z "${group}" ]] || [[ "${group}" =~ 'list' ]] ; then
 
     echo "\nCurrent list of GROUPs:"
-    # The (F) modifier joins the array elements into a newline-separated string.
-    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${rivendellGroupList}
     read group\?"Type the name of the Rivendell GROUP into which this podcast will be imported: "
 
   fi
 
   # Validate the group against the current known list of groups in the
   # Rivendell database.
-  until [[ "${rivendellGroupList}" =~ ".*${group}.*" ]] ; do
+  until ${GREP} -q "^${group}$" <<< ${rivendellGroupList} ; do
 
-    ${CAT} "ERROR: ${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}"
+    warning "'${group}' is not in the list. Please use a valid GROUP name."
 
     echo "Current list of GROUPs:"
-    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${rivendellGroupList}
     read group\?"Enter the Rivendell GROUP into which this podcast will be imported: "
 
   done
@@ -189,7 +192,7 @@ addOrReplaceFeed() {
       exit $(error "Could not make a copy of ${DIR_CONFIG}/${CONFIG_SERVERLIST} (${?}). Bailing out.")
 
     ${CAT} >> ${tmpfile} <<EOF
-${feedURL} ${group} ${feedName}${feedUser:+" USER:${feedUser}"}${feedPass:+" PASS:${feedPass}"}
+${feedURL} ${group} ${feedName}${feedUser:+" USER:${feedUser}"}${feedPassword:+" PASS:${feedPassword}"}
 EOF
 
   fi
@@ -211,57 +214,128 @@ EOF
 
 Podcast added. Now set up a Rivendell dropbox, and paste the path
 
-  ${DIR_LIBRARY}${group}${feedName}/*.mp3
+  ${BOLD}${DIR_LIBRARY}/${group}/${feedName}/*.mp3${NORM}
 
 in the "Path Spec" field in rdadmin->Manage Hosts->HOST->Dropbox Configuration.
 
 EOF
 
-  trap "" 0 1 2 3
+  trap - 0 1 2 3
+}
+
+enableFeed() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  local feedList feedName tmpfile
+
+  feedList=$(${GREP} '^#DISABLED#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
+
+  if (( $(wc -l <<<${feedList}) > 1 )) ; then
+
+    echo "Current list of disabled podcast feeds:"
+    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+    read feedName\?"Type or paste the name of the podcast you want to enable (and press <Enter>): "
+
+    until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
+
+      warning "'${feedName}' is not in the list. Please use a valid feed name."
+
+      echo "Current list of disabled podcast feeds:"
+      ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+      read feedName\?"Type or paste the name of the podcast you want to enable: "
+
+    done
+
+  else
+
+    # There is only one feed to enable, so do not bother prompting for it.
+    feedName=${feedList}
+
+  fi
+
+  echo "Enabling '${feedName}' in the feed list... \c"
+
+  trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+
+  ${SED} -i.bak -e "/^#DISABLED#.*[[:space:]]${feedName}[[:space:]]*/s/^#DISABLED#//" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+  # The sed command *should* result in exactly one line of
+  # difference between the original and the edited file.
+  if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
+
+    ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
+    echo "Done."
+
+  else
+
+    warning "Could not properly enable the disabled podcast feed '${feedName}'.
+Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+
+    ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
+
+  fi
+
+  trap - 0 1 2 3
 }
 
 deleteFeed() {
   local myName=${1} ; shift
-  local verbose=${1} ; shift
+  local verbose=${1}
 
-  local tmpfile=$(mktemp)
-  trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
+  local feedList feedName deleteOrDisable tmpfile
 
-  local feedList=( $(${GREP} -v '^#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}') )
+  feedList=$(${GREP} -v '^#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
   echo "Current list of podcast feeds:"
-  # The (F) modifier joins the array elements into a newline-separated string.
-  echo ${(F)feedList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-  read feedName\?"Type or paste the name of the podcast you want to delete or disable: "
+  ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+  read feedName\?"Type or paste the name of the podcast you want to delete or disable (and press <Enter>): "
+
+  until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
+
+    warning "'${feedName}' is not in the list. Please use a valid feed name."
+
+    echo "Current list of podcast feeds:"
+    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+    read feedName\?"Type or paste the name of the podcast you want to delete or disable: "
+
+  done
 
   read -k 1 deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
   until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
     echo
     read -k 1 deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' "
   done
+  echo
 
   if [[ "${deleteOrDisable}" = 'd' ]] ; then
 
     echo "Disabling '${feedName}' in the feed list... \c"
 
-    ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
-    if (( $(${DIFF} -side-by-side --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak) == 1 )) ; then
+    trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+
+    ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]*/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+    # The sed command *should* result in exactly one line of
+    # difference between the original and the edited file.
+    if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
 
       ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
       echo "Done."
 
     else
 
-      warning "Could not properly disable the podcast feed '${feedName}'.
-
-Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+      warning "Could not properly disable the podcast feed '${feedName}'. Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
       ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 
     fi
 
+    trap - 0 1 2 3
+
   elif [[ "${deleteOrDisable}" = 'D' ]] ; then
 
     echo "Deleting feed '${feedName}' from the feed list... \c"
+
+    tmpfile=$(mktemp)
+    trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
 
     ${GREP} -v "[[:space:]]${feedName}[[:space:]]" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
 
@@ -273,26 +347,48 @@ Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
       else
 
-	warning "Could not replace '${DIR_CONFIG}/${CONFIG_SERVERLIST}'
-with the deleted podcast feed. Do you have the access rights to
-replace this file?
-Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+	warning "Could not replace '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with the deleted podcast feed. Do you have the access rights to replace this file? Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
       fi
     else
 
-      warning "Unable to find '${feedName}' in ${DIR_CONFIG}/${CONFIG_SERVERLIST}.
-
-Please fix the file ${DIR_CONFIG}/${CONFIG_SERVERLIST} manually."
+      warning "Unable to find '${feedName}' in ${DIR_CONFIG}/${CONFIG_SERVERLIST}. Please fix the file ${DIR_CONFIG}/${CONFIG_SERVERLIST} manually."
 
     fi
+
   else
 
     echo "\nWTF? How did you get past the prompt without entering a 'd' or a 'D'?"
 
   fi
 
-  trap "" 0 1 2 3
+  trap - 0 1 2 3
+}
+
+listFeeds() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  (
+    ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
+      ${GREP} -v '^ *$'
+  ) |
+      perl -ne 'format STDOUT_TOP =
+Title                                           Group            Credentials
+----------------------------------------------- ---------------- -----------
+.
+format STDOUT =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< @<<<<<<<<<<<<<<< @*
+$title,                                         $group,          $rest
+@*
+$url
+
+.
+( $url, $group, $title, $rest ) = split( /\s+/, $_, 4 );
+$title = "DISABLED: " . $title if ( $url =~ m/^#DISABLED#/ );
+$url = "DISABLED: " . $url if ( $url =~ s/^#DISABLED#// );
+write;
+'
 }
 
 makeParser() {
@@ -319,20 +415,22 @@ EOF
 warning() {
   local message=${1}
 
-  ${CAT} <<EOF | ${FMT} -w 79
-${BOLD}
-WARNING: ${message}
-${NORM}
+  ${CAT} <<EOF
+
+${BOLD}WARNING:${NORM}
+$(${FMT} -w 79 <<< ${message})
+
 EOF
 }
 
 error() {
   local message=${1}
 
-  ${CAT} <<EOF | ${FMT} -w 79
-${BOLD}
-ERROR: ${message}
-${NORM}
+  ${CAT} <<EOF
+
+${BOLD}ERROR:${NORM}
+$(${FMT} -w 79 <<< ${message})
+
 EOF
   echo 254
   return 254
@@ -345,10 +443,12 @@ EOF
 # The shell commands we will use in this script.
 typeset -a ourCommands
 ourCommands=(
+  awk
   cat
   chmod
   column
   cp
+  diff
   find
   fmt
   getopt
@@ -378,7 +478,7 @@ done
 DIR_CONFIG=${ROOT:-/}var/snd/podget/.podget
 CONFIG_CORE=podgetrc
 
-TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,debug,dir-config:,version,verbose,group:,help -n "${0:t}" -- "${@}")
+TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,debug,dir-config:,version,verbose,group:,help -n "${0##*/}" -- "${@}")
 if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
@@ -388,7 +488,7 @@ while : ; do
     -c|--conf*) CONFIG_CORE=${2} ; shift 2 ;;
     -d|--dir-*) DIR_CONFIG=${2} ; shift 2 ;;
     -g|--grou*) group=${2} ; shift 2 ;;
-    -h|--help*) HELP=1 ; shift ;;
+    -h|--help*) usage ${0##*/} ; exit ;;
     -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -453,11 +553,16 @@ while : ; do
       "Quit"
       "Add or Replace a podcast feed"
       "Delete a podcast feed"
+      "Enable a disabled podcast feed"
       "Show the complete list of podcast feeds"
+      "Edit '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with '${EDITOR:-${VISUAL:-vi}}'"
     )
     command=(
       'addOrReplaceFeed ${0##*/} ${verbose}'
       'deleteFeed ${0##*/} ${verbose}'
+      'enableFeed ${0##*/} ${verbose}'
+      'listFeeds ${0##*/} ${verbose}'
+      '${EDITOR:-${VISUAL:-vi}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
     )
 
     for menuItem in ${menu} ; do
@@ -472,16 +577,22 @@ while : ; do
 
     if [[ -z "${choice}" ]] ; then
 	echo "Please enter a number between 0 and $(( count - 1 ))."
+
     elif [[ ${choice} =~ '[0Qq]' ]] ; then
 	exit
-    elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]{1,}' ]] ; then
+
+    elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]+' ]] ; then
 	echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
-    elif [[ "${choice}" =~ '[[:space:]]*[[:alnum:]]+[[:space:]]*' ]] ; then
-	echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
+
+    elif [[ "${choice}" =~ '[[:space:]]*[[:alnum:]]+[[:space:]]+' ]] ; then
+	echo "'${choice}' is not an option (watch your spaces). Please enter a number between 0 and $(( count - 1 ))."
+
     elif (( choice > 0 && choice < count )) ; then
 	eval $(echo ${command[${choice}]})
+
     else
 	echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
+
     fi
 
     echo
