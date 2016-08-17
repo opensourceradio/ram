@@ -323,7 +323,7 @@ else
   # podget is not running, so go ahead and launch it.
   # Convert our "--verbose" to a "-vv" for podget, add up to two more
   # "v" to increase the verbosity of podget.
-  ${PODGET} ${verbose:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
+  ${PODGET} ${VERBOSE:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
 
   # Make a note of the completion time
   updateRuntimeData start-time DELETE
