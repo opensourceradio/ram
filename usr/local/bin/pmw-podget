@@ -17,6 +17,9 @@ setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
+zmodload zsh/terminfo
+autoload colors
+colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
@@ -89,14 +92,14 @@ addOrReplaceFeed() {
   ## (link retrieved Tue Aug 9 11:27:36 CDT 2016)
   ##########################################################################################
   feedTitle=$(${XSLTPROC} ${titleParserXSL} "${urlWithCredentials:-${feedURL}}" 2>/dev/null ||
-		 wget -q "${urlWithCredentials:-${feedURL}}" -O - | grep -m 1 '<title>' | sed -e 's,^ *<title>\(.*\)</title>.*$,\1,')
+		 ${WGET} -q "${urlWithCredentials:-${feedURL}}" -O - | ${GREP} -m 1 '<title>' | ${SED} -e 's,^ *<title>\(.*\)</title>.*$,\1,')
   if [[ -z "${feedTitle}" ]] ; then
 
     # Try it without the username and password.
     if [[ -n "${urlWithCredentials}" ]] ; then
 
       feedTitle=$(${XSLTPROC} ${titleParserXSL} "${feedURL}" 2>/dev/null ||
-		     wget -q "${feedURL}" -O - | grep -m 1 '<title>' | sed -e 's,^ *<title>\(.*\)</title>.*$,\1,')
+		     ${WGET} -q "${feedURL}" -O - | ${GREP} -m 1 '<title>' | ${SED} -e 's,^ *<title>\(.*\)</title>.*$,\1,')
 
     else
 
@@ -369,26 +372,39 @@ listFeeds() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  (
-    ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
-      ${GREP} -v '^ *$'
-  ) |
-      perl -ne 'format STDOUT_TOP =
-Title                                           Group            Credentials
------------------------------------------------ ---------------- -----------
-.
-format STDOUT =
-@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< @<<<<<<<<<<<<<<< @*
-$title,                                         $group,          $rest
-@*
-$url
+  # The header.
+  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+  printf '%-46s %-16s %-48s\n'  "Title" "Group" "Credentials"
+  printf '-%.0s' {1..46}; printf '-%.0s' {1..16}; printf '-%.0s' {1..48}; print
 
-.
-( $url, $group, $title, $rest ) = split( /\s+/, $_, 4 );
-$title = "DISABLED: " . $title if ( $url =~ m/^#DISABLED#/ );
-$url = "DISABLED: " . $url if ( $url =~ s/^#DISABLED#// );
-write;
-'
+  # The content.
+  ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
+    ${GREP} -v '^ *$' |
+    while read url group title rest ; do
+    if [[ ${url} =~ '#DISABLED#.*' ]] ; then
+      title="${RED}DISABLED:${NORM} ${title}"
+      url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
+    fi
+    printf '%-46s %-16s %-48s\n%-80s\n\n' ${title} ${group} ${rest:-""} ${url}
+  done
+
+  # The footer.
+  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+
+}
+
+showLastStatus() {
+  local myName=${1} ; shift
+  local verbose=${1} ; shift
+  local type=${1}
+
+  local statusFile=${STATUS_FILE:-${ROOT:-/}var/tmp/pmw-podget-wrapper.${type}}
+
+  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+
+  ${CAT} ${statusFile}
+
+  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 }
 
 makeParser() {
@@ -417,7 +433,7 @@ warning() {
 
   ${CAT} <<EOF
 
-${BOLD}WARNING:${NORM}
+${BOLD}${RED}WARNING:${NORM}
 $(${FMT} -w 79 <<< ${message})
 
 EOF
@@ -428,7 +444,7 @@ error() {
 
   ${CAT} <<EOF
 
-${BOLD}ERROR:${NORM}
+${RED}${BOLD}ERROR:${NORM}
 $(${FMT} -w 79 <<< ${message})
 
 EOF
@@ -449,7 +465,6 @@ ourCommands=(
   column
   cp
   diff
-  find
   fmt
   getopt
   grep
@@ -458,8 +473,7 @@ ourCommands=(
   podget
   rm
   sed
-  touch
-  tput
+  wget
   xsltproc
 )
 
@@ -501,22 +515,22 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-BOLD="$(${TPUT} bold)"
-NORM="$(${TPUT} sgr0)"
+RED="${fg_bold[red]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
 
 # Ensure the configuration directory exists.
 if [[ ! -d ${DIR_CONFIG} ]] ; then
   if ! ${MKDIR} -p ${DIR_CONFIG} ; then
 
     ${CAT} <<EOF
-${BOLD}
-
+${BOLD}${RED}
 ERROR: unable to create configuration directory '${DIR_CONFIG}'. Make
 sure your permissions are set so that you have file create and write
 rights to the ${DIR_CONFIG} directory.
 
 Cannot continue.
-
+${NORM}
 EOF
     exit 2
 
@@ -556,6 +570,8 @@ while : ; do
       "Enable a disabled podcast feed"
       "Show the complete list of podcast feeds"
       "Edit '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with '${EDITOR:-${VISUAL:-vi}}'"
+      "Show most recent podget run status"
+      "Show most recent podget error status"
     )
     command=(
       'addOrReplaceFeed ${0##*/} ${verbose}'
@@ -563,6 +579,8 @@ while : ; do
       'enableFeed ${0##*/} ${verbose}'
       'listFeeds ${0##*/} ${verbose}'
       '${EDITOR:-${VISUAL:-vi}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
+      'showLastStatus ${0##*/} ${verbose:-X} out'
+      'showLastStatus ${0##*/} ${verbose:-X} err'
     )
 
     for menuItem in ${menu} ; do
