@@ -208,7 +208,7 @@ EOF
 
     ${CHMOD} 644 ${DIR_CONFIG}/${CONFIG_SERVERLIST}
 
-    ${MKDIR} ${DIR_LIBRARY}/${group}/${feedName} ||
+    ${MKDIR} -p ${DIR_LIBRARY}/${group}/${feedName} ||
       exit $(error "ERROR: failed to create new podcast directory ${DIR_LIBRARY}/${group}/${feedName}. (${?}).")
 
   fi
@@ -340,7 +340,7 @@ deleteFeed() {
     tmpfile=$(mktemp)
     trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
 
-    ${GREP} -v "[[:space:]]${feedName}[[:space:]]" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+    ${GREP} -v "[[:space:]]${feedName}[[:space:]]*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
 
     if [[ -s ${tmpfile} ]] ; then
 
@@ -566,10 +566,11 @@ while : ; do
     menu=(
       "Quit"
       "Add or Replace a podcast feed"
-      "Delete a podcast feed"
+      "Delete (or disable) a podcast feed"
       "Enable a disabled podcast feed"
       "Show the complete list of podcast feeds"
-      "Edit '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with '${EDITOR:-${VISUAL:-vi}}'"
+      "Edit the podcast list ('${DIR_CONFIG}/${CONFIG_SERVERLIST}') with '${EDITOR:-${VISUAL:-vi}}'"
+      "Edit Notify Config ('${DIR_CONFIG}/${CONFIG_NOTIFYRC}') with '${EDITOR:-${VISUAL:-vi}}'"
       "Show most recent podget run status"
       "Show most recent podget error status"
     )
