@@ -28,7 +28,7 @@ PODGET_MAILER=msmtp
 ###############################################################################################
 # Where the mailer configuration file is
 ###############################################################################################
-PODGET_MAILER_CONFIG=${DIR_CONFIG}/conf.msmtp
+PODGET_MAILER_CONFIG=${DIR_CONFIG}/msmtp.kuchota
 
 ###############################################################################################
 # Mailer command line args.
