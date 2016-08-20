@@ -4,10 +4,10 @@
 ##########################################################################################
 ##
 ##
-## pmw-podget
+## kuchota (Swahili for "fetch")
 ##
-## A PMW podget too to add podcast (i.e., RSS, ATOM, etc.) feeds to
-## the podget "serverlist" file and for later import into a Rivendell
+## A PMW podget tool to manage podcast feeds (i.e., RSS, ATOM, etc.)
+## and downloads by podget(1), for later import into a Rivendell
 ## library.
 ##
 ##########################################################################################
@@ -24,8 +24,8 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=0
-vHash='$Hash$'
+vPatch=1
+vHash='$Hash: 2d335f9$'
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -43,7 +43,7 @@ ${myName}: add a new RSS feed to the list of podcasts.
 
 Summary: ${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
                        [ --config (-c) <podget_configuration_file> ]
-                       [ --dir_config (-d) <podget_configruation_directory> ]
+                       [ --dir_config (-d) <podget_configuration_directory> ]
                        [ --group (-g) { <Rivendell Group Name> or 'list' } ]
 
 You may use the word "list" for the --group (-g) option.
@@ -372,39 +372,50 @@ listFeeds() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  # The header.
-  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  printf '%-46s %-16s %-48s\n'  "Title" "Group" "Credentials"
-  printf '-%.0s' {1..46}; printf '-%.0s' {1..16}; printf '-%.0s' {1..48}; print
+  local -x LESS='RCiP Viewing podcast feeds\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\.'
 
-  # The content.
-  ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
-    ${GREP} -v '^ *$' |
-    while read url group title rest ; do
-    if [[ ${url} =~ '#DISABLED#.*' ]] ; then
-      title="${RED}DISABLED:${NORM} ${title}"
-      url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
-    fi
-    printf '%-46s %-16s %-48s\n%-80s\n\n' ${title} ${group} ${rest:-""} ${url}
-  done
+  (
+    # The header.
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    printf '%-46s %-16s %-48s\n'  "Title" "Group" "Credentials"
+    printf '-%.0s' {1..46}; printf '-%.0s' {1..16}; printf '-%.0s' {1..48}; print
 
-  # The footer.
-  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    # The content.
+    ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
+      ${GREP} -v '^ *$' |
+      while read url group title rest ; do
+	if [[ ${url} =~ '#DISABLED#.*' ]] ; then
+	  title="${RED}DISABLED:${NORM} ${title}"
+	  url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
+	fi
+	printf '%-46s %-16s %-48s\n%-80s\n\n' ${title} ${group} ${rest:-""} ${url}
+      done
 
+    # The footer.
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+  ) | less
 }
 
 showLastStatus() {
   local myName=${1} ; shift
-  local verbose=${1} ; shift
-  local type=${1}
+  local type=${1} ; shift
+  local verbose=${1}
 
   local statusFile=${STATUS_FILE:-${ROOT:-/}var/tmp/pmw-podget-wrapper.${type}}
 
-  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+  case ${type} in
+    out) OUTPUT="most recent podget output results" ;;
+    err) OUTPUT="most recent podget error output" ;;
+  esac
+  local -x LESS="RCiP Viewing ${OUTPUT}\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\."
 
-  ${CAT} ${statusFile}
+  (
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 
-  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    ${CAT} ${statusFile}
+
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+  ) | less
 }
 
 makeParser() {
@@ -489,8 +500,9 @@ for C in ${ourCommands} ; do
 done
 
 # Set some defaults, and see below for more ways to set these.
-DIR_CONFIG=${ROOT:-/}var/snd/podget/.podget
+DIR_CONFIG=%PODGET_DIR_CONFIG%
 CONFIG_CORE=podgetrc
+CONFIG_NOTIFY=notifyrc
 
 TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,debug,dir-config:,version,verbose,group:,help -n "${0##*/}" -- "${@}")
 if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
@@ -551,7 +563,9 @@ until [[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] ; do
 
 done
 
-source ${DIR_CONFIG}/${CONFIG_CORE}
+[[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] && source ${DIR_CONFIG}/${CONFIG_CORE}
+[[ -n "${CONFIG_SERVERLIST}" ]] ||
+  error "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
 
 ##########################################################################################
 ## The guts of why we are here.
@@ -566,22 +580,23 @@ while : ; do
     menu=(
       "Quit"
       "Add or Replace a podcast feed"
-      "Delete (or disable) a podcast feed"
+      "Delete or disable a podcast feed"
       "Enable a disabled podcast feed"
       "Show the complete list of podcast feeds"
-      "Edit the podcast list ('${DIR_CONFIG}/${CONFIG_SERVERLIST}') with '${EDITOR:-${VISUAL:-vi}}'"
-      "Edit Notify Config ('${DIR_CONFIG}/${CONFIG_NOTIFYRC}') with '${EDITOR:-${VISUAL:-vi}}'"
       "Show most recent podget run status"
       "Show most recent podget error status"
+      "\[Advanced\] Edit the podcast list with '${EDITOR:-${VISUAL:-nano}}'"
+      "\[Advanced\] Edit the notification configuration with '${EDITOR:-${VISUAL:-nano}}'"
     )
     command=(
       'addOrReplaceFeed ${0##*/} ${verbose}'
       'deleteFeed ${0##*/} ${verbose}'
       'enableFeed ${0##*/} ${verbose}'
       'listFeeds ${0##*/} ${verbose}'
-      '${EDITOR:-${VISUAL:-vi}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
-      'showLastStatus ${0##*/} ${verbose:-X} out'
-      'showLastStatus ${0##*/} ${verbose:-X} err'
+      'showLastStatus ${0##*/} out ${verbose}'
+      'showLastStatus ${0##*/} err ${verbose}'
+      '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
+      '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_NOTIFY}'
     )
 
     for menuItem in ${menu} ; do
