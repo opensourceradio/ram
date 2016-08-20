@@ -1,0 +1,217 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+## pmw-rddbcheck
+##
+## A PMW rddbcheck(1) wrapper that makes no changes and sends the output to a pre-defined
+## set of email addresses.
+##
+##########################################################################################
+##########################################################################################
+
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+
+startTime=${EPOCHSECONDS}
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+MAILTO=dklann@coldcrossing.com
+
+# Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} <<EOF
+${myName}: run the Rivendell database checker and send the output via email
+
+Summary
+
+${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+
+Description
+
+pmw-rddbcheck is a ZSH sript that runs the Rivendell database consistency
+checker 'rddbcheck' with the '--no' option. It then sends the output
+to all the addresses specified in the MAILTO shell variable.
+
+This script is intended to be run from the system scheduler cron(8) as
+the user 'root'.
+
+EOF
+}
+
+# Use the configured mailer to send email to one or more addresses.
+sendNotification() {
+  local myName=${1:?"Who are you?"} ; shift
+  local message=${1:?"Need a message to send for the notification."} ; shift
+  local messagefile=${1}
+
+  local MAILER=${MSMTP}
+  local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.rddbcheck}
+  local MAILER_ARGS="--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"
+  local PRETEND=${PRETEND}
+
+  if [[ -x ${MAILER} ]] ; then
+
+    if [[ -s ${MAILER_CONFIG} ]] ; then
+
+      (
+	${CAT} <<EOF
+To: ${${MAILTO//( |[ ,][ ,])/,}%,}
+From: No-Reply@$(${HOSTNAME} -f)
+Reply-To: No-Reply@$(${HOSTNAME} -f)
+Subject: rddbcheck Output from ${myName}
+Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
+X-Script-Name: ${0}
+MIME-Version: 1.0
+Content-Type: multipart/mixed;
+ boundary="----------${startTime}"
+
+This is a multi-part message in MIME format.
+------------${startTime}
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+${message}
+
+EOF
+	if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
+	  ${CAT} <<EOF
+------------${startTime}
+Content-Type: text/plain; charset=UTF-8;
+ name="rddbcheck.txt"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename="rddbcheck.txt"
+
+$(${DOS2UNIX} < ${messagefile} | ${BASE64})
+EOF
+	fi
+
+	${CAT} <<EOF
+------------${startTime}--
+EOF
+      ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+
+    else
+
+      ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
+
+    fi
+
+  else
+
+    ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
+
+  fi
+}
+
+# The shell commands we will use in this script.
+typeset -a ourCommands
+ourCommands=(
+  base64
+  cat
+  dos2unix
+  hostname
+  logger
+  mktemp
+  msmtp
+  rddbcheck
+  uuidgen
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the commands later in this function.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done." >&2 ; return 1 }
+done
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+# Make sure we are running as root (rddbcheck requires it).
+if [[ "${USER}" = "root" ]] ; then
+
+  if [[ -x ${RDDBCHECK} ]] ; then
+
+    outputFile=$(${MKTEMP})
+    trap "rm -f ${outputFile} ; exit ;" 0 1 2 3
+
+    echo "${0##*/} Started: $(date --rfc-2822)\n" > ${outputFile}
+
+    ${RDDBCHECK} --no 2>&1 >> ${outputFile}
+    returnValue=${?}
+
+    echo "${0##*/} Completed: $(date --rfc-2822)\n" >> ${outputFile}
+
+    if (( returnValue == 0 )) ; then
+
+      ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: sending output of '${RDDBCHECK}'."
+      sendNotification ${0##*/} "Normal output from '${RDDBCHECK}'." ${outputFile}
+
+    else
+
+      ${LOGGER} -t ${0##*/} -p local7.notice -i "NOTICE: '${RDDBCHECK}' completed with non-zero exit status (${returnValue})."
+      sendNotification ${0##*/} "NOTICE: '${RDDBCHECK}' completed with non-zero exit status (${returnValue})." ${outputFile}
+
+    fi
+
+  else
+
+    ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Could not find executable program 'rddbcheck'."
+    sendNotification ${0##*/} "ERROR: Could not find executable program '${RDDBCHECK}'."
+
+  fi
+
+else
+
+  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
+  sendNotification ${0##*/} "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
+
+fi
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
