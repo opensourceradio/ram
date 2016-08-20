@@ -19,8 +19,8 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=0
-vHash='$Hash$'
+vPatch=1
+vHash='$Hash: 411f8b3$'
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -68,11 +68,12 @@ sendNotification() {
   if [[ -x ${PODGET_MAILER} ]] ; then
 
     ${PODGET_MAILER} ${PODGET_MAILER_ARGS} ${PRETEND} <<ENDOFMAIL
-From: No-Reply@$(${HOSTNAME} -f)
+From: no-reply@$(${HOSTNAME} -f)
 To: ${${PODGET_MAILTO//( |[ ,][ ,])/,}%,}
 Subject: ATTENTION: podget ${type} Notification
+Reply-To: no-reply@$(${HOSTNAME} -f)
+Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
 X-Script-Name: ${0}
-X-Message-ID: $(${UUID})-${EPOCHSECONDS}@$(${HOSTNAME} -f)
 
 ${message}
 
@@ -164,8 +165,6 @@ updateRuntimeData() {
   return ${returnValue}
 }
 
-
-
 warning() {
   local message=${1}
 
@@ -199,6 +198,7 @@ ourCommands=(
   grep
   hostname
   kill
+  logger
   mkdir
   mv
   pidof
@@ -206,7 +206,7 @@ ourCommands=(
   rm
   sed
   touch
-  uuid
+  uuidgen
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
@@ -220,7 +220,7 @@ for C in ${ourCommands} ; do
 done
 
 # Set some defaults, and see below for ways to override these defaults.
-DIR_CONFIG=${ROOT:-/}var/snd/podget/.podget
+DIR_CONFIG=%PODGET_DIR_CONFIG%
 CONFIG_CORE=podgetrc
 CONFIG_NOTIFY=notifyrc
 
@@ -254,8 +254,12 @@ fi
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
-source ${DIR_CONFIG}/${CONFIG_CORE}
-source ${DIR_CONFIG}/${CONFIG_NOTIFY}
+[[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] && source ${DIR_CONFIG}/${CONFIG_CORE}
+[[ -n "${CONFIG_SERVERLIST}" ]] ||
+  error "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
+[[ -r ${DIR_CONFIG}/${CONFIG_NOTIFY} ]] && source ${DIR_CONFIG}/${CONFIG_NOTIFY}
+[[ -n "${PODGET_RUNTIME_DATA}" ]] ||
+  error "Failed to get the setting for 'PODGET_RUNTIME_DATA'. Does '${DIR_CONFIG}/${CONFIG_NOTIFY}' exist?"
 
 # Remember when we started running.
 startTime=${EPOCHSECONDS}
