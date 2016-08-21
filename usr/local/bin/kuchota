@@ -372,7 +372,7 @@ listFeeds() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  local -x LESS='RCiP Viewing podcast feeds\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\.'
+  local -x LESS='RCiP Viewing podcast feeds?e (End of Output).\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\.'
 
   (
     # The header.
@@ -404,10 +404,10 @@ showLastStatus() {
   local statusFile=${STATUS_FILE:-${ROOT:-/}var/tmp/pmw-podget-wrapper.${type}}
 
   case ${type} in
-    out) OUTPUT="most recent podget output results" ;;
-    err) OUTPUT="most recent podget error output" ;;
+    out) OUTPUT="output results" ;;
+    err) OUTPUT="error output" ;;
   esac
-  local -x LESS="RCiP Viewing ${OUTPUT}\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\."
+  local -x LESS="RCiP Viewing the latest podget ${OUTPUT}?e (End of Output).\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\."
 
   (
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
