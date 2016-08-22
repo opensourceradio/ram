@@ -20,6 +20,7 @@ doSQL() {
     local MYSQL=$(whence mysql) ; MYSQL=${MYSQL:-${ROOT:-/}usr/bin/mysql}
     local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
     local EGREP=$(whence egrep) EGREP=${EGREP:-${ROOT:-/}bin/egrep}
+    local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
     zmodload zsh/mapfile
 
@@ -44,10 +45,10 @@ doSQL() {
     else
 	# Horribly insecure, but this is the "Rivendell Way".
 	if [[ -r ${rdconfig} ]] ; then
-	    HOST=$(${AWK} -F'=' '/^Hostname=/{print $2}' ${rdconfig})
-	    USER=$(${AWK} -F'=' '/^Loginname=/{print $2}' ${rdconfig})
-	    PASSWORD=$(${AWK} -F'=' '/^Password=/{print $2}' ${rdconfig})
-	    DATABASE=$(${AWK} -F'=' '/^Database=/{print $2}' ${rdconfig})
+	    HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
+	    USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
+	    PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
+	    DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
 	else
 	    HOST=${RD_DB_HOST:-"rd-service"}
 	    USER=${RD_USER:-"rduser"}
