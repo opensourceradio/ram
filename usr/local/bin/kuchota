@@ -234,88 +234,37 @@ enableFeed() {
 
   feedList=$(${GREP} '^#DISABLED#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
 
-  if (( $(wc -l <<<${feedList}) > 1 )) ; then
+  # Try to enable feeds only if there actually are any disabled ones.
+  if [[ -n "${feedList}" ]] ; then
 
-    echo "Current list of disabled podcast feeds:"
-    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-    read feedName\?"Type or paste the name of the podcast you want to enable (and press <Enter>): "
-
-    until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
-
-      warning "'${feedName}' is not in the list. Please use a valid feed name."
+    if (( $(wc -l <<<${feedList}) > 1 )) ; then
 
       echo "Current list of disabled podcast feeds:"
       ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-      read feedName\?"Type or paste the name of the podcast you want to enable: "
+      read feedName\?"Type or paste the name of the podcast you want to enable (and press <Enter>): "
 
-    done
+      until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
 
-  else
+	warning "'${feedName}' is not in the list. Please use a valid feed name."
 
-    # There is only one feed to enable, so do not bother prompting for it.
-    feedName=${feedList}
+	echo "Current list of disabled podcast feeds:"
+	${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+	read feedName\?"Type or paste the name of the podcast you want to enable: "
 
-  fi
+      done
 
-  echo "Enabling '${feedName}' in the feed list... \c"
+    else
 
-  trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+      # There is only one feed to enable, so do not bother prompting for it.
+      feedName=${feedList}
 
-  ${SED} -i.bak -e "/^#DISABLED#.*[[:space:]]${feedName}[[:space:]]*/s/^#DISABLED#//" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
-  # The sed command *should* result in exactly one line of
-  # difference between the original and the edited file.
-  if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
+    fi
 
-    ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
-    echo "Done."
-
-  else
-
-    warning "Could not properly enable the disabled podcast feed '${feedName}'.
-Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
-
-    ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
-
-  fi
-
-  trap - 0 1 2 3
-}
-
-deleteFeed() {
-  local myName=${1} ; shift
-  local verbose=${1}
-
-  local feedList feedName deleteOrDisable tmpfile
-
-  feedList=$(${GREP} -v '^#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
-  echo "Current list of podcast feeds:"
-  ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-  read feedName\?"Type or paste the name of the podcast you want to delete or disable (and press <Enter>): "
-
-  until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
-
-    warning "'${feedName}' is not in the list. Please use a valid feed name."
-
-    echo "Current list of podcast feeds:"
-    ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-    read feedName\?"Type or paste the name of the podcast you want to delete or disable: "
-
-  done
-
-  read -k 1 deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
-  until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
-    echo
-    read -k 1 deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' "
-  done
-  echo
-
-  if [[ "${deleteOrDisable}" = 'd' ]] ; then
-
-    echo "Disabling '${feedName}' in the feed list... \c"
+    echo "Enabling '${feedName}' in the feed list... \c"
 
     trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
 
-    ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]*/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+    ${SED} -i.bak -e "/^#DISABLED#.*[[:space:]]${feedName}[[:space:]]*/s/^#DISABLED#//" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
     # The sed command *should* result in exactly one line of
     # difference between the original and the edited file.
     if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
@@ -325,7 +274,8 @@ deleteFeed() {
 
     else
 
-      warning "Could not properly disable the podcast feed '${feedName}'. Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+      warning "Could not properly enable the disabled podcast feed '${feedName}'.
+Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
       ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 
@@ -333,39 +283,119 @@ deleteFeed() {
 
     trap - 0 1 2 3
 
-  elif [[ "${deleteOrDisable}" = 'D' ]] ; then
+  else
 
-    echo "Deleting feed '${feedName}' from the feed list... \c"
+    read ok\?"There are no disabled feeds available. Press <Enter> to continue. "
 
-    tmpfile=$(mktemp)
-    trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
+  fi
+}
 
-    ${GREP} -v "[[:space:]]${feedName}[[:space:]]*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+deleteFeed() {
+  local myName=${1} ; shift
+  local verbose=${1}
 
-    if [[ -s ${tmpfile} ]] ; then
+  local feedList feedName deleteOrDisable tmpfile
 
-      if ${MV} ${tmpfile} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+  feedList=$(${GREP} -v '^#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
 
+  # Delete feeds only if there actually are any available.
+  if [[ -n "${feedList}" ]] ; then
+
+    # Prompt for a feed to delete only if there is more than one in
+    # the list.
+    if (( $(wc -l <<<${feedList}) > 1 )) ; then
+
+      echo "Current list of podcast feeds:"
+      ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+      read feedName\?"Type or paste the name of the podcast you want to delete or disable (and press <Enter>): "
+
+      until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
+
+	warning "'${feedName}' is not in the list. Please use a valid feed name."
+
+	echo "Current list of podcast feeds:"
+	${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
+	read feedName\?"Type or paste the name of the podcast you want to delete or disable: "
+
+      done
+
+    else
+
+      # Only one feed, so offer it for deletion.
+      feedName=${feedList}
+
+    fi
+
+    read -k 1 deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
+    until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
+      echo
+      read -k 1 deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' "
+    done
+    echo
+
+    if [[ "${deleteOrDisable}" = 'd' ]] ; then
+
+      echo "Disabling '${feedName}' in the feed list... \c"
+
+      trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+
+      ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]*/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+      # The sed command *should* result in exactly one line of
+      # difference between the original and the edited file.
+      if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
+
+	${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 	echo "Done."
 
       else
 
-	warning "Could not replace '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with the deleted podcast feed. Do you have the access rights to replace this file? Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+	warning "Could not properly disable the podcast feed '${feedName}'. Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+
+	${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 
       fi
+
+      trap - 0 1 2 3
+
+    elif [[ "${deleteOrDisable}" = 'D' ]] ; then
+
+      echo "Deleting feed '${feedName}' from the feed list... \c"
+
+      tmpfile=$(mktemp)
+      trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
+
+      ${GREP} -v "[[:space:]]${feedName}[[:space:]]*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+
+      if [[ -s ${tmpfile} ]] ; then
+
+	if ${MV} ${tmpfile} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+
+	  echo "Done."
+
+	else
+
+	  warning "Could not replace '${DIR_CONFIG}/${CONFIG_SERVERLIST}' with the deleted podcast feed. Do you have the access rights to replace this file? Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
+
+	fi
+      else
+
+	warning "Unable to find '${feedName}' in ${DIR_CONFIG}/${CONFIG_SERVERLIST}. Please fix the file ${DIR_CONFIG}/${CONFIG_SERVERLIST} manually."
+
+      fi
+
     else
 
-      warning "Unable to find '${feedName}' in ${DIR_CONFIG}/${CONFIG_SERVERLIST}. Please fix the file ${DIR_CONFIG}/${CONFIG_SERVERLIST} manually."
+      echo "\nWTF? How did you get past the prompt without entering a 'd' or a 'D'?"
 
     fi
 
+    trap - 0 1 2 3
+
   else
 
-    echo "\nWTF? How did you get past the prompt without entering a 'd' or a 'D'?"
+    read ok\?"There are no feeds available to delete. Press <Enter> to continue. "
 
   fi
-
-  trap - 0 1 2 3
 }
 
 listFeeds() {
@@ -598,6 +628,19 @@ while : ; do
       '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
       '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_NOTIFY}'
     )
+    title=(
+      "Add Feed"
+      "Delete Feed"
+      "Enable Feed"
+      "List Feeds"
+      "Show Run Status"
+      "Show Error Status"
+      "Edit serverlist"
+      "Edit notifyrc"
+    )
+
+    # Set the window title.
+    printf '\033]0;%s\007' Kuchota
 
     for menuItem in ${menu} ; do
 	echo "${count}) $(eval echo ${menuItem})"
@@ -610,29 +653,30 @@ while : ; do
     echo
 
     if [[ -z "${choice}" ]] ; then
-	echo "Please enter a number between 0 and $(( count - 1 ))."
+      echo "Please enter a number between 0 and $(( count - 1 ))."
 
     elif [[ ${choice} =~ '[0Qq]' ]] ; then
-	exit
+      exit
 
     elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]+' ]] ; then
-	echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
+      echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
 
     elif [[ "${choice}" =~ '[[:space:]]*[[:alnum:]]+[[:space:]]+' ]] ; then
-	echo "'${choice}' is not an option (watch your spaces). Please enter a number between 0 and $(( count - 1 ))."
+      echo "'${choice}' is not an option (watch your spaces). Please enter a number between 0 and $(( count - 1 ))."
 
     elif (( choice > 0 && choice < count )) ; then
-	eval $(echo ${command[${choice}]})
+
+      # Set the window title for this menu choice then run the command.
+      printf '\033]0;%s\007' ${title[${choice}]}
+      eval $(echo ${command[${choice}]})
 
     else
 	echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
 
     fi
 
-    echo
-
-    read -q choice\?"Press any key to continue: "
-    echo
+    # As found in ZSH module zsh/terminfo.
+    echoti clear
 done
 
 exit
