@@ -264,6 +264,11 @@ exec 2> /var/tmp/${0##*/}.err
 # Remember when we started running.
 startTime=${EPOCHSECONDS}
 
+# Create the log directory if it does not already exist.
+[[ -d "${DIR_LOG}" ]] || ${MKDIR} ${DIR_LOG} || {
+    sendNotification INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
+    exit $(error "Could not create log directory '${DIR_LOG}'. Cannot continue.") ;
+  }
 
 ##########################################################################################
 ## Make sure no other instances of podget are running
