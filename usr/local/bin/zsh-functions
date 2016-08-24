@@ -22,44 +22,86 @@ doSQL() {
     local EGREP=$(whence egrep) EGREP=${EGREP:-${ROOT:-/}bin/egrep}
     local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
+    typeset -gx _DB_HOST _DB_USER _DB_PWD _DB_DATABASE _USE_MYCNF
+
     zmodload zsh/mapfile
 
-    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
-    # else get credentials from rd.conf if it exists, else from the
-    # environment, else use defaults here.
-    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
-    # to the Rivendell database.
-    if [[ -r ~/.my.cnf ]] ; then
-	if [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-	    cd			# Sigh, mapfile cannot deal with path components.
-	    myCnfLines=( ${mapfile[.my.cnf]} )
+    # Use the exported variables if we have been through this function
+    # already. This applies to each running instance of scripts that
+    # use this function. This helps prevent the need to look this
+    # stuff up every time this function is called.
+    if [[ -z "${_DB_HOST}" ]] ; then
 
-	    # Need to check for each of these parameters in .my.cnf in
-	    # order to be able to use it.
-	    for parm in database host password user ; do
-		if [[ "${myCnfLines}" =~ ${parm} ]] ; then
-		    (( useMyCNF++ ))
-		fi
-	    done
-	fi
-    else
-	# Horribly insecure, but this is the "Rivendell Way".
-	if [[ -r ${rdconfig} ]] ; then
-	    HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
-	    USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
-	    PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
-	    DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
+	# Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
+	# else get credentials from rd.conf if it exists, else from the
+	# environment, else use defaults here.
+	# BUG ALERT: this assumes the credentials in .my.cnf are relevant
+	# to the Rivendell database.
+	if [[ -r ~/.my.cnf ]] ; then
+	    if [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+		cd			# Sigh, mapfile cannot deal with path components.
+		myCnfLines=( ${mapfile[.my.cnf]} )
+
+		# Need to check for each of these parameters in .my.cnf in
+		# order to be able to use it.
+		for parm in database host password user ; do
+		    if [[ "${myCnfLines}" =~ ${parm} ]] ; then
+			(( useMyCNF++ ))
+		    fi
+		done
+	    fi
 	else
-	    HOST=${RD_DB_HOST:-"rd-service"}
-	    USER=${RD_USER:-"rduser"}
-	    PASSWORD=${RD_PASS:-"letmein"}
-	    DATABASE=${RD_DATABASE:-"Rivendell"}
+	    # Horribly insecure, but this is the "Rivendell Way".
+	    if [[ -r ${rdconfig} ]] ; then
+		HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
+		USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
+		PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
+		DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
+	    else
+		HOST=${RD_DB_HOST:-"rd-service"}
+		USER=${RD_USER:-"rduser"}
+		PASSWORD=${RD_PASS:-"letmein"}
+		DATABASE=${RD_DATABASE:-"Rivendell"}
+	    fi
 	fi
+
+	_DB_HOST=${HOST}
+	_DB_USER=${USER}
+	_DB_PWD=${PASSWORD}
+	_DB_DATABASE=${DATABASE}
+	_USE_MYCNF=${useMyCNF}
     fi
 
-    if (( useMyCNF == usableMyCNF )) ; then
+    if (( _USE_MYCNF == usableMyCNF )) ; then
 	${MYSQL} -s -N -e "${statement}"
     else
-	${MYSQL} -s -N -B -u ${USER} -p${PASSWORD} -h ${HOST} ${DATABASE} -e "${statement}"
+	${MYSQL} -s -N -B -u ${_DB_USER} -p${_DB_PWD} -h ${_DB_HOST} ${_DB_DATABASE} -e "${statement}"
     fi
+}
+
+rdDatabaseVersion() {
+    doSQL "select DB from VERSION"
+}
+
+# Get a Rivendell CART NUMBER from a TITLE (full or partial).
+rdCartNumberFromTitle() {
+    local title=${1:?"Need a CART TITLE string to search."} ; shift
+    local verbose=${1}
+
+    doSQL "select NUMBER from CART where TITLE like '%${title}%'"
+}
+
+# Get a Rivendell CART TITLE from a partial TITLE.
+rdCartTitleFromPartial() {
+    local title=${1:?"Need a CART TITLE string to search."} ; shift
+    local verbose=${1}
+
+    doSQL "select TITLE from CART where TITLE like '%${title}%'"
+}
+
+rdCartGroupFromNumber() {
+    local number=${1:?"Need a CART NUMBER to search."} ; shift
+    local verbose=${1}
+
+    doSQL "select GROUP_NAME from CART where NUMBER = ${number}"
 }
