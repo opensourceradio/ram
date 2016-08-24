@@ -25,7 +25,7 @@ colors
 vMajor=0
 vMinor=1
 vPatch=1
-vHash='$Hash: 2d335f9$'
+vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -418,7 +418,8 @@ listFeeds() {
 	  title="${RED}DISABLED:${NORM} ${title}"
 	  url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
 	fi
-	printf '%-46s %-16s %-48s\n%-80s\n\n' ${title} ${group} ${rest:-""} ${url}
+	rdDropBoxPath="${DIR_LIBRARY}/${group}/${title}/*.mp3"
+	printf '%-46s %-16s %-48s\n%-80s\n%RD DropBox: -80s\n\n' ${title} ${group} ${rest:-""} ${url} "${rdDropBoxPath}"
       done
 
     # The footer.
@@ -446,6 +447,81 @@ showLastStatus() {
 
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
   ) | less
+}
+
+editSchedule() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  local minute oMinute hour oHour crontab answer ok
+
+  # Snag the current crontab for later processing.
+  crontab=$(${CRONTAB} -l)
+  
+  ${CAT} <<EOF
+
+${(U)myName} runs the 'podget' back end periodically in order to check
+for new episodes of podcasts. I check all podcasts each time,
+downloading new episodes as they appear.
+
+Typically, ${myName} runs 'podget' at least once per hour every
+day. I'll assume you want to do that. You will need to update the cron
+job manually (using the 'crontab' command if you want a different
+schedule.
+
+Valid hours are 0 - 23 and '*'.
+
+EOF
+
+  until [[ "${ok}" =~ '[Yy]' ]] ; do
+
+    oHour=${hour}
+    read hour\?"Type the hour(s) you want ${myName} to check for new podcasts (enter '*' for every hour): ${hour:+'[${hour}] '}"
+    [[ -z "${hour}" ]] && hour=${oHour}
+    until [[ "${hour}" =~ '^(\*|[[:digit:],]+)$' ]] ; do
+
+      echo "You need to enter either an asterisk ('*'), or some combination of hour numbers and commas."
+      read hour\?"Type the hour(s) you want ${myName} to check for new podcasts (enter '*' for every hour): "
+
+    done
+
+    ${CAT} <<EOF
+
+Now I need to know how many times an hour you want to check for new
+podcasts. You can enter a single "minute" representing once an hour,
+or you can enter multiple minutes separated with commas (','). Valid
+minutes are 0 - 59.
+
+EOF
+
+    oMinute=${minute}
+    read minute\?"Enter the minute(s) of the hour(s) ('${hour}') you want to check for podcasts: ${minute:+'[${minute}] '}"
+    [[ -z "${minute}" ]] && minute=${oMinute}
+    until [[ "${minute}" =~ '^[[:digit:],]+$' ]] ; do
+
+      echo "You need to enter combination of minute numbers and commas."
+      read minute\?"Type the minute(s) of the hour(s) ('${hour}') you want to check for podcasts: "
+
+    done
+
+    echo "Using 'hour: ${hour}' and 'minute: ${minute}' for the podcast download schedule."
+    read -q ok\?"OK to commit this schedule? [y,N]"
+    echo
+
+  done
+
+  (
+    echo ${crontab} | ${GREP} -v 'pmw-podget-wrapper'
+    echo "${minute} ${hour} * * * zsh /usr/local/bin/pmw-podget-wrapper" 
+  ) | ${CRONTAB} -
+
+  ${CAT} <<EOF
+
+Here is the complete cron entry for downloading podcasts:
+
+$(${CRONTAB} -l | ${GREP} --perl-regexp '^(#|.*podget-wrapper)')
+
+EOF
 }
 
 makeParser() {
@@ -505,6 +581,7 @@ ourCommands=(
   chmod
   column
   cp
+  crontab
   diff
   fmt
   getopt
@@ -615,6 +692,7 @@ while : ; do
       "Show the complete list of podcast feeds"
       "Show most recent podget run status"
       "Show most recent podget error status"
+      "Update podget run schedule \(crontab\)"
       "\[Advanced\] Edit the podcast list with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit the notification configuration with '${EDITOR:-${VISUAL:-nano}}'"
     )
@@ -625,6 +703,7 @@ while : ; do
       'listFeeds ${0##*/} ${verbose}'
       'showLastStatus ${0##*/} out ${verbose}'
       'showLastStatus ${0##*/} err ${verbose}'
+      'editSchedule ${0##*/} ${verbose}'
       '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
       '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_NOTIFY}'
     )
@@ -635,6 +714,7 @@ while : ; do
       "List Feeds"
       "Show Run Status"
       "Show Error Status"
+      "Update run Schedule"
       "Edit serverlist"
       "Edit notifyrc"
     )
