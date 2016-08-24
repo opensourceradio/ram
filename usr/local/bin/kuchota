@@ -25,7 +25,7 @@ colors
 vMajor=0
 vMinor=1
 vPatch=1
-vHash='$Hash$'
+vHash='$Hash: 2d335f9$'
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -61,6 +61,8 @@ addOrReplaceFeed() {
   local feedTitle name group rivendellGroupList
   local ok
 
+  trap 'trap - ; return ;' 0 1 2 3
+
   read feedURL\?"Type or paste the RSS feed URL for this podcast: "
 
   read -q ok\?"Does this podcast download require a username? [y,N] "
@@ -83,7 +85,7 @@ addOrReplaceFeed() {
   fi
 
   titleParserXSL=$(makeParser /rss/channel/title)
-  trap "${RM} -f ${titleParserXSL} ; exit ;" 0 1 2 3
+  trap "${RM} -f ${titleParserXSL} ; trap - ; return ;" 0 1 2 3
 
   ##########################################################################################
   ## Get the feed title, either by its own XML (with xsltproc), or by
@@ -109,7 +111,7 @@ addOrReplaceFeed() {
   fi
 
   ${RM} -f ${titleParserXSL}
-  trap - 0 1 2 3
+  trap 'trap - ; return ;' 0 1 2 3
 
   ##########################################################################################
   ## Prompt for a name, use the feed title previously obtained if the
@@ -166,7 +168,7 @@ addOrReplaceFeed() {
     exit $(error "Missing access rights to modify the file ${DIR_CONFIG}/${CONFIG_SERVERLIST}")
 
   local tmpfile=$(mktemp)
-  trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
+  trap "${RM} -f ${tmpfile}; trap - ; return ;" 0 1 2 3
 
   # Same group and name (possibly different URL?).
   if ${GREP} -P -q "^[^#].*\s+${group}\s+${feedName}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
@@ -223,14 +225,18 @@ in the "Path Spec" field in rdadmin->Manage Hosts->HOST->Dropbox Configuration.
 
 EOF
 
-  trap - 0 1 2 3
+  read ok\?"Press <Enter> to continue. "
+
+  trap -
 }
 
 enableFeed() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  local feedList feedName tmpfile
+  local feedList feedNameEntered feedName tmpfile
+
+  trap 'trap - 0 1 2 3 ; return ;' 0 1 2 3
 
   feedList=$(${GREP} '^#DISABLED#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
 
@@ -241,15 +247,16 @@ enableFeed() {
 
       echo "Current list of disabled podcast feeds:"
       ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-      read feedName\?"Type or paste the name of the podcast you want to enable (and press <Enter>): "
+      read feedNameEntered\?"Enter the name of the podcast ('*' wildcard OK) you want to enable (and press <Enter>): "
 
-      until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
+      # Allow '*'-style wildcards in the feedName, will expand it below.
+      until feedName=$(${GREP} "^${feedNameEntered//\*/.*}$" <<< ${feedList}) ; do
 
-	warning "'${feedName}' is not in the list. Please use a valid feed name."
+	warning "'${feedNameEntered}' is not in the list. Please use a valid feed name."
 
 	echo "Current list of disabled podcast feeds:"
 	${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-	read feedName\?"Type or paste the name of the podcast you want to enable: "
+	read feedNameEntered\?"Type or paste the name of the podcast ('*' wildcard OK) you want to enable: "
 
       done
 
@@ -262,7 +269,7 @@ enableFeed() {
 
     echo "Enabling '${feedName}' in the feed list... \c"
 
-    trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+    trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; trap - ; return ;" 0 1 2 3
 
     ${SED} -i.bak -e "/^#DISABLED#.*[[:space:]]${feedName}[[:space:]]*/s/^#DISABLED#//" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
     # The sed command *should* result in exactly one line of
@@ -281,20 +288,24 @@ Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
     fi
 
-    trap - 0 1 2 3
+    read ok\?"Press <Enter> to continue. "
 
   else
 
     read ok\?"There are no disabled feeds available. Press <Enter> to continue. "
 
   fi
+
+  trap -
 }
 
 deleteFeed() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  local feedList feedName deleteOrDisable tmpfile
+  local feedList feedNameEntered feedName deleteOrDisable tmpfile
+
+  trap 'trap - ; return ;' 0 1 2 3
 
   feedList=$(${GREP} -v '^#' ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${AWK} '{print $3}')
 
@@ -307,15 +318,15 @@ deleteFeed() {
 
       echo "Current list of podcast feeds:"
       ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-      read feedName\?"Type or paste the name of the podcast you want to delete or disable (and press <Enter>): "
+      read feedNameEntered\?"Enter the name of the podcast ('*' wildcard OK) you want to delete or disable (and press <Enter>): "
 
-      until ${GREP} -q "^${feedName}$" <<< ${feedList} ; do
+      until feedName=$(${GREP} "^${feedNameEntered//\*/.*}$" <<< ${feedList}) ; do
 
-	warning "'${feedName}' is not in the list. Please use a valid feed name."
+	warning "'${feedNameEntered}' is not in the list. Please use a valid feed name."
 
 	echo "Current list of podcast feeds:"
 	${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
-	read feedName\?"Type or paste the name of the podcast you want to delete or disable: "
+	read feedNameEntered\?"Enter the name of the podcast ('*' wildcard OK) you want to delete or disable: "
 
       done
 
@@ -337,7 +348,7 @@ deleteFeed() {
 
       echo "Disabling '${feedName}' in the feed list... \c"
 
-      trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; exit ;" 0 1 2 3
+      trap "${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ; trap - ; return ;" 0 1 2 3
 
       ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]*/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
       # The sed command *should* result in exactly one line of
@@ -355,14 +366,14 @@ deleteFeed() {
 
       fi
 
-      trap - 0 1 2 3
+      trap 'trap - ; return ;' 0 1 2 3
 
     elif [[ "${deleteOrDisable}" = 'D' ]] ; then
 
       echo "Deleting feed '${feedName}' from the feed list... \c"
 
       tmpfile=$(mktemp)
-      trap "${RM} -f ${tmpfile}; exit;" 0 1 2 3
+      trap "${RM} -f ${tmpfile}; trap - ; return ;" 0 1 2 3
 
       ${GREP} -v "[[:space:]]${feedName}[[:space:]]*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
 
@@ -389,13 +400,17 @@ deleteFeed() {
 
     fi
 
-    trap - 0 1 2 3
+    trap 'trap - ; return ;' 0 1 2 3
+
+    read ok\?"Press <Enter> to continue. "
 
   else
 
     read ok\?"There are no feeds available to delete. Press <Enter> to continue. "
 
   fi
+
+  trap -
 }
 
 listFeeds() {
@@ -403,6 +418,8 @@ listFeeds() {
   local verbose=${1}
 
   local -x LESS='RCiP Viewing podcast feeds?e (End of Output).\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\.'
+
+  trap 'trap - ; return ;' 0 1 2 3
 
   (
     # The header.
@@ -419,12 +436,14 @@ listFeeds() {
 	  url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
 	fi
 	rdDropBoxPath="${DIR_LIBRARY}/${group}/${title}/*.mp3"
-	printf '%-46s %-16s %-48s\n%-80s\n%RD DropBox: -80s\n\n' ${title} ${group} ${rest:-""} ${url} "${rdDropBoxPath}"
+	printf '%-46s %-16s %-48s\n%-80s\nRD DropBox: %-80s\n\n' ${title} ${group} ${rest:-""} ${url} "${rdDropBoxPath//${RED}DISABLED:${NORM} }"
       done
 
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
   ) | less
+
+  trap -
 }
 
 showLastStatus() {
@@ -433,6 +452,8 @@ showLastStatus() {
   local verbose=${1}
 
   local statusFile=${STATUS_FILE:-${ROOT:-/}var/tmp/pmw-podget-wrapper.${type}}
+
+  trap 'trap - ; return ;' 0 1 2 3
 
   case ${type} in
     out) OUTPUT="output results" ;;
@@ -447,6 +468,8 @@ showLastStatus() {
 
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
   ) | less
+
+  trap -
 }
 
 editSchedule() {
@@ -455,19 +478,46 @@ editSchedule() {
 
   local minute oMinute hour oHour crontab answer ok
 
+  trap 'trap - ; return ;' 0 1 2 3
+
   # Snag the current crontab for later processing.
   crontab=$(${CRONTAB} -l)
-  
+
+  # Give them the opportunity to change the existing schedule.
+  if ${GREP} -q 'pmw-podget-wrapper' <<<"${crontab:-X}" ; then
+
   ${CAT} <<EOF
 
-${(U)myName} runs the 'podget' back end periodically in order to check
-for new episodes of podcasts. I check all podcasts each time,
-downloading new episodes as they appear.
+The current schedule for downloading podcasts is as follows. This is
+the entire crontab entry. '${BOLD}pmw-podget-wraper${NORM}' is the tool used to
+launch and track '${BOLD}podget${NORM}', the downloader app.
 
-Typically, ${myName} runs 'podget' at least once per hour every
-day. I'll assume you want to do that. You will need to update the cron
-job manually (using the 'crontab' command if you want a different
-schedule.
+${BOLD}$(${GREP} 'podget-wrapper' <<<${crontab})${NORM}
+
+EOF
+
+  read -q change\?"Do you want to change the schedule? [y,N] "
+  case ${change} in
+    [Nn]) echo "Leaving the download schedule as it is." ; trap - ; return ;;
+  esac
+
+  # Pre-fill the vailues we will later prompt for.
+  minute=$(${GREP} '^[^#].*podget-wrapper' <<<${crontab} | ${AWK} '{print $1}')
+  hour=$(${GREP} '^[^#].*podget-wrapper' <<<${crontab} | ${AWK} '{print $2}')
+
+  fi
+
+  ${CAT} <<EOF
+
+
+${(C)myName} runs the 'pmw-podget-wrapper' backend periodically in
+order to check for new episodes of podcasts. I check all podcasts
+each time, downloading new episodes for each podcast as they appear.
+
+Typically, 'pmw-podget-wrapper' runs from cron at least once an hour
+every day. I'll assume you want to do that. You will need to update
+the cron job manually (using the 'crontab' command) only if you want a
+different schedule.
 
 Valid hours are 0 - 23 and '*'.
 
@@ -522,6 +572,31 @@ Here is the complete cron entry for downloading podcasts:
 $(${CRONTAB} -l | ${GREP} --perl-regexp '^(#|.*podget-wrapper)')
 
 EOF
+
+  trap -
+}
+
+editFile() {
+  local myName=${1} ; shift
+  local filename=${1} ; shift
+  local verbose=${1}
+
+  trap 'trap - ; return ;' 0 1 2 3
+
+  ${VISUAL:-${EDITOR:-nano}} ${filename}
+
+  trap -
+}
+
+cronEdit() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  trap 'trap - ; return ;' 0 1 2 3
+
+  EDITOR=${VISUAL:-${EDITOR:-nano}} ${CRONTAB} -e
+
+  trap -
 }
 
 makeParser() {
@@ -692,9 +767,10 @@ while : ; do
       "Show the complete list of podcast feeds"
       "Show most recent podget run status"
       "Show most recent podget error status"
-      "Update podget run schedule \(crontab\)"
+      "View and set the podget run schedule \(crontab\)"
       "\[Advanced\] Edit the podcast list with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit the notification configuration with '${EDITOR:-${VISUAL:-nano}}'"
+      "\[Advanced\] Edit ${USER}\'s crontab file"
     )
     command=(
       'addOrReplaceFeed ${0##*/} ${verbose}'
@@ -704,19 +780,21 @@ while : ; do
       'showLastStatus ${0##*/} out ${verbose}'
       'showLastStatus ${0##*/} err ${verbose}'
       'editSchedule ${0##*/} ${verbose}'
-      '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_SERVERLIST}'
-      '${EDITOR:-${VISUAL:-nano}} ${DIR_CONFIG}/${CONFIG_NOTIFY}'
+      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${verbose}'
+      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_NOTIFY} ${verbose}'
+      'cronEdit ${0##*/} ${verbose}'
     )
-    title=(
+    windowTitle=(
       "Add Feed"
       "Delete Feed"
       "Enable Feed"
       "List Feeds"
       "Show Run Status"
       "Show Error Status"
-      "Update run Schedule"
+      "Edit run Schedule"
       "Edit serverlist"
       "Edit notifyrc"
+      "Edit crontab"
     )
 
     # Set the window title.
@@ -735,7 +813,7 @@ while : ; do
     if [[ -z "${choice}" ]] ; then
       echo "Please enter a number between 0 and $(( count - 1 ))."
 
-    elif [[ ${choice} =~ '[0Qq]' ]] ; then
+    elif [[ ${choice} =~ '^[0Qq]$' ]] ; then
       exit
 
     elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]+' ]] ; then
@@ -747,7 +825,7 @@ while : ; do
     elif (( choice > 0 && choice < count )) ; then
 
       # Set the window title for this menu choice then run the command.
-      printf '\033]0;%s\007' ${title[${choice}]}
+      printf '\033]0;%s\007' ${windoTitle[${choice}]}
       eval $(echo ${command[${choice}]})
 
     else
