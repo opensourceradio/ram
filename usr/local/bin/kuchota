@@ -25,7 +25,7 @@ colors
 vMajor=0
 vMinor=1
 vPatch=1
-vHash='$Hash: 2d335f9$'
+vHash='$Hash: 31f595c$'
 
 # Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -59,9 +59,14 @@ addOrReplaceFeed() {
 
   local feedURL feedUser feedPassword protocol hostANDport route urlWithCredentials titleParserXSL
   local feedTitle name group rivendellGroupList
+  local backupServerlist=${ROOT:-/}var/tmp/${CONFIG_SERVERLIST##*/}
+  local replaceFeed=0 addNewFeed=1
   local ok
 
   trap 'trap - ; return ;' 0 1 2 3
+
+  # Make a backup copy of serverlist before we make any changes.
+  ${CP} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${backupServerlist}
 
   read feedURL\?"Type or paste the RSS feed URL for this podcast: "
 
@@ -165,38 +170,46 @@ addOrReplaceFeed() {
   (( verbose )) && echo ${feedURL} ${group} ${feedName}${feedUser:+" USER:${feedUser}"}${feedPassword:+" PASS:${feedPassword}"}
 
   [[ -w ${DIR_CONFIG}/${CONFIG_SERVERLIST} ]] ||
-    exit $(error "Missing access rights to modify the file ${DIR_CONFIG}/${CONFIG_SERVERLIST}")
+    return $(error "Missing access rights to modify the file ${DIR_CONFIG}/${CONFIG_SERVERLIST}")
 
   local tmpfile=$(mktemp)
   trap "${RM} -f ${tmpfile}; trap - ; return ;" 0 1 2 3
 
   # Same group and name (possibly different URL?).
-  if ${GREP} -P -q "^[^#].*\s+${group}\s+${feedName}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+  if ${GREP} -P -q "^[^#].*\s+${group}\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
 
+    addNewFeed=0
     read -q ok\?"${feedName} already exists in group ${group}. Replace? [y,N] "
     if [[ "${ok}" = y ]] ; then
 
-      ${GREP} -P -v "^[^#].*\s+${group}\s+${feedName}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+      ${GREP} -P -v "^[^#].*\s+${group}\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+      replaceFeed=1
 
     fi
 
-    # Same name, different group.
-  elif ${GREP} -P -q "^[^#].*\s+${feedName}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
+  # Same name, different group.
+  elif ${GREP} -P -q "^[^#].*\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
 
+    addNewFeed=0
     read -q ok\?"${feedName} already exists in a different group. Change to group '${group}'? [y,N] "
     if [[ "${ok}" = y ]] ; then
 
-      ${GREP} -P -v "^[^#].*\s+${feedName}\s+" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+      ${GREP} -P -v "^[^#].*\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
+      replaceFeed=1
 
     fi
+  fi
 
-    # New feed.
-  else
+  if (( addNewFeed || ! replaceFeed )) ; then
 
-    ${CP} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${tmpfile} ||
-      exit $(error "Could not make a copy of ${DIR_CONFIG}/${CONFIG_SERVERLIST} (${?}). Bailing out.")
+    # A new feed.
+    ${CP} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${tmpfile}
 
-    ${CAT} >> ${tmpfile} <<EOF
+  fi
+
+  if (( addNewFeed || replaceFeed )) ; then
+
+      ${CAT} <<EOF >> ${tmpfile}
 ${feedURL} ${group} ${feedName}${feedUser:+" USER:${feedUser}"}${feedPassword:+" PASS:${feedPassword}"}
 EOF
 
@@ -204,28 +217,46 @@ EOF
 
   if [[ -s ${tmpfile} ]] ; then
 
-    # We made a tmpfile, so replace serverlist with its contents.
-    ${MV} ${tmpfile} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ||
-      exit $(error "Could not replace ${DIR_CONFIG}/${CONFIG_SERVERLIST}.")
+    # There should be no more than two lines of difference between the
+    # original and the edited file.
+    if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${tmpfile} | ${WC} -l) <= 2 )) ; then
 
-    ${CHMOD} 644 ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+      # We made a tmpfile, so replace serverlist with its contents.
+      ${MV} ${tmpfile} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ||
+	return $(error "Could not replace ${DIR_CONFIG}/${CONFIG_SERVERLIST}.")
 
-    ${MKDIR} -p ${DIR_LIBRARY}/${group}/${feedName} ||
-      exit $(error "ERROR: failed to create new podcast directory ${DIR_LIBRARY}/${group}/${feedName}. (${?}).")
+      ${CHMOD} 644 ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+
+      ${MKDIR} -p ${DIR_LIBRARY}/${group}/${feedName} ||
+	warning "Failed to create new podcast directory ${DIR_LIBRARY}/${group}/${feedName} (${?}). You may have to create this yourself."
+
+      echo
+      addRDDropbox ${myName} ${feedName} ${group} ${verbose}
+
+      read ok\?"Podcast added. Press <Enter> to continue. "
+
+    else
+
+      returnValue=$(error "Found an unexpected error in the new podcast feed file while attempting to add '${feedName}'")
+      echo "Restoring backup. Please notify the authorities!"
+
+      (( verbose )) && ${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${tmpfile}
+      ${MV} ${backupServerlist} ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+
+      read ok\?"Press <Enter> to continue. "
+
+    fi
+
+  else
+
+    returnValue=$(error "Found an empty podcast feed file while attempting to add feed '${feedName}'")
+    echo "Restoring backup. Please notify the authorities!"
+
+    ${MV} ${backupServerlist} ${DIR_CONFIG}/${CONFIG_SERVERLIST}
+
+    read ok\?"Press <Enter> to continue. "
 
   fi
-
-  cat <<EOF
-
-Podcast added. Now set up a Rivendell dropbox, and paste the path
-
-  ${BOLD}${DIR_LIBRARY}/${group}/${feedName}/*.mp3${NORM}
-
-in the "Path Spec" field in rdadmin->Manage Hosts->HOST->Dropbox Configuration.
-
-EOF
-
-  read ok\?"Press <Enter> to continue. "
 
   trap -
 }
@@ -243,7 +274,7 @@ enableFeed() {
   # Try to enable feeds only if there actually are any disabled ones.
   if [[ -n "${feedList}" ]] ; then
 
-    if (( $(wc -l <<<${feedList}) > 1 )) ; then
+    if (( $(${WC} -l <<<${feedList}) > 1 )) ; then
 
       echo "Current list of disabled podcast feeds:"
       ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
@@ -274,7 +305,7 @@ enableFeed() {
     ${SED} -i.bak -e "/^#DISABLED#.*[[:space:]]${feedName}[[:space:]]*/s/^#DISABLED#//" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
     # The sed command *should* result in exactly one line of
     # difference between the original and the edited file.
-    if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
+    if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${WC} -l) == 1 )) ; then
 
       ${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
       echo "Done."
@@ -314,7 +345,7 @@ deleteFeed() {
 
     # Prompt for a feed to delete only if there is more than one in
     # the list.
-    if (( $(wc -l <<<${feedList}) > 1 )) ; then
+    if (( $(${WC} -l <<<${feedList}) > 1 )) ; then
 
       echo "Current list of podcast feeds:"
       ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${feedList}
@@ -353,7 +384,7 @@ deleteFeed() {
       ${SED} -i.bak -e "/[[:space:]]${feedName}[[:space:]]*/s/^/#DISABLED#/" ${DIR_CONFIG}/${CONFIG_SERVERLIST}
       # The sed command *should* result in exactly one line of
       # difference between the original and the edited file.
-      if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | wc -l) == 1 )) ; then
+      if (( $(${DIFF} --side-by-side --suppress-common-lines ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${WC} -l) == 1 )) ; then
 
 	${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 	echo "Done."
@@ -417,12 +448,14 @@ listFeeds() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  local -x LESS='RCiP Viewing podcast feeds?e (End of Output).\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\.'
-
   trap 'trap - ; return ;' 0 1 2 3
 
   (
     # The header.
+    reportTitleText="Kuchota Podcasts"
+    reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${reportTitleText}"
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    print "${reportTitle}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
     printf '%-46s %-16s %-48s\n'  "Title" "Group" "Credentials"
     printf '-%.0s' {1..46}; printf '-%.0s' {1..16}; printf '-%.0s' {1..48}; print
@@ -430,6 +463,7 @@ listFeeds() {
     # The content.
     ${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} |
       ${GREP} -v '^ *$' |
+      ${SORT} --ignore-case --key=3,3 --key=2,2 |
       while read url group title rest ; do
 	if [[ ${url} =~ '#DISABLED#.*' ]] ; then
 	  title="${RED}DISABLED:${NORM} ${title}"
@@ -441,7 +475,7 @@ listFeeds() {
 
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  ) | less
+  ) | ${LESS} -RCiP "Viewing podcast feeds?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
 
   trap -
 }
@@ -457,17 +491,23 @@ showLastStatus() {
 
   case ${type} in
     out) OUTPUT="output results" ;;
-    err) OUTPUT="error output" ;;
+    err) OUTPUT="diagnostic output" ;;
   esac
-  local -x LESS="RCiP Viewing the latest podget ${OUTPUT}?e (End of Output).\. Enter <q> to quit\. <PgDown> and <PgUP> to scroll\."
 
   (
+    # The header.
+    reportTitleText="Latest Kuchota 'podget' ${(C)OUTPUT}"
+    reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${reportTitleText}"
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    print "${reportTitle}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 
+    # The data.
     ${CAT} ${statusFile}
 
+    # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  ) | less
+  ) | ${LESS} -RCiP "Viewing the latest podget ${OUTPUT}?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
 
   trap -
 }
@@ -599,6 +639,107 @@ cronEdit() {
   trap -
 }
 
+addRDDropbox() {
+  local myName=${1} ; shift
+  local feedName=${1} ; shift
+  local feedGroup=${1} ; shift
+  local verbose=${1}
+
+  trap 'trap - 0 1 2 3 ; return ;' 0 1 2 3
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+
+    return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually.")
+
+  fi
+
+  read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] "
+  echo
+
+  if [[ ${answer} =~ '[Yy]' ]] ; then
+
+    # See whether there is a dropbox with a matching pathname.
+    query="select d.ID,d.PATH,d.TO_CART,d.GROUP_NAME from DROPBOXES d where d.PATH like '${DIR_LIBRARY}/${feedGroup}/${feedName}/%'"
+    read dropboxID dropboxPATH dropboxCARTNUM dropboxGROUP <<<$(doSQL "${query}")
+    if (( dropboxID )) ; then
+
+      info="It appears as if Rivendell dropbox '${dropboxID}' watches for files at '${dropboxPATH}'."
+
+      if (( dropboxCARTNUM )) ; then
+
+	query="select TITLE from CART where NUMBER = ${dropboxCARTNUM}"
+	read cartTITLE <<<$(doSQL "${query}")
+
+	info="${info} The dropbox uses the CART '${cartTITLE}' (number ${dropboxCARTNUM})."
+
+	${FMT} <<<${info}
+
+      else
+
+	info="${info} And this dropbox assigns new carts in group '${dropboxGROUP}'."
+
+	${FMT} <<<${info}
+
+      fi
+
+      read -q answer\?"Do you want to use this dropbox for the feed '${feedName}'? [y,N] "
+      if [[ ${answer} =~ '[Yy]' ]] ; then
+
+	echo "\nOK"
+
+      fi
+
+    fi
+
+  fi
+
+  trap -
+}
+
+showRDDropboxes() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  local query="select d.ID,d.PATH,d.GROUP_NAME,d.TO_CART,c.TITLE from DROPBOXES d left join CART c on (d.TO_CART = c.NUMBER) where d.PATH like '${DIR_LIBRARY}/%'"
+  local id path group cart title
+
+  trap 'trap - 0 1 2 3 ; return ;' 0 1 2 3
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+
+    return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually.")
+
+  fi
+
+  (
+    # The header.
+    reportTitleText="Kuchota-related (not all) Rivendell Dropboxes"
+    reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${reportTitleText}"
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    print "${reportTitle}"
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+    printf '%3s %-64s %-12s %6s %-32s\n'  "ID" "Dropbox Path Spec" "Group" "CART #" "Title"
+    printf '-%.0s' {1..$((4+65+13+7+32))}; print
+
+    # The data.
+    doSQL "${query}" | while read id path group cart title ; do
+
+      if (( cart == 0 )) ; then
+	title='** New cart for each episode **'
+      fi
+
+      printf '%3d %-64s %-12s %06d %-32s\n' ${id} ${path} ${group} ${cart} ${title}
+
+    done
+
+    # The footer.
+    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+
+  ) | ${LESS} -RCiP "Viewing Rivendell Dropboxes for Kuchota?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
+
+  trap -
+}
+
 makeParser() {
   local selection=${1:?"Need an XML selection."}
   local tempfile=$(mktemp)
@@ -623,7 +764,7 @@ EOF
 warning() {
   local message=${1}
 
-  ${CAT} <<EOF
+  ${CAT} >&2 <<EOF
 
 ${BOLD}${RED}WARNING:${NORM}
 $(${FMT} -w 79 <<< ${message})
@@ -634,7 +775,7 @@ EOF
 error() {
   local message=${1}
 
-  ${CAT} <<EOF
+  ${CAT} >&2 <<EOF
 
 ${RED}${BOLD}ERROR:${NORM}
 $(${FMT} -w 79 <<< ${message})
@@ -661,11 +802,14 @@ ourCommands=(
   fmt
   getopt
   grep
+  less
   mkdir
   mv
   podget
   rm
   sed
+  sort
+  wc
   wget
   xsltproc
 )
@@ -712,12 +856,14 @@ fi
 RED="${fg_bold[red]}"
 BOLD="${bold_color}"
 NORM="${reset_color}"
+# This script is compatible with Rivendell database verson:
+rdDBVersionCompatible=242
 
 # Ensure the configuration directory exists.
 if [[ ! -d ${DIR_CONFIG} ]] ; then
   if ! ${MKDIR} -p ${DIR_CONFIG} ; then
 
-    ${CAT} <<EOF
+    ${CAT} >&2 <<EOF
 ${BOLD}${RED}
 ERROR: unable to create configuration directory '${DIR_CONFIG}'. Make
 sure your permissions are set so that you have file create and write
@@ -747,7 +893,7 @@ done
 
 [[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] && source ${DIR_CONFIG}/${CONFIG_CORE}
 [[ -n "${CONFIG_SERVERLIST}" ]] ||
-  error "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
+  exit $(error "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?")
 
 ##########################################################################################
 ## The guts of why we are here.
@@ -766,8 +912,9 @@ while : ; do
       "Enable a disabled podcast feed"
       "Show the complete list of podcast feeds"
       "Show most recent podget run status"
-      "Show most recent podget error status"
+      "Show most recent podget diagnostic status"
       "View and set the podget run schedule \(crontab\)"
+      "Show Rivendell Dropboxes"
       "\[Advanced\] Edit the podcast list with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit the notification configuration with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit ${USER}\'s crontab file"
@@ -780,6 +927,7 @@ while : ; do
       'showLastStatus ${0##*/} out ${verbose}'
       'showLastStatus ${0##*/} err ${verbose}'
       'editSchedule ${0##*/} ${verbose}'
+      'showRDDropboxes ${0##*/} ${verbose}'
       'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${verbose}'
       'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_NOTIFY} ${verbose}'
       'cronEdit ${0##*/} ${verbose}'
@@ -790,8 +938,9 @@ while : ; do
       "Enable Feed"
       "List Feeds"
       "Show Run Status"
-      "Show Error Status"
+      "Show Diagnostic Status"
       "Edit run Schedule"
+      "Show Rivendell Dropboxes"
       "Edit serverlist"
       "Edit notifyrc"
       "Edit crontab"
