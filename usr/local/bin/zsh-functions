@@ -295,18 +295,20 @@ rdDropboxStatus() {
   local PS=$(whence ps) ; PS=${PS:-${ROOT:-/}bin/ps}
   local RDCATCHD=$(whence rdcatchd) ; RDCATCHD=${RDCATCHD:-${ROOT:-/}bin/ps}
   local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+  local SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
 
   local -a dropboxIDs
   local -a rdimportIDs
   local dropboxID dropboxPath rdcatchdRestartNeeded returnValue=0
 
-  dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)'") )
+  dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)' order by ID") )
   rdimportIDs=(
-    $(${PS} ax --format 'pid,args' |
-	 ${GREP} 'rdimport' |
-	 ${GREP} -v 'grep' |
-	 ${AWK} '{print $3}' |
-	 ${SED} -e 's,--persistent-dropbox-id=,,')
+    $(
+      ${PS} ax --format 'pid,args' |
+	${AWK} "/\s?rdimport\s?/{print \$3}" |
+	${SED} -e 's,--persistent-dropbox-id=,,' |
+	${SORT} -n
+    )
   )
 
   if (( ${#dropboxIDs} )) ; then
