@@ -13,95 +13,423 @@
 # value of this shell funtion is the exit value of the mysql command
 # invocation.
 doSQL() {
-    local statement="${1:?Need a database query to run.}"
-    local useMyCNF=0
-    local usableMyCNF=4
-    local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
-    local MYSQL=$(whence mysql) ; MYSQL=${MYSQL:-${ROOT:-/}usr/bin/mysql}
-    local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-    local EGREP=$(whence egrep) EGREP=${EGREP:-${ROOT:-/}bin/egrep}
-    local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+  local statement="${1:?Need a database query to run.}"
+  local useMyCNF=0
+  local usableMyCNF=4
+  local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+  local MYSQL=$(whence mysql) ; MYSQL=${MYSQL:-${ROOT:-/}usr/bin/mysql}
+  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
+  local EGREP=$(whence egrep) EGREP=${EGREP:-${ROOT:-/}bin/egrep}
+  local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
-    typeset -gx _DB_HOST _DB_USER _DB_PWD _DB_DATABASE _USE_MYCNF
+  typeset -gx _DB_HOST _DB_USER _DB_PWD _DB_DATABASE _USE_MYCNF
 
-    zmodload zsh/mapfile
+  zmodload zsh/mapfile
 
-    # Use the exported variables if we have been through this function
-    # already. This applies to each running instance of scripts that
-    # use this function. This helps prevent the need to look this
-    # stuff up every time this function is called.
-    if [[ -z "${_DB_HOST}" ]] ; then
+  # Use the exported variables if we have been through this function
+  # already. This applies to each running instance of scripts that
+  # use this function. This helps prevent the need to look this
+  # stuff up every time this function is called.
+  if [[ -z "${_DB_HOST}" ]] ; then
 
-	# Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
-	# else get credentials from rd.conf if it exists, else from the
-	# environment, else use defaults here.
-	# BUG ALERT: this assumes the credentials in .my.cnf are relevant
-	# to the Rivendell database.
-	if [[ -r ~/.my.cnf ]] ; then
-	    if [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-		cd			# Sigh, mapfile cannot deal with path components.
-		myCnfLines=( ${mapfile[.my.cnf]} )
+    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
+    # else get credentials from rd.conf if it exists, else from the
+    # environment, else use defaults here.
+    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
+    # to the Rivendell database.
+    if [[ -r ~/.my.cnf ]] ; then
+      if [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+	cd			# Sigh, mapfile cannot deal with path components.
+	myCnfLines=( ${mapfile[.my.cnf]} )
 
-		# Need to check for each of these parameters in .my.cnf in
-		# order to be able to use it.
-		for parm in database host password user ; do
-		    if [[ "${myCnfLines}" =~ ${parm} ]] ; then
-			(( useMyCNF++ ))
-		    fi
-		done
-	    fi
-	else
-	    # Horribly insecure, but this is the "Rivendell Way".
-	    if [[ -r ${rdconfig} ]] ; then
-		HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
-		USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
-		PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
-		DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
-	    else
-		HOST=${RD_DB_HOST:-"rd-service"}
-		USER=${RD_USER:-"rduser"}
-		PASSWORD=${RD_PASS:-"letmein"}
-		DATABASE=${RD_DATABASE:-"Rivendell"}
-	    fi
-	fi
-
-	_DB_HOST=${HOST}
-	_DB_USER=${USER}
-	_DB_PWD=${PASSWORD}
-	_DB_DATABASE=${DATABASE}
-	_USE_MYCNF=${useMyCNF}
-    fi
-
-    if (( _USE_MYCNF == usableMyCNF )) ; then
-	${MYSQL} -s -N -e "${statement}"
+	# Need to check for each of these parameters in .my.cnf in
+	# order to be able to use it.
+	for parm in database host password user ; do
+	  if [[ "${myCnfLines}" =~ ${parm} ]] ; then
+	    (( useMyCNF++ ))
+	  fi
+	done
+      fi
     else
-	${MYSQL} -s -N -B -u ${_DB_USER} -p${_DB_PWD} -h ${_DB_HOST} ${_DB_DATABASE} -e "${statement}"
+      # Horribly insecure, but this is the "Rivendell Way".
+      if [[ -r ${rdconfig} ]] ; then
+	HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
+	USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
+	PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
+	DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
+      else
+	HOST=${RD_DB_HOST:-"rd-service"}
+	USER=${RD_USER:-"rduser"}
+	PASSWORD=${RD_PASS:-"letmein"}
+	DATABASE=${RD_DATABASE:-"Rivendell"}
+      fi
     fi
+
+    _DB_HOST=${HOST}
+    _DB_USER=${USER}
+    _DB_PWD=${PASSWORD}
+    _DB_DATABASE=${DATABASE}
+    _USE_MYCNF=${useMyCNF}
+  fi
+
+  if (( _USE_MYCNF == usableMyCNF )) ; then
+    ${MYSQL} -s -N -e "${statement}"
+  else
+    ${MYSQL} -s -N -B -u ${_DB_USER} -p${_DB_PWD} -h ${_DB_HOST} ${_DB_DATABASE} -e "${statement}"
+  fi
 }
 
 rdDatabaseVersion() {
-    doSQL "select DB from VERSION"
+  doSQL "select DB from VERSION"
+}
+
+rdGetStationName() {
+  local myHostname=$(hostname -s)
+  local -a myIP
+
+  local stationName foundStationName
+  local returnValue=0
+
+  # Prefer an exact hostname match.
+  stationName=$(doSQL "select NAME from STATIONS where NAME = '${myHostname}'")
+  if [[ -z "${stationName}" ]] ; then
+
+    for myIP in $(getMyIPAddresses) ; do
+
+      # If no hostname match, try each of our IP addresses.
+      stationName=$(doSQL "select NAME from STATIONS where IPV4_ADDRESS = '${myIP}'")
+      [[ -n "${stationName}" ]] && { foundStationName=1 ; break ; }
+
+    done
+
+    if [[ -z "${stationName}" ]] ; then
+
+      # If no match on the IP address, try a fuzzier hostname match.
+      stationName=$(doSQL "select NAME from STATIONS where NAME like '%${myHostname}%'")
+
+      if [[ -z "${stationName}" ]] ; then
+
+	echo "Cannot determine my Rivendell 'STATION' name. Better fix that before continuing." >&2
+	returnValue=1
+
+      fi
+    fi
+  fi
+
+  [[ -n "${stationName}" ]] && echo ${stationName}
+  return ${returnValue}
+}
+
+getMyIPAddresses() {
+  local -a ipAddresses
+  local returnValue=0
+
+  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
+  local GREP=$(whence grep) GREP=${GREP:-${ROOT:-/}bin/grep}
+  local IFCONFIG=$(whence IFCONFIG) ; IFCONFIG=${IFCONFIG:-${ROOT:-/}sbin/ifconfig}
+  local IP=$(whence ip) ; IP=${IP:-${ROOT:-/}sbin/ip}
+  local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+
+  ipAddresses=( $(${IP} -o -4 addr show | ${GREP} -E -v '^(lo|virbr|tun)' | ${AWK} '{print $4}' | ${SED} -r -e 's,/[[:digit:]]+$,,') )
+
+  if (( ${#ipAddresses} )) ; then
+    echo ${(j: :)ipAddresses}
+  fi
+
+  return ${returnValue}
 }
 
 # Get a Rivendell CART NUMBER from a TITLE (full or partial).
 rdCartNumberFromTitle() {
-    local title=${1:?"Need a CART TITLE string to search."} ; shift
-    local verbose=${1}
+  local title=${1:?"Need a CART TITLE string to search."} ; shift
+  local verbose=${1}
 
-    doSQL "select NUMBER from CART where TITLE like '%${title}%'"
+  doSQL "select NUMBER from CART where TITLE like '%${title}%'"
 }
 
 # Get a Rivendell CART TITLE from a partial TITLE.
 rdCartTitleFromPartial() {
-    local title=${1:?"Need a CART TITLE string to search."} ; shift
-    local verbose=${1}
+  local title=${1:?"Need a CART TITLE string to search."} ; shift
+  local verbose=${1}
 
-    doSQL "select TITLE from CART where TITLE like '%${title}%'"
+  doSQL "select TITLE from CART where TITLE like '%${title}%'"
 }
 
 rdCartGroupFromNumber() {
-    local number=${1:?"Need a CART NUMBER to search."} ; shift
-    local verbose=${1}
+  local number=${1:?"Need a CART NUMBER to search."} ; shift
+  local verbose=${1}
 
-    doSQL "select GROUP_NAME from CART where NUMBER = ${number}"
+  doSQL "select GROUP_NAME from CART where NUMBER = ${number}"
 }
+
+rdMaxCartNumberForGroup() {
+  local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
+  local verbose=${1}
+
+  local maxCartNum=$(doSQL "select DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
+
+  echo ${maxCartNum}
+}
+
+rdGetNextCartNumber() {
+  local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
+  local verbose=${2}
+
+  local currentCartNumber
+  local returnValue=0
+  local low high lastHigh nextAvailable nextCartNum useThisCartNumber
+
+  # This script is compatible with Rivendell database verson:
+  local rdDBVersionCompatible=242
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
+
+  # Get the next highest cart number from the group if it is
+  # constrained with default low and default high numbers.
+  if (( $(doSQL "select DEFAULT_LOW_CART from GROUPS where NAME = '${group}'") )) ; then
+
+    currentCartNumber=$(doSQL "select max(NUMBER) from CART where GROUP_NAME = '${group}'")
+
+    if (( currentCartNumber < $(rdMaxCartNumberForGroup ${group}) )) ; then
+
+      useThisCartNumber=$(( currentCartNumber + 1 ))
+
+    else
+
+      useThisCartNumber=-1
+      returnValue=1
+
+    fi
+  else
+
+    # No default low cart, so find the next available non-grouped
+    # cart number.
+    doSQL 'select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS order by DEFAULT_LOW_CART' | while read low high ; do
+
+      # Skip this group if it has no min and max defaults, or if
+      # its numbers are within a previous group range.
+      (( low == 0 )) && continue
+      (( low < lastHigh )) && continue
+
+      if (( nextAvailable > lastHigh && nextAvailable < low )) ; then
+
+	nextCartNum=$(doSQL "select max(NUMBER) from CART where NUMBER >= ${nextAvailable} and NUMBER < ${low}")
+	if [[ -z "${nextCartNum}" ]] || [[ "${nextCartNum}" = 'NULL' ]] ; then
+
+	  useThisCartNumber=${nextAvailable}
+	  break
+
+	fi
+      else
+
+	(( nextAvailable = high + 1 ))
+
+      fi
+
+      (( lastHigh = high ))
+    done
+
+  fi
+
+  if (( useThisCartNumber > 0 )) ; then
+
+    echo ${useThisCartNumber}
+
+  else
+
+    echo "${0}: ERROR: Cannot find the next CART number for GROUP '${group}' (MAX=$(rdMaxCartNumberForGroup ${group}), next=${nextAvailable})." >&2
+
+  fi
+
+  return ${returnValue}
+}
+
+rdCreateEmptyCart() {
+  local group=${1:?"Need to specify a GROUP_NAME in which to create the new CART."} ; shift
+  local title=${1:?"Need a CART TITLE string to search."} ; shift
+  local verbose=${1}
+
+  local -a query
+  local newCartNumber
+  local returnValue=0
+
+  if newCartNumber=$(rdGetNextCartNumber ${group}) ; then
+
+    if (( newCartNumber > 0 )) ; then
+
+      # Place the query clauses into an array, mostly for visibility.
+      query=(
+	"insert into CART"
+	"(NUMBER, TYPE, GROUP_NAME, TITLE, CUT_QUANTITY)"
+	"values"
+	"(${newCartNumber}, 1, '${group}', '${title}', 0)"
+      )
+
+      doSQL "${(j: :)query}"
+      echo ${newCartNumber}
+
+    else
+
+      echo "${0}: ERROR: Could not create a new CART ('${title}') in GROUP '${group}'." >&2
+      returnValue=1
+
+    fi
+  fi
+
+  return ${returnValue}
+}
+
+rdDropboxStatus() {
+  local myName=${1} ; shift
+  local interactive=${1} ; shift
+  local verbose=${1}
+
+  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
+  local GREP=$(whence grep) GREP=${GREP:-${ROOT:-/}bin/grep}
+  local HOSTNAME=$(whence hostname) HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+  local KILLALL=$(whence killall) ; KILLALL=${KILLALL:-${ROOT:-/}usr/bin/killall}
+  local PIDOF=$(whence pidof) ; PIDOF=${PIDOF:-${ROOT:-/}bin/pidof}
+  local PS=$(whence ps) ; PS=${PS:-${ROOT:-/}bin/ps}
+  local RDCATCHD=$(whence rdcatchd) ; RDCATCHD=${RDCATCHD:-${ROOT:-/}bin/ps}
+  local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+
+  local -a dropboxIDs
+  local -a rdimportIDs
+  local dropboxID dropboxPath rdcatchdRestartNeeded returnValue=0
+
+  dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)'") )
+  rdimportIDs=(
+    $(${PS} ax --format 'pid,args' |
+	 ${GREP} 'rdimport' |
+	 ${GREP} -v 'grep' |
+	 ${AWK} '{print $3}' |
+	 ${SED} -e 's,--persistent-dropbox-id=,,')
+  )
+
+  if (( ${#dropboxIDs} )) ; then
+
+    # If not equal, we probably have more dropboxes than running
+    # instances of rdimport.
+    if (( ${#dropboxIDs} != ${#rdimportIDs} )) ; then
+
+      # this is a map() in perl.
+      for dropboxID in ${dropboxIDs} ; do
+
+	if ! ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
+
+	  # Hold the cursor at the end of the line if we were called
+	  # with the 'interactive' parameter.
+	  dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
+	  logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is not running. (Will restart rdcatchd.)"
+	  rdcatchdRestartNeeded=1
+
+	fi
+      done
+    else
+
+      # this is a map() in perl.
+      for dropboxID in ${dropboxIDs} ; do
+
+	if ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
+
+	  # Hold the cursor at the end of the line if we were called
+	  # with the 'interactive' parameter.
+	  dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
+	  logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is running."
+
+	fi
+      done
+    fi
+
+    if (( rdcatchdRestartNeeded )) ; then
+
+      logit ${myName} ${interactive} "Restarting $(( rdcatchdRestartNeeded )) Rivendell dropboxes...${interactive:+ \\c}"
+
+      ${KILLALL} 'rdcatchd'
+
+      # Wait a few seconds to see if anybody restarts rdcatchd.
+      if (( interactive )) ; then
+	for i in {1..3} ; do echo ".\c" ; sleep 1; done
+      else
+	sleep 3
+      fi
+
+      if ! ${PIDOF} 'rdcatchd' > /dev/null ; then
+
+	${RDCATCHD}
+
+	# Wait a few seconds more to make sure rdcatchd restarts.
+	if (( interactive )) ; then
+	  for i in {1..3} ; do echo ".\c" ; sleep 1; done
+	else
+	  sleep 3
+	fi
+
+	if ${PIDOF} 'rdcatchd' > /dev/null ; then
+
+	  logit ${myName} ${interactive} "Done."
+
+	else
+
+	  (( interactive )) && echo
+	  logit ${myName} ${interactive} "ERROR: Could not restart ${RDCATCHD}. Please contact a professional Rivendell authority!"
+	  returnValue=1
+
+	fi
+      fi
+    else
+
+      logit ${myName} ${interactive} "Yay! All Rivendell dropboxes are currently active and running."
+
+    fi
+  else
+
+    logit ${myName} ${interactive} "Found zero (0) dropboxes on this Rivendell workstation ('$(${HOSTNAME} -s)')."
+
+  fi
+
+}
+
+logit() {
+  local caller=${1} ; shift
+  local interactive=${1} ; shift
+  local message="${1}"
+
+  local LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+
+  if (( interactive )) ; then
+
+    print "${message}"
+
+  else
+
+    ${LOGGER} -t ${caller} -p local7.notice -i "${message}"
+
+  fi
+}
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***

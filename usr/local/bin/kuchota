@@ -231,9 +231,12 @@ EOF
 	warning "Failed to create new podcast directory ${DIR_LIBRARY}/${group}/${feedName} (${?}). You may have to create this yourself."
 
       echo
-      addRDDropbox ${myName} ${feedName} ${group} ${verbose}
 
-      read ok\?"Podcast added. Press <Enter> to continue. "
+      # Offer to create a Rivendell dropbox if we are making changes
+      # to this podcast (new or replace).
+      addRDDropbox ${myName} ${DIR_LIBRARY} ${feedName} ${group} ${verbose}
+
+      read ok\?"Podcast $( (( replaceFeed )) && echo replaced || echo added). Press <Enter> to continue. "
 
     else
 
@@ -641,6 +644,7 @@ cronEdit() {
 
 addRDDropbox() {
   local myName=${1} ; shift
+  local dirLibrary=${1} ; shift
   local feedName=${1} ; shift
   local feedGroup=${1} ; shift
   local verbose=${1}
@@ -653,44 +657,81 @@ addRDDropbox() {
 
   fi
 
-  read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] "
-  echo
+  # See whether there is a dropbox with a matching pathname.
+  query="select d.ID,d.PATH,d.TO_CART,d.GROUP_NAME from DROPBOXES d where d.PATH like '${DIR_LIBRARY}/${feedGroup}/${feedName}/%'"
+  read dropboxID dropboxPATH dropboxCARTNUM dropboxGROUP <<<$(doSQL "${query}")
+  if (( dropboxID )) ; then
 
-  if [[ ${answer} =~ '[Yy]' ]] ; then
+    info="It appears as if Rivendell dropbox '${dropboxID}' watches for files at '${dropboxPATH}'."
 
-    # See whether there is a dropbox with a matching pathname.
-    query="select d.ID,d.PATH,d.TO_CART,d.GROUP_NAME from DROPBOXES d where d.PATH like '${DIR_LIBRARY}/${feedGroup}/${feedName}/%'"
-    read dropboxID dropboxPATH dropboxCARTNUM dropboxGROUP <<<$(doSQL "${query}")
-    if (( dropboxID )) ; then
+    if (( dropboxCARTNUM )) ; then
 
-      info="It appears as if Rivendell dropbox '${dropboxID}' watches for files at '${dropboxPATH}'."
+      query="select TITLE from CART where NUMBER = ${dropboxCARTNUM}"
+      read cartTITLE <<<$(doSQL "${query}")
 
-      if (( dropboxCARTNUM )) ; then
+      info="${info} The dropbox uses the CART '${cartTITLE}' (number ${dropboxCARTNUM})."
 
-	query="select TITLE from CART where NUMBER = ${dropboxCARTNUM}"
-	read cartTITLE <<<$(doSQL "${query}")
+      ${FMT} <<<${info}
 
-	info="${info} The dropbox uses the CART '${cartTITLE}' (number ${dropboxCARTNUM})."
+    else
 
-	${FMT} <<<${info}
+      info="${info} This dropbox assigns new carts in group '${dropboxGROUP}'."
 
-      else
-
-	info="${info} And this dropbox assigns new carts in group '${dropboxGROUP}'."
-
-	${FMT} <<<${info}
-
-      fi
-
-      read -q answer\?"Do you want to use this dropbox for the feed '${feedName}'? [y,N] "
-      if [[ ${answer} =~ '[Yy]' ]] ; then
-
-	echo "\nOK"
-
-      fi
+      ${FMT} <<<${info}
 
     fi
 
+    if read -q answer\?"Do you want to use this dropbox for the feed '${feedName}'? [y,N] " ; then
+
+      echo "\nOK, using existing dropbox."
+
+    else
+
+      echo "\nOK, creating a new dropbox for feed '${feedName}'."
+      createnewdropbox
+    fi
+
+  else
+
+    if read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] " ; then
+
+      echo
+      if read -q answer\?"For this dropbox, do you want to create a new CART and assign this podcast to it? [y,N] " ; then
+
+	echo
+	if dropboxID=$(createDropbox ${feedGroup} ${feedName} ${DIR_LIBRARY} ${fileExt} $(rdCreateEmptyCart ${feedGroup} ${feedName}) ${verbose}) ; then
+	  echo "Dropbox number ${dropboxID} created."
+	else
+	  warning "Error creating dropbox for feed '${feedName}'. Please notify the authorities!"
+	fi
+      else
+
+	echo
+	if read -q answer\?"OK, do you want each new episode of '${feedName}' to be placed into its own new cart? [y,N] " ; then
+
+	  echo
+	  if dropboxID=$(createDropbox ${feedGroup} ${feedName} ${DIR_LIBRARY} ${fileExt} 0 ${verbose}) ; then
+	    echo "Dropbox number ${dropboxID} created."
+	  else
+	    warning "Error creating dropbox for feed '${feedName}'. Seek professional help!"
+	  fi
+	else
+
+	  ${CAT} <<EOF
+
+
+$(${FMT} <<<"Well, you're not assigning a specific cart to this podcast, and you're not using a new cart for each episode. You're on your own...")
+
+EOF
+
+	fi
+      fi
+    else
+
+      echo
+      echo "OK, but you may want to add a Rivendell dropbox on your own."
+
+    fi
   fi
 
   trap -
@@ -740,6 +781,19 @@ showRDDropboxes() {
   trap -
 }
 
+showDropboxStatus() {
+  local myName=${1} ; shift
+  local verbose=${1}
+
+  local ok
+
+  # Second arg indicates we are calling rdDropboxStatus interactively.
+  rdDropboxStatus ${myName} 1 ${verbose}
+
+  echo
+  read ok\?"Press <Enter> to continue. "
+}
+
 makeParser() {
   local selection=${1:?"Need an XML selection."}
   local tempfile=$(mktemp)
@@ -759,6 +813,58 @@ makeParser() {
 EOF
 
   echo ${tempfile}
+}
+
+createDropbox() {
+  local feedGroup=${1:?"Need a Rivendell GROUP to assign to this dropbox."} ; shift
+  local feedName=${1:?"Need a podcast feed name for this dropbox."} ; shift
+  local dirLibrary=${1:?"Need a DIR_LIBRARY for this dropbox."} ; shift
+  local fileExt=${1:?"Need a file extension (type) for this dropbox."} ; shift
+  local cartNumber=${1:?"Need a CART number for this dropbox."} ; shift
+  local verbose=${1}
+
+  local dropboxPath="${dirLibrary}/${feedGroup}/${feedName}"
+  local returnValue=0
+  local stationName dropboxID
+  local -a query
+
+  if stationName=$(rdGetStationName) ; then
+
+    query=(
+      "insert into DROPBOXES"
+      "(STATION_NAME, GROUP_NAME, PATH, NORMALIZATION_LEVEL, AUTOTRIM_LEVEL, TO_CART, FIX_BROKEN_FORMATS, LOG_PATH)"
+      "values"
+      "('${stationName}', '${feedGroup}', '${dropboxPath}/*.${fileExt}', -100, -5000, ${cartNumber}, 'Y', '${dropboxPath}/rdimport.log')"
+    )
+
+    if doSQL "${(j: :)query}" ; then
+
+      # Make sure we created the new dropbox
+      dropboxID=$(doSQL "select ID from DROPBOXES where PATH = '${dropboxPath}/*.${fileExt}'")
+
+      if [[ -z "${dropboxID}" ]] ; then
+
+	echo "Unable to discern the new dropbox ID. Did the dropbox get created?" >&2
+	returnValue=1
+
+      else
+	echo ${dropboxID}
+      fi
+
+    else
+
+      echo "Attempt to create new dropbox failed (${?}). Please seek professional advice." >&2
+      returnValue=1
+
+    fi
+
+  else
+
+    returnValue=2
+
+  fi
+
+  return ${returnValue}
 }
 
 warning() {
@@ -858,6 +964,8 @@ BOLD="${bold_color}"
 NORM="${reset_color}"
 # This script is compatible with Rivendell database verson:
 rdDBVersionCompatible=242
+# Hard code this for now.
+fileExt=mp3
 
 # Ensure the configuration directory exists.
 if [[ ! -d ${DIR_CONFIG} ]] ; then
@@ -914,7 +1022,8 @@ while : ; do
       "Show most recent podget run status"
       "Show most recent podget diagnostic status"
       "View and set the podget run schedule \(crontab\)"
-      "Show Rivendell Dropboxes"
+      "Show Rivendell dropboxes"
+      "Show Rivendell dropbox status"
       "\[Advanced\] Edit the podcast list with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit the notification configuration with '${EDITOR:-${VISUAL:-nano}}'"
       "\[Advanced\] Edit ${USER}\'s crontab file"
@@ -928,6 +1037,7 @@ while : ; do
       'showLastStatus ${0##*/} err ${verbose}'
       'editSchedule ${0##*/} ${verbose}'
       'showRDDropboxes ${0##*/} ${verbose}'
+      'showDropboxStatus ${0##*/} ${verbose}'
       'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${verbose}'
       'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_NOTIFY} ${verbose}'
       'cronEdit ${0##*/} ${verbose}'
@@ -937,10 +1047,11 @@ while : ; do
       "Delete Feed"
       "Enable Feed"
       "List Feeds"
-      "Show Run Status"
-      "Show Diagnostic Status"
+      "podget Run Status"
+      "podget Diagnostic Status"
       "Edit run Schedule"
-      "Show Rivendell Dropboxes"
+      "Rivendell Dropboxes"
+      "Rivendell Dropbox Status"
       "Edit serverlist"
       "Edit notifyrc"
       "Edit crontab"
