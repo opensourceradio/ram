@@ -177,7 +177,7 @@ rdGetNextCartNumber() {
 
   local currentCartNumber
   local returnValue=0
-  local low high lastHigh nextAvailable nextCartNum useThisCartNumber
+  local low high lastHigh defaultLowCart nextAvailable nextCartNum useThisCartNumber
 
   # This script is compatible with Rivendell database verson:
   local rdDBVersionCompatible=242
@@ -189,9 +189,16 @@ rdGetNextCartNumber() {
 
   # Get the next highest cart number from the group if it is
   # constrained with default low and default high numbers.
-  if (( $(doSQL "select DEFAULT_LOW_CART from GROUPS where NAME = '${group}'") )) ; then
+  defaultLowCart=$(doSQL "select DEFAULT_LOW_CART from GROUPS where NAME = '${group}'")
+  if (( defaultLowCart )) ; then
 
     currentCartNumber=$(doSQL "select max(NUMBER) from CART where GROUP_NAME = '${group}'")
+    if [[ "${currentCartNumber}" = 'NULL' ]] ; then
+
+      # There are no carts allocated in this group.
+      currentCartNumber=${defaultLowCart}
+
+    fi
 
     if (( currentCartNumber < $(rdMaxCartNumberForGroup ${group}) )) ; then
 
@@ -305,46 +312,33 @@ rdDropboxStatus() {
   rdimportIDs=(
     $(
       ${PS} ax --format 'pid,args' |
-	${AWK} "/\s?rdimport\s?/{print \$3}" |
+	${AWK} '/\s?rdimport\s?/{print $3}' |
 	${SED} -e 's,--persistent-dropbox-id=,,' |
 	${SORT} -n
     )
   )
 
+  # Check each one if we found any dropbox IDs.
   if (( ${#dropboxIDs} )) ; then
 
     # If not equal, we probably have more dropboxes than running
     # instances of rdimport.
-    if (( ${#dropboxIDs} != ${#rdimportIDs} )) ; then
+    # this is a map() in perl.
+    for dropboxID in ${dropboxIDs} ; do
 
-      # this is a map() in perl.
-      for dropboxID in ${dropboxIDs} ; do
+      dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
 
-	if ! ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
+      if ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
 
-	  # Hold the cursor at the end of the line if we were called
-	  # with the 'interactive' parameter.
-	  dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
-	  logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is not running. (Will restart rdcatchd.)"
-	  rdcatchdRestartNeeded=1
+	logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is running."
 
-	fi
-      done
-    else
+      else
 
-      # this is a map() in perl.
-      for dropboxID in ${dropboxIDs} ; do
+	logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is not running. (Will restart rdcatchd.)"
+	rdcatchdRestartNeeded=1
 
-	if ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
-
-	  # Hold the cursor at the end of the line if we were called
-	  # with the 'interactive' parameter.
-	  dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
-	  logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is running."
-
-	fi
-      done
-    fi
+      fi
+    done
 
     if (( rdcatchdRestartNeeded )) ; then
 
@@ -393,6 +387,25 @@ rdDropboxStatus() {
 
   fi
 
+}
+
+rdGetDropboxIDFromPath() {
+  local myName=${1} ; shift
+  local pathPrefix=${1} ; shift
+  local verbose=${1}
+
+  local returnValue=1
+  local query="select ID from DROPBOXES where PATH like '${pathPrefix}%'"
+  local id=$(doSQL "${query}")
+
+  if (( id )) ; then
+    echo ${id}
+    returnValue=0
+  else
+    echo -1
+  fi
+
+  return ${returnValue}
 }
 
 logit() {
