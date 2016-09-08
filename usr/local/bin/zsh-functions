@@ -177,7 +177,7 @@ rdGetNextCartNumber() {
 
   local currentCartNumber
   local returnValue=0
-  local low high lastHigh defaultLowCart nextAvailable nextCartNum useThisCartNumber
+  local defaultLowCart defaultHighCart lastHigh nextAvailable nextCartNum useThisCartNumber
 
   # This script is compatible with Rivendell database verson:
   local rdDBVersionCompatible=242
@@ -187,58 +187,69 @@ rdGetNextCartNumber() {
     return 128
   fi
 
-  # Get the next highest cart number from the group if it is
+  # Get the next available cart number from the group if the group is
   # constrained with default low and default high numbers.
-  defaultLowCart=$(doSQL "select DEFAULT_LOW_CART from GROUPS where NAME = '${group}'")
+  read defaultLowCart defaultHighCart <<<$(doSQL "select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
   if (( defaultLowCart )) ; then
 
-    currentCartNumber=$(doSQL "select max(NUMBER) from CART where GROUP_NAME = '${group}'")
-    if [[ "${currentCartNumber}" = 'NULL' ]] ; then
+    nextAvailable=${defaultLowCart}
+    while (( nextAvailable < defaultHighCart )) ; do
 
-      # There are no carts allocated in this group.
-      currentCartNumber=${defaultLowCart}
+      # Try to find an unused cart number starting at
+      # DEFAULT_LOW_CART.
+      currentCartNumber=$(doSQL "select NUMBER from CART where NUMBER = ${nextAvailable}")
+      if (( currentCartNumber )) ; then
 
-    fi
+	(( nextAvailable++ ))
 
-    if (( currentCartNumber < $(rdMaxCartNumberForGroup ${group}) )) ; then
+      else
 
-      useThisCartNumber=$(( currentCartNumber + 1 ))
+	useThisCartNumber=${nextAvailable}
+	break
 
-    else
+      fi
+    done
 
+    if (( nextAvailable == defaultHighCart )) ; then
+
+      # Return an error because we hit the end of the group range and
+      # did not find a free CART number.
       useThisCartNumber=-1
       returnValue=1
 
     fi
   else
 
-    # No default low cart, so find the next available non-grouped
-    # cart number.
-    doSQL 'select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS order by DEFAULT_LOW_CART' | while read low high ; do
+    # No default low cart in this group (i.e., there is no number
+    # range for this group), so find the next available cart number
+    # outside all group ranges.
+    doSQL 'select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where DEFAULT_LOW_CART > 0 order by DEFAULT_LOW_CART' |
+      while read defaultLowCart defaultHighCart ; do
 
-      # Skip this group if it has no min and max defaults, or if
-      # its numbers are within a previous group range.
-      (( low == 0 )) && continue
-      (( low < lastHigh )) && continue
+	# Skip this group if its range falls within a previous group
+	# range (yes, this can happen).
+	(( defaultLowCart < lastHigh )) && continue
 
-      if (( nextAvailable > lastHigh && nextAvailable < low )) ; then
+	if (( nextAvailable > lastHigh && nextAvailable < defaultLowCart )) ; then
 
-	nextCartNum=$(doSQL "select max(NUMBER) from CART where NUMBER >= ${nextAvailable} and NUMBER < ${low}")
-	if [[ -z "${nextCartNum}" ]] || [[ "${nextCartNum}" = 'NULL' ]] ; then
+	  # This query will return NULL if there are no assigned carts
+	  # in this range, or the highest assigned cart number in the
+	  # range.
+	  nextCartNum=$(doSQL "select max(NUMBER) from CART where NUMBER >= ${nextAvailable} and NUMBER < ${defaultLowCart}")
+	  if [[ -z "${nextCartNum}" ]] || [[ "${nextCartNum}" = 'NULL' ]] ; then
 
-	  useThisCartNumber=${nextAvailable}
-	  break
+	    useThisCartNumber=${nextAvailable}
+	    break
+
+	  fi
+	else
+
+	  (( nextAvailable = defaultHighCart + 1 ))
 
 	fi
-      else
 
-	(( nextAvailable = high + 1 ))
-
-      fi
-
-      (( lastHigh = high ))
-    done
-
+	lastHigh=${defaultHighCart}
+      done
   fi
 
   if (( useThisCartNumber > 0 )) ; then
@@ -247,7 +258,7 @@ rdGetNextCartNumber() {
 
   else
 
-    echo "${0}: ERROR: Cannot find the next CART number for GROUP '${group}' (MAX=$(rdMaxCartNumberForGroup ${group}), next=${nextAvailable})." >&2
+    echo "${0}: ERROR: Cannot find the next CART number for GROUP '${group}' (MAX=$(rdMaxCartNumberForGroup ${group}), Next=${nextAvailable})." >&2
 
   fi
 
