@@ -175,7 +175,7 @@ addOrReplaceFeed() {
   [[ -w ${DIR_CONFIG}/${CONFIG_SERVERLIST} ]] ||
     return $(error "Missing access rights to modify the file ${DIR_CONFIG}/${CONFIG_SERVERLIST}")
 
-  local tmpfile=$(mktemp)
+  local tmpfile=$(${MKTEMP})
   trap "${RM} -f ${tmpfile}; trap - ; return ;" 0 1 2 3
 
   # Same group and name (possibly different URL?).
@@ -448,7 +448,7 @@ deleteFeed() {
 
       echo "Deleting feed '${feedName}' from the feed list... \c"
 
-      tmpfile=$(mktemp)
+      tmpfile=$(${MKTEMP})
       trap "${RM} -f ${tmpfile}; trap - ; return ;" 0 1 2 3
 
       ${GREP} -v "[[:space:]]${feedName}[[:space:]]*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
@@ -979,7 +979,7 @@ cleanupFeed() {
 
 makeParser() {
   local selection=${1:?"Need an XML selection."}
-  local tempfile=$(mktemp)
+  local tempfile=$(${MKTEMP})
   
   ${CAT} > ${tempfile} <<EOF
 <?xml version="1.0"?>
@@ -1094,6 +1094,7 @@ ourCommands=(
   kill
   less
   mkdir
+  mktemp
   mv
   pidof
   podget
