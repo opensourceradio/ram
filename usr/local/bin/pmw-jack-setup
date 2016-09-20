@@ -44,7 +44,7 @@ usage() {
     ${CAT} << EOF
 ${myName}: add audio device to the JACK connection graph
 
-$(version ${0##*/})
+$(version ${myName})
 
 Summary:
 
