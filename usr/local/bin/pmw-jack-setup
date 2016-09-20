@@ -17,6 +17,12 @@
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=2
+vPatch=1
+vHash='$Hash$'
+
 ## Locate the commands we need in this script.
 ALSA_IN=$(whence alsa_in) ; ALSA_IN=${ALSA_IN:-${ROOT:-/}usr/bin/alsa_in}
 ALSA_OUT=$(whence alsa_out) ; ALSA_OUT=${ALSA_OUT:-${ROOT:-/}usr/bin/alsa_out}
@@ -28,6 +34,8 @@ GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
 JACK_LOAD=$(whence jack_load) ; JACK_LOAD=${JACK_LOAD:-${ROOT:-/}usr/bin/jack_load}
 LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
 SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+ZITA_A2J=$(whence zita-a2j) ; ZITA_A2J=${ZITA_A2J:-${ROOT:-/}usr/bin/zita-a2j}
+ZITA_J2A=$(whence zita-j2a) ; ZITA_J2A=${ZITA_J2A:-${ROOT:-/}usr/bin/zita-j2a}
 
 ## How does this work again?
 usage() {
@@ -36,19 +44,43 @@ usage() {
     ${CAT} << EOF
 ${myName}: add audio device to the JACK connection graph
 
-Summary: ${myName##*/} [ --in (-i) ] [ --out (-o) ] [ --subdevice <Subdevice ID> (-s) ] Device-Name jack-client-name
+$(version ${0##*/})
 
-This script loads the audio device "Device-Name" into the
+Summary:
+
+${myName} [ --in (-i) ] [ --out (-o) ] \\
+               [ --device <Numeric Device ID> ] \\
+               [ --subdevice <Numeric Subdevice ID> (-s) ] \\
+               ALSA-Device-Name Jack-Client-Name
+
+This script loads the audio device "ALSA-Device-Name" into the
 currently-running jackd process and names the device
-"jack-client-name".
+"Jack-Client-Name". The script requires the ALSA-Device-Name to be an
+exact match to a "card" name as shown with the "aplay -l" command.
 
 With no options, both input and output ports are made available. With
 the --in option, only input ports are added. With only the --out
 option, only output ports are added.
 
-Use the "--subdevice <ID>" option to load a "device within a device" (e.g., HDMI on-board audio).
+Use the "--device <ID>" option to load a specific "major" ALSA device
+(the default if you do not specify a device is Device ID 0).
+
+UNSUPPORTED, NOT WORKING: Use the "--subdevice <ID>" option to load a
+"device within a device" (e.g., HDMI on-board audio).
+
+See Also
+
+    aplay(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1)
+
+    /etc/modprobe.d/sound.conf (or similar) for the order in
+    which sound cards are (or should be) loaded.
 
 EOF
+}
+
+version() {
+    myName=${1}
+    echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
 }
 
 ## Get zsh functions necessary for this script.
@@ -57,27 +89,37 @@ EOF
 ## Assume they want to connect both input AND output ports.
 direction=both
 
+## Assume that we are working on ALSA "major" device 0.
+device=0
+
 ## Assume that we are not working on a subdevice (pass -s on the
 ## command line if so).
 subdevice=
 
 ## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o hios: --long help,in,out,subdevice: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o hd:ios:v --long help,device:,in,out,subdevice:,version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 ## Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
+      -h|--help) usage ${0} ; exit ;;
+      -d|--dev*) device=${2} ; shift 2 ;;
       -i|--in*) direction=in ; shift ;;
       -o|--out*) direction=out ; shift ;;
       -s|--sub*) subdevice=${2} ; shift 2 ;;
-      -h|--help) usage ${0} ; exit ;;
+      -v|--ver*) showVersion=1 ; shift ;;
       --) shift ; break ;;
       *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
   esac
 done
 unset TEMP
+
+if (( showVersion )) ; then
+  version ${0##*/}
+  exit 0
+fi
 
 ## JACK settings.
 RATE=${RATE:-48000}
@@ -86,11 +128,12 @@ NPERIODS=${NPERIODS:-2}
 
 ## Log errors if insufficient arguments.
 if [[ -z "${1}" ]] ; then
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing audio card specification. Cannot continue without an audio card on the command line."
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing ALSA device name specification. Cannot continue without an ALSA device name on the command line."
     exit 1
 fi
 if [[ -z "${2}" ]] ; then
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing jack client name as the second argument on the command line. Cannot continue."
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing Jack Client Name as the second argument on the command line. Cannot continue."
+
     exit 2
 fi
 
@@ -101,9 +144,10 @@ jackClientName=${2}
 ## Find the card in the output from aplay(1). We need to look at
 ## different output sections when adding a subdevice.
 if (( subdevice )) ; then
-    cardIndexAndName=$(${APLAY} -l | ${AWK} "/device ${subdevice}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
+    ## THIS IS NOT WORKING. DO NOT USE --subdevice!
+    cardIndexAndName=$(${APLAY} -l | ${AWK} "/ subdevice #${subdevice}/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
 else
-    cardIndexAndName=$(${APLAY} -l | ${AWK} '/^card/{print $2 $3}' | ${SORT} -u | ${GREP} ${cardPattern})
+    cardIndexAndName=$(${APLAY} -l | ${AWK} "/^card .*, device ${device}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
 fi
 
 ## Set up the JACK configuration if we found an audio device that
@@ -112,15 +156,15 @@ if [[ -n "${cardIndexAndName}" ]] ; then
     cardIndex=${cardIndexAndName%:*}
     cardName=${cardIndexAndName#*:}
 
-    alsaOutLog=${VARTMP:-/var/tmp}/alsa_out-${cardName}.log
-    alsaInLog=${VARTMP:-/var/tmp}/alsa_in-${cardName}.log
+    alsaOutLog=${VARTMP:-/var/tmp}/alsa-output-${cardName}.log
+    alsaInLog=${VARTMP:-/var/tmp}/alsa-input-${cardName}.log
 
     case ${direction} in
 
 	both)
 	    # Load the audio card into the running instance of
 	    # jackd. This sets up input and output ports.
-	    if ${JACK_LOAD} -i "-d alsa -d hw:${cardIndex} -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${jackClientName} audioadapter ; then
+	    if ${JACK_LOAD} -i "-d alsa -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${jackClientName} audioadapter ; then
 		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: loaded ${cardIndex}:${cardName} as ${jackClientName}."
 	    else
 		${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to load ${cardIndex}:${cardName} as ${jackClientName}."
@@ -128,19 +172,39 @@ if [[ -n "${cardIndexAndName}" ]] ; then
 	    ;;
 
 	in)
-	    # Use the card for audio input.
-	    # Note that alsa_in must be put into the background in
-	    # order to keep running while jackd is running...
-	    nohup ${ALSA_IN} -j ${jackClientName} -d hw:${cardIndex},${subdevice} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaInLog} &
-	    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: added ${cardIndex}${subdevice:+,${subdevice}}:${cardName} as ${jackClientName} for INPUT."
+	    # Use the card for audio input. Prefer zita-a2j over alsa_in.
+	    # Note that these must be put into the background in
+	    # order to keep running while jackd is running.
+	    if [[ -x ${ZITA_A2J} ]] ; then
+		nohup ${ZITA_A2J} -j ${jackClientName} -d hw:${cardIndex},${device} &
+		appName=zita-a2j
+	    else
+		nohup ${ALSA_IN} -j ${jackClientName} -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} &
+		appName=alsa_in
+	    fi &> ${alsaInLog}
+	    if (( ${?} == 0 )) ; then
+		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: ${appName} added '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for INPUT."
+	    else
+		${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${appName} failed to add '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for INPUT."
+	    fi
 	    ;;
 
 	out)
-	    # Use the card for audio output.
-	    # Note that alsa_out must be put into the background in
-	    # order to keep running while jackd is running...
-	    nohup ${ALSA_OUT} -j ${jackClientName} -d hw:${cardIndex}${subdevice:+,${subdevice}} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} 2>&1 > ${alsaOutLog} &
-	    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: added ${cardIndex}${subdevice:+,${subdevice}}:${cardName} as ${jackClientName} for OUTPUT."
+	    # Use the card for audio output. Prefer zita-j2a over alsa_out.
+	    # Note that these must be put into the background in
+	    # order to keep running while jackd is running.
+	    if [[ -x ${ZITA_J2A} ]] ; then
+		nohup ${ZITA_J2A} -j ${jackClientName} -d hw:${cardIndex},${device} &
+		appName=zita-j2a
+	    else
+		nohup ${ALSA_OUT} -j ${jackClientName} -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} &
+		appName=alsa_out
+	    fi &> ${alsaOutLog}
+	    if (( ${?} == 0 )) ; then
+		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: ${appName} added '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for OUTPUT."
+	    else
+		${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${appName} failed to add '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for OUTPUT."
+	    fi
 	    ;;
 
     esac
@@ -153,9 +217,7 @@ fi
 
 exit
 
-## Example output of
-## sudo -u ramuser aplay -l
-## on a Studio Audio Workstation
+## Example (contrived) output of aplay -l
 cat << EOF
 **** List of PLAYBACK Hardware Devices ****
 card 0: PCH [HDA Intel PCH], device 0: ALC662 rev1 Analog [ALC662 rev1 Analog]
@@ -167,13 +229,19 @@ card 0: PCH [HDA Intel PCH], device 3: HDMI 0 [HDMI 0]
 card 0: PCH [HDA Intel PCH], device 7: HDMI 1 [HDMI 1]
   Subdevices: 1/1
   Subdevice #0: subdevice #0
-card 1: VX222e0 [Digigram VX222e [PCM #0]], device 0: pcxhr 0 [pcxhr 0]
+card 1: Juli [ESI Juli@], device 0: ICE1724 [ICE1724]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+card 1: Juli [ESI Juli@], device 1: ICE1724 IEC958 [ICE1724 IEC958]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+card 2: VX222e0 [Digigram VX222e [PCM #0]], device 0: pcxhr 0 [pcxhr 0]
   Subdevices: 3/4
   Subdevice #0: subdevice #0
   Subdevice #1: subdevice #1
   Subdevice #2: subdevice #2
   Subdevice #3: subdevice #3
-card 2: CODEC [USB Audio CODEC], device 0: USB Audio [USB Audio]
+card 3: CODEC [USB Audio CODEC], device 0: USB Audio [USB Audio]
   Subdevices: 0/1
   Subdevice #0: subdevice #0
 EOF
