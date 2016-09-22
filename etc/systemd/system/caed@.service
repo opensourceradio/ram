@@ -21,7 +21,7 @@ Type=forking
 # create this directory under /var/run and set the perms accordingly
 RuntimeDirectory=rivendell
 RuntimeDirectoryMode=775
-PIDFile=/var/run/rivendell/caed.pid
+PIDFile=/run/rivendell/caed.pid
 KillMode=mixed
 Restart=always
 IgnoreSIGPIPE=no

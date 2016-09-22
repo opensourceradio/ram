@@ -12,7 +12,7 @@ After=ripcd@%i.service
 [Service]
 ExecStart=/usr/bin/rdcatchd
 Type=forking
-PIDFile=/var/run/rivendell/rdcatchd.pid
+PIDFile=/run/rivendell/rdcatchd.pid
 User=%i
 KillMode=mixed
 Restart=always
