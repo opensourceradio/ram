@@ -37,8 +37,7 @@ doSQL() {
     # environment, else use defaults here.
     # BUG ALERT: this assumes the credentials in .my.cnf are relevant
     # to the Rivendell database.
-    if [[ -r ~/.my.cnf ]] ; then
-      if [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+    if [[ -r ~/.my.cnf ]] && [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
 	cd			# Sigh, mapfile cannot deal with path components.
 	myCnfLines=( ${mapfile[.my.cnf]} )
 
@@ -49,7 +48,6 @@ doSQL() {
 	    (( useMyCNF++ ))
 	  fi
 	done
-      fi
     else
       # Horribly insecure, but this is the "Rivendell Way".
       if [[ -r ${rdconfig} ]] ; then
@@ -58,7 +56,8 @@ doSQL() {
 	PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
 	DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
       else
-	HOST=${RD_DB_HOST:-"rd-service"}
+	# Last ditch effort to set the MySQL access credentials.
+	HOST=${RD_DB_HOST:-"localhost"}
 	USER=${RD_USER:-"rduser"}
 	PASSWORD=${RD_PASS:-"letmein"}
 	DATABASE=${RD_DATABASE:-"Rivendell"}
