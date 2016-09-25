@@ -14,8 +14,8 @@
 ##########################################################################################
 
 ## log STDOUT and STDERR of this script and all commands called by this script to separate files
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+exec 1> /var/tmp/${0##*/}${1:+"-${1}"}.out
+exec 2> /var/tmp/${0##*/}${1:+"-${1}"}.err
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
