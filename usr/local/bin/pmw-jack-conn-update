@@ -74,3 +74,11 @@ else
 fi
 
 exit ${exitValue}
+
+mysql <<EOF
+CREATE TABLE `connection_state` (
+  `number` int(10) unsigned NOT NULL,
+  `host` char(64) NOT NULL,
+  PRIMARY KEY (`number`,`host`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+EOF
