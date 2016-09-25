@@ -6,8 +6,8 @@
 ; disconnect it from there as it is just a dummy device.
 (disconnect "PulseAudio JACK Sink(.*):front-left" "system:playback_1")
 (disconnect "PulseAudio JACK Sink(.*):front-right" "system:playback_2")
-(disconnect "PulseAudio JACK Source(.*):front-left" "system:capture_1")
-(disconnect "PulseAudio JACK Source(.*):front-right" "system:capture_2")
+(disconnect "system:capture_1" "PulseAudio JACK Source(.*):front-left")
+(disconnect "system:capture_2" "PulseAudio JACK Source(.*):front-right")
 
 ; Connect Pulseaudio to the HDMI output for playback through the
 ; speakers on the touchscreen display (connected to the on-board
