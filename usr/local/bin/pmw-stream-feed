@@ -44,6 +44,10 @@ streamHost=${${streamURL#*@}%%:*}
 streamPort=${${streamURL##*:}%/*}
 streamMountPoint=${streamURL##*/}
 
+## The default Rivendell production playback port (we tack on the "L"
+## and "R" when we connect the ports below).
+rivendellPlaybackPort=${2:-"rivendell_0:playout_0"}
+
 if [[ -r ${streamScript} ]] ; then
 
     ## snag the encoder jack client name from the script
@@ -57,12 +61,13 @@ if [[ -r ${streamScript} ]] ; then
 
 	count=1
 	while (( count <= maxAttempts )) ; do
-	    ## BUG ALERT: this assumes that Rivendell "Port 0" is the main playout port!
 	    if ${JACK_LSP} | ${GREP} -q encode-in ; then
-		${JACK_CONNECT} ${encoderID}:in_0 rivendell_0:playout_0L
-		${JACK_CONNECT} ${encoderID}:in_1 rivendell_0:playout_0R
-		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to Rivendell main output."
-		break
+		if ${JACK_LSP} | ${GREP} -q ${rivendellPlaybackPort} ; then
+		    ${JACK_CONNECT} ${encoderID}:in_0 ${rivendellPlaybackPort}L
+		    ${JACK_CONNECT} ${encoderID}:in_1 ${rivendellPlaybackPort}R
+		    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to ${rivendellPlaybackPort}."
+		    break
+		fi
 	    fi
 	    (( count++ ))
 	    sleep ${sleepDuration}
