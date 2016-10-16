@@ -16,6 +16,8 @@ setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
 
+myName=${0##*/}
+
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
@@ -31,14 +33,14 @@ vHash='$Hash$'
 
 # How to use this command.
 usage() {
-  myName=${1}
+  local myName=${1}
 
   ${CAT} <<EOF
 ${myName}: run podget with exception handling and notifications
 
 Summary
 
-${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+${myName} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
                    [ --config (-c) <podget-configuration-file> ]
                    [ --config_notify (-n) <noification-configuration-file> ]
                    [ --dir_config (-d) <podget-directory-path> ]
@@ -58,6 +60,7 @@ EOF
 
 # Use the configured mailer to send email to one or more addresses.
 sendNotification() {
+  local myName=${1} ; shift
   local type=${1:?"Need a notification type."} ; shift
   local message=${1:?"Need a message to send for the notification."} ; shift
   local messagefile="${1}"
@@ -82,7 +85,7 @@ ENDOFMAIL
 
   else
 
-    warning "Cannot find executable program '${PODGET_MAILER}'."
+    warning ${myName} "Cannot find executable program '${PODGET_MAILER}'."
 
   fi
 }
@@ -90,6 +93,7 @@ ENDOFMAIL
 # Relevant runtime data in a key-value text file.
 # Returns 0 on success, else 1 or other positive integer (see below for possibilities).
 updateRuntimeData() {
+  local myName=${1} ; shift
   local key=${1:?"Need a key to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
   local value=${2:?"Need a value for key '${key}' to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
 
@@ -115,7 +119,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
+      sendNotification ${myName} INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
       returnValue=32
 
     fi
@@ -135,7 +139,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
+      sendNotification ${myName} INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
       ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
       returnValue=34
 
@@ -156,7 +160,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
+      sendNotification ${myName} INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
       returnValue=36
 
     fi
@@ -166,16 +170,18 @@ updateRuntimeData() {
 }
 
 warning() {
-  local message=${1}
+  local myName=${1}
+  local message=${2}
 
-  ${LOGGER} -t ${0##*/} -p local7.warn -i "WARNING: ${message}"
+  ${LOGGER} -t ${myName} -p local7.warn -i "WARNING: ${message}"
 
 }
 
 error() {
-  local message=${1}
+  local myName=${1}
+  local message=${2}
 
-  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${message}"
+  ${LOGGER} -t ${myName} -p local7.err -i "ERROR: ${message}"
 
   echo 254
   return 254
@@ -236,7 +242,7 @@ while : ; do
     -c|--config) CONFIG_CORE=${2} ; shift 2 ;;
     -d|--dir_c*) DIR_CONFIG=${2} ; shift 2 ;;
     -n|--config_n*) CONFIG_NOTIFY=${2} ; shift 2 ;;
-    -h|--help*) usage ${0##*/} ; exit ;;
+    -h|--help*) usage ${myName} ; exit ;;
     -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -256,18 +262,18 @@ exec 2> /var/tmp/${0##*/}.err
 
 [[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] && source ${DIR_CONFIG}/${CONFIG_CORE}
 [[ -n "${CONFIG_SERVERLIST}" ]] ||
-  error "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
+  error ${myName} "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
 [[ -r ${DIR_CONFIG}/${CONFIG_NOTIFY} ]] && source ${DIR_CONFIG}/${CONFIG_NOTIFY}
 [[ -n "${PODGET_RUNTIME_DATA}" ]] ||
-  error "Failed to get the setting for 'PODGET_RUNTIME_DATA'. Does '${DIR_CONFIG}/${CONFIG_NOTIFY}' exist?"
+  error ${myName} "Failed to get the setting for 'PODGET_RUNTIME_DATA'. Does '${DIR_CONFIG}/${CONFIG_NOTIFY}' exist?"
 
 # Remember when we started running.
 startTime=${EPOCHSECONDS}
 
 # Create the log directory if it does not already exist.
 [[ -d "${DIR_LOG}" ]] || ${MKDIR} ${DIR_LOG} || {
-    sendNotification INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
-    exit $(error "Could not create log directory '${DIR_LOG}'. Cannot continue.") ;
+    sendNotification ${myName} INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
+    exit $(error ${myName} "Could not create log directory '${DIR_LOG}'. Cannot continue.") ;
   }
 
 ##########################################################################################
@@ -286,7 +292,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
     # If lastStart is not set it gets evaluated as zero.
     if (( ( startTime - lastStart ) > PODGET_REASONABLE_RUNTIME )) ; then
 
-      sendNotification TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
+      sendNotification ${myName} TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
 
       for pid in ${podgetPIDs} ; do
 
@@ -305,8 +311,8 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
 	    ${SLEEP} 3
 	    if [[ -d /proc/${pid} ]] ; then
 
-	      sendNotification TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
-	      exit $(error "Cannot terminate running podget. PID is ${pid}.")
+	      sendNotification ${myName} TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
+	      exit $(error ${myName} "Cannot terminate running podget. PID is ${pid}.")
 	    fi
 	  fi
 	fi
@@ -315,19 +321,19 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
     else
 
       # podget is running but for less than the reasonable time. Just quit.
-      updateRuntimeData check-time ${startTime}
+      updateRuntimeData ${myName} check-time ${startTime}
 
     fi
 
   else
 
-    sendNotification INTERNAL_ERROR "WHAT? podget seems to be running, but missing '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting."
-    exit $(error "podget running but missing ${DIR_LOG}/${PODGET_RUNTIME_DATA}.")
+    sendNotification ${myName} INTERNAL_ERROR "WHAT? podget seems to be running, but missing '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting."
+    exit $(error ${myName} "podget running but missing ${DIR_LOG}/${PODGET_RUNTIME_DATA}.")
 
   fi
 else
 
-  updateRuntimeData start-time ${startTime}
+  updateRuntimeData ${myName} start-time ${startTime}
 
   # podget is not running, so go ahead and launch it.
   # Convert our "--verbose" to a "-vv" for podget, add up to two more
@@ -335,7 +341,7 @@ else
   ${PODGET} ${VERBOSE:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
 
   # Make a note of the completion time
-  updateRuntimeData start-time DELETE
+  updateRuntimeData ${myName} start-time DELETE
 
   # Check the various output and log files to make sure things went well.
   if [[ -s ${DIR_LOG}/${LOG_FAIL} ]] ; then
@@ -344,8 +350,8 @@ else
     failures=( $(${CAT} ${DIR_LOG}/${LOG_FAIL}) )
     for failure in ${failures} ; do
 
-      sendNotification DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things."
-      warning "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
+      sendNotification ${myName} DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things."
+      warning ${myName} "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
 
     done
   fi
