@@ -70,7 +70,7 @@ sendNotification() {
 
   if [[ -x ${PODGET_MAILER} ]] ; then
 
-    ${PODGET_MAILER} ${PODGET_MAILER_ARGS} ${PRETEND} <<ENDOFMAIL
+    ${PODGET_MAILER} $(eval echo ${PODGET_MAILER_ARGS}) ${PRETEND} <<ENDOFMAIL
 From: no-reply@$(${HOSTNAME} -f)
 To: ${${PODGET_MAILTO//( |[ ,][ ,])/,}%,}
 Subject: ATTENTION: podget ${type} Notification
