@@ -27,12 +27,12 @@ feed = input.jack(
 ## Note that we connect the source client on TCP port 8080, and the streaming
 ## clients will connect on TCP port 8000.
 stlID   = "PMW stl"
-stlProt = "http"
-stlHost = argv( 1 )
-stlPort = int_of_string( argv( 2 ))
-stlMnt  = argv( 3 )
+stlProt = argv( 1 )
+stlHost = argv( 2 )
+stlPort = int_of_string( argv( 3 ))
+stlMnt  = argv( 4 )
 stlUser = "source"
-stlPass = argv( 4 )
+stlPass = argv( 5 )
 stlDesc = "STREAM-DESCRIPTION"
 stlURL  = "STREAM-URL"
 
@@ -58,7 +58,7 @@ clock.assign_new (
       # internal_quality: Lame algorithms internal quality. A value
       # between 0 and 9, 0 being highest quality and 9 the worst
       # (default: 2).
-      %mp3( samplerate = 48000, stereo = true, bitrate = 128, internal_quality = 1 ),
+      %mp3( samplerate = 48000, stereo = true, bitrate = 96, internal_quality = 1 ),
 
       # (unlabeled) source:
       # buffer is necessary when using the internal liquidsoap clock
