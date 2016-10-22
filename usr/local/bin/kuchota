@@ -45,7 +45,7 @@ usage() {
   ${CAT} << EOF
 ${myName}: add a new RSS feed to the list of podcasts.
 
-Summary: ${myName##*/} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
+Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
                        [ --config (-c) <podget_configuration_file> ]
                        [ --dir_config (-d) <podget_configuration_directory> ]
                        [ --group (-g) { <Rivendell Group Name> or 'list' } ]
@@ -394,6 +394,7 @@ deleteFeed() {
     fi
 
     group=$(${AWK} "/[[:space:]]${feedName}[[:space:]]*/{print \$2}" ${DIR_CONFIG}/${CONFIG_SERVERLIST})
+    (( verbose )) && warning "${myName}: deleting from group '${group}'."
 
     read -k 1 deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
     until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
@@ -598,7 +599,7 @@ editSchedule() {
   # Give them the opportunity to change the existing schedule.
   if ${GREP} -q 'pmw-podget-wrapper' <<<"${crontab:-X}" ; then
 
-  ${CAT} <<EOF
+    ${CAT} <<EOF
 
 The current schedule for downloading podcasts is as follows. This is
 the entire crontab entry. '${BOLD}pmw-podget-wraper${NORM}' is the tool used to
@@ -608,18 +609,18 @@ ${BOLD}$(${GREP} 'podget-wrapper' <<<${crontab})${NORM}
 
 EOF
 
-  if ! read -q change\?"Do you want to change the schedule? [y,N] " ; then
+    if ! read -q change\?"Do you want to change the schedule? [y,N] " ; then
 
-    echo "\nLeaving the download schedule as it is."
-    read ok\?"Press <Enter> to continue. "
-    trap -
-    return
+      echo "\nLeaving the download schedule as it is."
+      read ok\?"Press <Enter> to continue. "
+      trap -
+      return
 
-  fi
+    fi
 
-  # Pre-fill the vailues we will later prompt for.
-  minute=$(${GREP} '^[^#].*podget-wrapper' <<<${crontab} | ${AWK} '{print $1}')
-  hour=$(${GREP} '^[^#].*podget-wrapper' <<<${crontab} | ${AWK} '{print $2}')
+    # Pre-fill the vailues we will later prompt for.
+    minute=$(${AWK} '/^[^#].*podget-wrapper/{print $1}' <<<${crontab})
+    hour=$(${AWK} '/^[^#].*podget-wrapper/{print $2}' <<<${crontab})
 
   fi
 
@@ -780,7 +781,7 @@ addRDDropbox() {
     if read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] " ; then
 
       echo
-      if read -q answer\?"For this dropbox, do you want to create a new CART and assign this podcast to it? [y,N] " ; then
+      if read -q answer\?"Create a new CART and assign each podcast episode to it (one CART for all episodes)? [y,N] " ; then
 
 	echo
 	if dropboxID=$(createDropbox ${feedGroup} ${feedName} ${DIR_LIBRARY} ${fileExt} $(rdCreateEmptyCart ${feedGroup} ${feedName}) ${verbose}) ; then
@@ -944,6 +945,8 @@ cleanupFeed() {
   local id
   local returnValue=0
 
+  (( verbose )) && warning "${myName}: pathPrefix is '${pathPrefix}'."
+
   if id=$(rdGetDropboxIDFromPath ${myName} ${pathPrefix} ${verbose}) ; then
 
     rdimportPID=$(for PID in $(${PIDOF} rdimport) ; do
@@ -958,18 +961,21 @@ cleanupFeed() {
 
       else
 
+	warning "Dropbox path '${pathPrefix}' is not a directory. Please seek professional help."
 	returnValue=3
 
       fi
 
     else
 
+      warning "Unable to kill process '${rdimportPID}'."
       returnValue=2
 
     fi
 
   else
 
+    warning "ID returned from rdGetDropboxIDFromPath() was '${id}' for path '${pathPrefix}'."
     returnValue=1
 
   fi
@@ -1008,16 +1014,23 @@ createDropbox() {
 
   local dropboxPath="${dirLibrary}/${feedGroup}/${feedName}"
   local returnValue=0
-  local stationName dropboxID
+  local deleteCuts stationName dropboxID
   local -a query
+
+  ## DELETE_CUTS defaults to "N" in the database if they simply press
+  ## <Enter> in response to this prompt.
+  echo >&2
+  read -q deleteCuts\?"Do you want to delete old cuts before importing new audio for this dropbox? [y,N] "
+  echo >&2
 
   if stationName=$(rdGetStationName) ; then
 
+    ## This shell array variable gets turned into a single string below.
     query=(
       "insert into DROPBOXES"
-      "(STATION_NAME, GROUP_NAME, PATH, NORMALIZATION_LEVEL, AUTOTRIM_LEVEL, TO_CART, FIX_BROKEN_FORMATS, LOG_PATH)"
+      "(STATION_NAME, GROUP_NAME, PATH, NORMALIZATION_LEVEL, AUTOTRIM_LEVEL, TO_CART, DELETE_CUTS, FIX_BROKEN_FORMATS, LOG_PATH)"
       "values"
-      "('${stationName}', '${feedGroup}', '${dropboxPath}/*.${fileExt}', -100, -5000, ${cartNumber}, 'Y', '${dropboxPath}/rdimport.log')"
+      "('${stationName}', '${feedGroup}', '${dropboxPath}/*.${fileExt}', -100, -5000, ${cartNumber}, '${(U)deleteCuts:-n}', 'Y', '${dropboxPath}/rdimport.log')"
     )
 
     if doSQL "${(j: :)query}" ; then
@@ -1027,7 +1040,7 @@ createDropbox() {
 
       if [[ -z "${dropboxID}" ]] ; then
 
-	echo "Unable to discern the new dropbox ID. Did the dropbox get created?" >&2
+	warning "Unable to discern the new dropbox ID. Did the dropbox get created?"
 	returnValue=1
 
       else
@@ -1036,7 +1049,7 @@ createDropbox() {
 
     else
 
-      echo "Attempt to create new dropbox failed (${?}). Please seek professional advice." >&2
+      warning "Attempt to create new dropbox failed (${?}). Please seek professional advice."
       returnValue=1
 
     fi
@@ -1121,14 +1134,14 @@ done
 DIR_CONFIG=%PODGET_DIR_CONFIG%
 CONFIG_CORE=podgetrc
 CONFIG_NOTIFY=notifyrc
+VERBOSE=0
 
-TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,debug,dir-config:,version,verbose,group:,help -n "${0##*/}" -- "${@}")
+TEMP=$(${GETOPT} -o c:Dd:Vvg:h --long config:,dir-config:,version,verbose,group:,help -n "${0##*/}" -- "${@}")
 if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
-    -D|--debu*) DEBUG=1 ; shift ;;
     -c|--conf*) CONFIG_CORE=${2} ; shift 2 ;;
     -d|--dir-*) DIR_CONFIG=${2} ; shift 2 ;;
     -g|--grou*) group=${2} ; shift 2 ;;
@@ -1157,16 +1170,8 @@ fileExt=mp3
 if [[ ! -d ${DIR_CONFIG} ]] ; then
   if ! ${MKDIR} -p ${DIR_CONFIG} ; then
 
-    ${CAT} >&2 <<EOF
-${BOLD}${RED}
-ERROR: unable to create configuration directory '${DIR_CONFIG}'. Make
-sure your permissions are set so that you have file create and write
-rights to the ${DIR_CONFIG} directory.
-
-Cannot continue.
-${NORM}
-EOF
-    exit 2
+    exit $(error "Unable to create configuration directory '${DIR_CONFIG}'. Make sure your permissions are set so that you have file create and write
+rights to the ${DIR_CONFIG} directory. Cannot continue.")
 
   fi
 fi
@@ -1215,18 +1220,18 @@ while : ; do
       "\[Advanced\] Edit ${USER}\'s crontab file"
     )
     command=(
-      'addOrReplaceFeed ${0##*/} ${verbose}'
-      'deleteFeed ${0##*/} ${verbose}'
-      'enableFeed ${0##*/} ${verbose}'
-      'listFeeds ${0##*/} ${verbose}'
-      'showLastStatus ${0##*/} out ${verbose}'
-      'showLastStatus ${0##*/} err ${verbose}'
-      'editSchedule ${0##*/} ${verbose}'
-      'showRDDropboxes ${0##*/} ${verbose}'
-      'showDropboxStatus ${0##*/} ${verbose}'
-      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${verbose}'
-      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_NOTIFY} ${verbose}'
-      'cronEdit ${0##*/} ${verbose}'
+      'addOrReplaceFeed ${0##*/} ${VERBOSE}'
+      'deleteFeed ${0##*/} ${VERBOSE}'
+      'enableFeed ${0##*/} ${VERBOSE}'
+      'listFeeds ${0##*/} ${VERBOSE}'
+      'showLastStatus ${0##*/} out ${VERBOSE}'
+      'showLastStatus ${0##*/} err ${VERBOSE}'
+      'editSchedule ${0##*/} ${VERBOSE}'
+      'showRDDropboxes ${0##*/} ${VERBOSE}'
+      'showDropboxStatus ${0##*/} ${VERBOSE}'
+      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_SERVERLIST} ${VERBOSE}'
+      'editFile ${0##*/} ${DIR_CONFIG}/${CONFIG_NOTIFY} ${VERBOSE}'
+      'cronEdit ${0##*/} ${VERBOSE}'
     )
     windowTitle=(
       "Add Feed"
@@ -1261,6 +1266,7 @@ while : ; do
       read ok\?"Press <Enter> to continue. "
 
     elif [[ ${choice} =~ '^[0Qq]$' ]] ; then
+      printf '\033]0;%s\007' ''
       exit
 
     elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]+' ]] ; then
