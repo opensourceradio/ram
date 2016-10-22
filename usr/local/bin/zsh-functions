@@ -4,10 +4,84 @@
 #
 # This is a "library" of zsh(1) functions used by all the Phantom
 # Machine Works Z-Shell scripts. All scripts that need any functions
-# should "source" this file. It is not intended to be "run" from the
-# command line.
+# should "source" this file. This script is NOT intended to be "run"
+# from the command line.
 #
 ##############################################################################
+
+# Use the configured mailer to send email to one or more addresses.
+sendNotification() {
+  local myName=${1:?"Who am I?"} ; shift
+  local MAILTO=${1:?"Need one or more recipients to send to."} ; shift
+  local message=${1:?"Need a message to send for the notification."} ; shift
+  local messagefile=${1} # optional text filename to attach
+
+  local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
+  local MAILER_ARGS="--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"
+  local PRETEND=${PRETEND}
+
+  local BASE64=$(whence base64) ; BASE64=${BASE64:-/usr/bin/base64}
+  local CAT=$(whence cat) ; CAT=${CAT:-/bin/cat}
+  local DOS2UNIX=$(whence dos2unix) ; DOS2UNIX=${DOS2UNIX:-${ROOT:-/}usr/bin/logger}
+  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+  local LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
+  local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
+  local UUIDGEN=$(whence uuidgen) ; UUIDGEN=${UUIDGEN:-${ROOT:-/}usr/bin/uuidgen}
+
+  if [[ -x ${MAILER} ]] ; then
+
+    if [[ -s ${MAILER_CONFIG} ]] ; then
+
+      (
+	${CAT} <<EOF
+To: ${${MAILTO//( |[ ,][ ,])/,}%,}
+From: No-Reply@$(${HOSTNAME} -f)
+Reply-To: No-Reply@$(${HOSTNAME} -f)
+Subject: rddbcheck Output from ${myName}
+Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
+X-Script-Name: ${myName}
+MIME-Version: 1.0
+Content-Type: multipart/mixed;
+ boundary="----------${startTime}"
+
+This is a multi-part message in MIME format.
+------------${startTime}
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+${message}
+
+EOF
+	if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
+	  ${CAT} <<EOF
+------------${startTime}
+Content-Type: text/plain; charset=UTF-8;
+ name="${messagefile##*/}"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename="${messagefile##*/}"
+
+$(${DOS2UNIX} < ${messagefile} | ${BASE64})
+EOF
+	fi
+
+	${CAT} <<EOF
+------------${startTime}--
+EOF
+      ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+
+    else
+
+      ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
+
+    fi
+
+  else
+
+    ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
+
+  fi
+}
 
 # Make mysql calls look a bit more asthetically pleasing. The return
 # value of this shell funtion is the exit value of the mysql command
@@ -19,7 +93,7 @@ doSQL() {
   local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
   local MYSQL=$(whence mysql) ; MYSQL=${MYSQL:-${ROOT:-/}usr/bin/mysql}
   local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-  local EGREP=$(whence egrep) EGREP=${EGREP:-${ROOT:-/}bin/egrep}
+  local EGREP=$(whence egrep) ; EGREP=${EGREP:-${ROOT:-/}bin/egrep}
   local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
   typeset -gx _DB_HOST _DB_USER _DB_PWD _DB_DATABASE _USE_MYCNF
@@ -83,11 +157,12 @@ rdDatabaseVersion() {
 }
 
 rdGetStationName() {
-  local myHostname=$(hostname -s)
   local -a myIP
-
   local stationName foundStationName
   local returnValue=0
+
+  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+  local myHostname=$(${HOSTNAME} -s)
 
   # Prefer an exact hostname match.
   stationName=$(doSQL "select NAME from STATIONS where NAME = '${myHostname}'")
@@ -124,8 +199,7 @@ getMyIPAddresses() {
   local returnValue=0
 
   local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-  local GREP=$(whence grep) GREP=${GREP:-${ROOT:-/}bin/grep}
-  local IFCONFIG=$(whence IFCONFIG) ; IFCONFIG=${IFCONFIG:-${ROOT:-/}sbin/ifconfig}
+  local GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
   local IP=$(whence ip) ; IP=${IP:-${ROOT:-/}sbin/ip}
   local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
@@ -305,13 +379,14 @@ rdDropboxStatus() {
   local verbose=${1}
 
   local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-  local GREP=$(whence grep) GREP=${GREP:-${ROOT:-/}bin/grep}
-  local HOSTNAME=$(whence hostname) HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+  local GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
+  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
   local KILLALL=$(whence killall) ; KILLALL=${KILLALL:-${ROOT:-/}usr/bin/killall}
   local PIDOF=$(whence pidof) ; PIDOF=${PIDOF:-${ROOT:-/}bin/pidof}
   local PS=$(whence ps) ; PS=${PS:-${ROOT:-/}bin/ps}
-  local RDCATCHD=$(whence rdcatchd) ; RDCATCHD=${RDCATCHD:-${ROOT:-/}bin/ps}
+  local RDCATCHD=$(whence rdcatchd) ; RDCATCHD=${RDCATCHD:-${ROOT:-/}usr/bin/rdcatchd}
   local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+  local SLEEP=$(whence sleep) ; SLEEP=${SLEEP:-${ROOT:-/}bin/sleep}
   local SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
 
   local -a dropboxIDs
@@ -358,9 +433,9 @@ rdDropboxStatus() {
 
       # Wait a few seconds to see if anybody restarts rdcatchd.
       if (( interactive )) ; then
-	for i in {1..3} ; do echo ".\c" ; sleep 1; done
+	for i in {1..3} ; do echo ".\c" ; ${SLEEP} 1; done
       else
-	sleep 3
+	${SLEEP} 3
       fi
 
       if ! ${PIDOF} 'rdcatchd' > /dev/null ; then
@@ -369,9 +444,9 @@ rdDropboxStatus() {
 
 	# Wait a few seconds more to make sure rdcatchd restarts.
 	if (( interactive )) ; then
-	  for i in {1..3} ; do echo ".\c" ; sleep 1; done
+	  for i in {1..3} ; do echo ".\c" ; ${SLEEP} 1; done
 	else
-	  sleep 3
+	  ${SLEEP} 3
 	fi
 
 	if ${PIDOF} 'rdcatchd' > /dev/null ; then
@@ -427,7 +502,7 @@ logit() {
 
   if (( interactive )) ; then
 
-    print "${message}"
+    print "${message}" >&2
 
   else
 
