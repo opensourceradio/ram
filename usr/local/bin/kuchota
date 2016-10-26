@@ -18,13 +18,14 @@ setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
 zmodload zsh/terminfo
+zmodload zsh/stat
 autoload colors
 colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -559,6 +560,7 @@ showLastStatus() {
   local verbose=${1}
 
   local statusFile=${STATUS_FILE:-${ROOT:-/}var/tmp/pmw-podget-wrapper.${type}}
+  local fileTime
 
   trap 'trap - ; return ;' 0 1 2 3
 
@@ -567,9 +569,17 @@ showLastStatus() {
     err) OUTPUT="diagnostic output" ;;
   esac
 
+  if zstat -H statusStat ${statusFile} ; then
+    fileTime=$(strftime "%A, %B %d, %Y at %T" ${statusStat[mtime]})
+  fi
+
   (
     # The header.
     reportTitleText="Latest Kuchota 'podget' ${(C)OUTPUT}"
+    if [[ -n "${fileTime}" ]] ; then
+      reportTitleText="${reportTitleText} as of ${fileTime}"
+    fi
+    # Center the title on the display.
     reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${reportTitleText}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
     print "${reportTitle}"
