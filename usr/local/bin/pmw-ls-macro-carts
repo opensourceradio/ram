@@ -30,7 +30,11 @@ do
   esac
 done
 
+# Accept a single cart number on the command line (after options) to
+# display that CART.
+condition=${1:+" and NUMBER = ${1}"}
+
 # Macros are stored in the database with TYPE set to 2.
-doSQL "select ${cartColumns} from CART where TYPE = 2"
+doSQL "select ${cartColumns} from CART where TYPE = 2${condition}"
 
 exit
