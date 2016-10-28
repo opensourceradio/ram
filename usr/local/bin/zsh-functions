@@ -2,14 +2,17 @@
 
 ##############################################################################
 #
-# This is a "library" of zsh(1) functions used by all the Phantom
-# Machine Works Z-Shell scripts. All scripts that need any functions
-# should "source" this file. This script is NOT intended to be "run"
-# from the command line.
+# This is a "library" of zsh(1) functions used by the Broadcast Tool &
+# Die Z-Shell scripts. All scripts that need any functions should
+# "source" this file.
+#
+# This script is NOT intended to be "run" from the command line.
 #
 ##############################################################################
 
-# Use the configured mailer to send email to one or more addresses.
+# Use the configured mailer to send email to one or more
+# addresses. This is starting to rely heavily on msmtp(1) and its
+# configuration file.
 sendNotification() {
   local myName=${1:?"Who am I?"} ; shift
   local MAILTO=${1:?"Need one or more recipients to send to."} ; shift
@@ -19,24 +22,27 @@ sendNotification() {
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
   local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
   local PRETEND=${PRETEND}
+  local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
 
   local BASE64=$(whence base64) ; BASE64=${BASE64:-/usr/bin/base64}
   local CAT=$(whence cat) ; CAT=${CAT:-/bin/cat}
-  local DOS2UNIX=$(whence dos2unix) ; DOS2UNIX=${DOS2UNIX:-${ROOT:-/}usr/bin/logger}
+  local DOS2UNIX=$(whence dos2unix) ; DOS2UNIX=${DOS2UNIX:-${ROOT:-/}usr/bin/dos2unix}
   local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
   local LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
   local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
   local UUIDGEN=$(whence uuidgen) ; UUIDGEN=${UUIDGEN:-${ROOT:-/}usr/bin/uuidgen}
 
+  local returnValue=0
+
   if [[ -x ${MAILER} ]] ; then
-
     if [[ -s ${MAILER_CONFIG} ]] ; then
+      if [[ -n "${MAIL_FROM}" ]] ; then
 
-      (
-	${CAT} <<EOF
+	(
+	  ${CAT} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
-From: No-Reply@$(${HOSTNAME} -f)
-Reply-To: No-Reply@$(${HOSTNAME} -f)
+From: ${MSMTP_USER}
+Reply-To: ${MSMTP_USER}
 Subject: rddbcheck Output from ${myName}
 Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
@@ -52,8 +58,8 @@ Content-Transfer-Encoding: 8bit
 ${message}
 
 EOF
-	if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
-	  ${CAT} <<EOF
+	  if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
+	    ${CAT} <<EOF
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
  name="${messagefile##*/}"
@@ -63,24 +69,35 @@ Content-Disposition: attachment;
 
 $(${DOS2UNIX} < ${messagefile} | ${BASE64})
 EOF
-	fi
+	  fi
 
-	${CAT} <<EOF
+	  ${CAT} <<EOF
 ------------${startTime}--
 EOF
-      ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+	) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+
+      else
+
+	${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
+	returnValue=3
+
+      fi
 
     else
 
       ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
+      returnValue=2
 
     fi
 
   else
 
     ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
+    returnValue=1
 
   fi
+
+  return ${returnValue}
 }
 
 # Make mysql calls look a bit more asthetically pleasing. The return
