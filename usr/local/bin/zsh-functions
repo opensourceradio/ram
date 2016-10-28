@@ -156,44 +156,6 @@ rdDatabaseVersion() {
   doSQL "select DB from VERSION"
 }
 
-rdGetStationName() {
-  local -a myIP
-  local stationName foundStationName
-  local returnValue=0
-
-  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
-  local myHostname=$(${HOSTNAME} -s)
-
-  # Prefer an exact hostname match.
-  stationName=$(doSQL "select NAME from STATIONS where NAME = '${myHostname}'")
-  if [[ -z "${stationName}" ]] ; then
-
-    for myIP in $(getMyIPAddresses) ; do
-
-      # If no hostname match, try each of our IP addresses.
-      stationName=$(doSQL "select NAME from STATIONS where IPV4_ADDRESS = '${myIP}'")
-      [[ -n "${stationName}" ]] && { foundStationName=1 ; break ; }
-
-    done
-
-    if [[ -z "${stationName}" ]] ; then
-
-      # If no match on the IP address, try a fuzzier hostname match.
-      stationName=$(doSQL "select NAME from STATIONS where NAME like '%${myHostname}%'")
-
-      if [[ -z "${stationName}" ]] ; then
-
-	echo "Cannot determine my Rivendell 'STATION' name. Better fix that before continuing." >&2
-	returnValue=1
-
-      fi
-    fi
-  fi
-
-  [[ -n "${stationName}" ]] && echo ${stationName}
-  return ${returnValue}
-}
-
 getMyIPAddresses() {
   local -a ipAddresses
   local returnValue=0
@@ -209,6 +171,108 @@ getMyIPAddresses() {
     echo ${(j: :)ipAddresses}
   fi
 
+  return ${returnValue}
+}
+
+# Get this hosts Rivendell STATION name. Return TRUE or FALSE
+# depending on whether we could figure the name out.
+rdGetStationName() {
+  local -a myIP
+  local stationName foundStationName
+  local returnValue=0
+
+  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
+  local myHostname=$(${HOSTNAME} -s)
+
+  # This function is compatible with Rivendell database verson:
+  local rdDBVersionCompatible=242
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
+
+  # Prefer an exact hostname match.
+  stationName=$(doSQL "select NAME from STATIONS where NAME = '${myHostname}'")
+
+  # Otherwise try all our relevant IP addresses.
+  if [[ -z "${stationName}" ]] ; then
+
+    for myIP in $(getMyIPAddresses) ; do
+
+      stationName=$(doSQL "select NAME from STATIONS where IPV4_ADDRESS = '${myIP}'")
+      [[ -n "${stationName}" ]] && { foundStationName=1 ; break ; }
+
+    done
+
+    if [[ -z "${stationName}" ]] ; then
+
+      # If no match on the IP address, try a fuzzier hostname match.
+      stationName=$(doSQL "select NAME from STATIONS where NAME like '%${myHostname}%'")
+
+      if [[ -z "${stationName}" ]] ; then
+
+	logit ${0} 1 "Cannot determine my Rivendell 'STATION' name. Better fix that before continuing."
+	returnValue=1
+
+      fi
+    fi
+  fi
+
+  [[ -n "${stationName}" ]] && echo ${stationName}
+  return ${returnValue}
+}
+
+# Get the Rivendell Web Server (HTTP_STATION) for this computer.
+rdGetWebServer() {
+  local returnValue=1
+
+  # This function is compatible with Rivendell database verson:
+  local rdDBVersionCompatible=242
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
+
+  if myStationName=$(rdGetStationName) ; then
+    if myHTTPStationName=$(doSQL "select HTTP_STATION from STATIONS where NAME = '${myStationName}'") ; then
+      returnValue=0
+      echo ${myHTTPStationName}
+    else
+      logit ${0} 1 "Could not determine the Rivendell Web Server for this workstation ('${myStationName}')."
+    fi
+  else
+    logit ${0} 1 "Could not determine my host name."
+  fi
+
+  return ${returnValue}
+}
+
+# Using the Rivendell Web API, delete the CART, all its CUTS, and the
+# actual audio file for the specified CART.
+rdDropCart() {
+  local cart=${1} ; shift
+  local verbose=${1}
+
+  local CURL=$(whence curl) ; CURL=${CURL:-${ROOT:-/}usr/bin/curl}
+  local httpServer=$(rdGetWebServer)
+  local response responseLine
+  local returnValue=1
+
+  # Delete this cart (and all its cuts): Command 13: RemoveCart
+  curlArguments="-d COMMAND=13 -d LOGIN_NAME='user' -d PASSWORD='' -d CART_NUMBER=${cart}"
+
+  response=$(${CURL} --silent $(eval echo ${curlArguments}) http://${httpServer}/rd-bin/rdxport.cgi)
+  while read responseLine ; do
+    if [[ ${responseLine} =~ 'ErrorString' ]] ; then
+      result=${${responseLine%</ErrorString>*}#*<ErrorString>}
+      break
+    fi
+  done <<<${response}
+
+  [[ "${result:-MISSING RESULT}" = 'OK' ]] && returnValue=0
+  echo "${result:-MISSING RESULT}"
   return ${returnValue}
 }
 
@@ -228,6 +292,14 @@ rdCartTitleFromPartial() {
   doSQL "select TITLE from CART where TITLE like '%${title}%'"
 }
 
+# Get a Rivendell CART TITLE from a CART NUMBER.
+rdCartTitleFromNumber() {
+  local number=${1:?"Need a CART NUMBER to look up."} ; shift
+  local verbose=${1}
+
+  doSQL "select TITLE from CART where NUMBER = ${number}"
+}
+
 rdCartGroupFromNumber() {
   local number=${1:?"Need a CART NUMBER to search."} ; shift
   local verbose=${1}
@@ -238,6 +310,14 @@ rdCartGroupFromNumber() {
 rdMaxCartNumberForGroup() {
   local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
   local verbose=${1}
+
+  # This function is compatible with Rivendell database verson:
+  local rdDBVersionCompatible=242
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
 
   local maxCartNum=$(doSQL "select DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
 
@@ -252,7 +332,7 @@ rdGetNextCartNumber() {
   local returnValue=0
   local defaultLowCart defaultHighCart lastHigh nextAvailable nextCartNum useThisCartNumber
 
-  # This script is compatible with Rivendell database verson:
+  # This function is compatible with Rivendell database verson:
   local rdDBVersionCompatible=242
 
   if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
@@ -347,6 +427,14 @@ rdCreateEmptyCart() {
   local newCartNumber
   local returnValue=0
 
+  # This function is compatible with Rivendell database verson:
+  local rdDBVersionCompatible=242
+
+  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
+
   if newCartNumber=$(rdGetNextCartNumber ${group}) ; then
 
     if (( newCartNumber > 0 )) ; then
@@ -393,7 +481,9 @@ rdDropboxStatus() {
   local -a rdimportIDs
   local dropboxID dropboxPath rdcatchdRestartNeeded returnValue=0
 
+  # We are looking for dropboxes on *this* host.
   dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)' order by ID") )
+  # The list of IDs for all currently running rdimport processes.
   rdimportIDs=(
     $(
       ${PS} ax --format 'pid,args' |
@@ -407,8 +497,7 @@ rdDropboxStatus() {
   if (( ${#dropboxIDs} )) ; then
 
     # If not equal, we probably have more dropboxes than running
-    # instances of rdimport.
-    # this is a map() in perl.
+    # instances of rdimport. (This is a map() in perl.)
     for dropboxID in ${dropboxIDs} ; do
 
       dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
