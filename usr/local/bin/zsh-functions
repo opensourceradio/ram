@@ -17,7 +17,7 @@ sendNotification() {
   local messagefile=${1} # optional text filename to attach
 
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
-  local MAILER_ARGS="--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"
+  local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
   local PRETEND=${PRETEND}
 
   local BASE64=$(whence base64) ; BASE64=${BASE64:-/usr/bin/base64}
