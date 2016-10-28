@@ -568,7 +568,7 @@ showFeeds() {
 
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  ) | ${LESS} -RCiP "Viewing podcast feeds?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
+  ) | ${LESS} -RCiP "Viewing podcast feeds?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
 
   trap -
 }
@@ -609,7 +609,7 @@ showLastStatus() {
 
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  ) | ${LESS} -RCiP "Viewing the latest podget ${OUTPUT}?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
+  ) | ${LESS} -RCiP "Viewing the latest podget ${OUTPUT}?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
 
   trap -
 }
@@ -651,7 +651,7 @@ showRDimportLogs() {
 
       # The footer.
       printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-    done | ${LESS} -RCiP "Viewing ${logfile}?e (End of Output).\. <q> to quit, <PgDown> and <PgUP> to scroll\."
+    done | ${LESS} -RCiP "Viewing rdimport logs?e (End of Output).\. <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
   else
     warning "Could not find ANY log files in '${DIR_LIBRARY}' named 'rdimport.log'."
     read ok\?"Press <Enter> to continue. "
@@ -674,11 +674,11 @@ clearRDimportLog() {
 
   trap 'trap - ; return ;' 0 1 2 3
 
-  logFiles=( $(${FIND} ${DIR_LIBRARY} -name rdimport.log -size +1 -print | ${SORT}) )
+  logFiles=( $(${FIND} ${DIR_LIBRARY} -name rdimport.log -size +1 -printf '%p:%s\n' | ${SORT}) )
 
   if [[ -n "${logFiles}" ]] ; then
     echo "\nHere are all the rdimport log files I could find in '${DIR_LIBRARY}':"
-    ${FMT} <<<${logFiles} | ${NL}
+    ${FMT} <<<${logFiles} | ${SED} -r -e 's,^(.*/rdimport.log):([[:digit:]]+)$,(\2 bytes)  \1,' | ${NL}
 
     read logfileIndex\?"Type the number of the log file you want to clear and press <Enter>: "
     until (( logfileIndex )) ; do
@@ -1032,7 +1032,7 @@ showRDDropboxes() {
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 
-  ) | ${LESS} -RCiP "Viewing Rivendell Dropboxes for Kuchota?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll\."
+  ) | ${LESS} -RCiP "Viewing Rivendell Dropboxes for Kuchota?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
 
   trap -
 }
