@@ -22,16 +22,17 @@ sendNotification() {
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
   local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
   local PRETEND=${PRETEND}
-  local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
 
-  local BASE64=$(whence base64) ; BASE64=${BASE64:-/usr/bin/base64}
-  local CAT=$(whence cat) ; CAT=${CAT:-/bin/cat}
+  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
+  local BASE64=$(whence base64) ; BASE64=${BASE64:-${ROOT:-/}usr/bin/base64}
+  local CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
   local DOS2UNIX=$(whence dos2unix) ; DOS2UNIX=${DOS2UNIX:-${ROOT:-/}usr/bin/dos2unix}
   local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
   local LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
   local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
   local UUIDGEN=$(whence uuidgen) ; UUIDGEN=${UUIDGEN:-${ROOT:-/}usr/bin/uuidgen}
 
+  local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
   local returnValue=0
 
   if [[ -x ${MAILER} ]] ; then
