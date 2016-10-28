@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=1
+vPatch=3
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -350,7 +350,7 @@ else
     failures=( $(${CAT} ${DIR_LOG}/${LOG_FAIL}) )
     for failure in ${failures} ; do
 
-      sendNotification ${myName} DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things."
+      sendNotification ${myName} DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things (see attached log file)." ${DIR_LOG}/${LOG_FAIL}
       warning ${myName} "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
 
     done
