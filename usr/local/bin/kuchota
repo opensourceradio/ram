@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -690,8 +690,7 @@ clearRDimportLog() {
     if [[ -w ${chosenFile} ]] ; then
       if read -q proceed\?"About to clear '${chosenFile}'. Press 'y' to continue, or any other key to cancel: " ; then
 	if ${CP} /dev/null ${chosenFile} ; then
-	  echo
-	  read -c -q proceed\?"Cleared ${chosenFile}. "
+	  echo -c "Cleared ${chosenFile}. "
 	else
 	  warning "Hmmmm... I encountered an error while trying to clear '${chosenFile}' (${?}). Please pass this number and message on to a professional."
 	  read proceed\?"Press <Enter> to continue."
