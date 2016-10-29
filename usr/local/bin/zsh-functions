@@ -42,8 +42,8 @@ sendNotification() {
 	(
 	  ${CAT} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
-From: ${MSMTP_USER}
-Reply-To: ${MSMTP_USER}
+From: ${MAIL_FROM}
+Reply-To: ${MAIL_FROM}
 Subject: rddbcheck Output from ${myName}
 Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
