@@ -670,7 +670,7 @@ clearRDimportLog() {
 
   local returnValue=0
   local -a logFiles
-  local logfileIndex
+  local logfileIndex chosenFile
 
   trap 'trap - ; return ;' 0 1 2 3
 
@@ -686,22 +686,23 @@ clearRDimportLog() {
       read logfileIndex\?"Please type the number of the log file you want to clear and press <Enter>: "
     done
 
-    if [[ -w ${logFiles[${logfileIndex}]} ]] ; then
-      if read -q proceed\?"About to clear '${logFiles[${logfileIndex}]}'. Press 'y' to continue, or any other key to cancel: " ; then
-	if ${CP} /dev/null ${logFiles[${logfileIndex}]} ; then
+    chosenFile=${logFiles[${logfileIndex}]%:*}
+    if [[ -w ${chosenFile} ]] ; then
+      if read -q proceed\?"About to clear '${chosenFile}'. Press 'y' to continue, or any other key to cancel: " ; then
+	if ${CP} /dev/null ${chosenFile} ; then
 	  echo
-	  read -c -q proceed\?"Cleared ${logFiles[${logfileIndex}]}. "
+	  read -c -q proceed\?"Cleared ${chosenFile}. "
 	else
-	  warning "Hmmmm... I encountered an error while trying to clear '${logFiles[${logfileIndex}]}' (${?}). Please pass this number and message on to a professional."
+	  warning "Hmmmm... I encountered an error while trying to clear '${chosenFile}' (${?}). Please pass this number and message on to a professional."
 	  read proceed\?"Press <Enter> to continue."
 	  returnValue=2
 	fi
       else
 	echo
-	read -c -q proceed\?"Did NOT clear '${logFiles[${logfileIndex}]}'. "
+	read -c -q proceed\?"Did NOT clear '${chosenFile}'. "
       fi
     else
-      warning "No permission to clear '${logFiles[${logfileIndex}]}'. Please contact the authorities."
+      warning "No permission to clear '${chosenFile}'. Please contact the authorities."
       returnValue=1
     fi
   else
