@@ -44,7 +44,7 @@ sendNotification() {
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
-Subject: rddbcheck Output from ${myName}
+Subject: Notification from ${myName}
 Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
 MIME-Version: 1.0
