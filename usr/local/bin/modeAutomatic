@@ -1,0 +1,17 @@
+#!/bin/zsh
+
+logFile=${LOG_FILE:-/var/log/messages}
+
+while : ; do
+
+    tail -F ${logFile} |
+	egrep --line-buffered 'log machine 1 mode set to (LIVE ASSIST|MANUAL)' |
+	while read line ; do
+	    if rmlsend 'PM 2!' ; then
+		logger -t mode-watch -p local7.info "switched to AUTOMATIC mode"
+	    else
+		logger -s -t mode-watch -p local7.err "rmlsend FAILED (${?}"
+	    fi
+	done
+
+done
