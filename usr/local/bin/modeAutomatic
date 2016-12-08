@@ -1,7 +1,27 @@
 #!/bin/zsh
 
+##########################################################################################
+##########################################################################################
+##
+##
+## modeAutomatic
+##
+## A Broadcast Tool & Die tool to monitor changes to the log Mode in RDAirPlay, and
+## promptly reset the mode to Automatic when it changes to Manual or Live Assist.
+##
+##########################################################################################
+##########################################################################################
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
 logFile=${LOG_FILE:-/var/log/messages}
 
+# Restart the tail(1) and grep processes to watch for and respond to
+# setting the mode.
 while : ; do
 
     tail -F ${logFile} |
@@ -15,3 +35,5 @@ while : ; do
 	done
 
 done
+
+exit
