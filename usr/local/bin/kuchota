@@ -729,11 +729,9 @@ editSchedule() {
   # Give them the opportunity to change the existing schedule.
   if ${GREP} -q 'pmw-podget-wrapper' <<<"${crontab:-X}" ; then
 
-    ${CAT} <<EOF
+    ${FMT} <<EOF
 
-The current schedule for downloading podcasts is as follows. This is
-the entire crontab entry. '${BOLD}pmw-podget-wraper${NORM}' is the tool used to
-launch and track '${BOLD}podget${NORM}', the downloader app.
+The current schedule for downloading podcasts is as follows. This is the entire crontab entry. '${BOLD}pmw-podget-wraper${NORM}' is the tool used to launch and track '${BOLD}podget${NORM}', the downloader app.
 
 ${BOLD}$(${GREP} 'podget-wrapper' <<<${crontab})${NORM}
 
