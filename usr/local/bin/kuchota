@@ -1129,7 +1129,7 @@ cleanupFeed() {
 
   (( verbose )) && warning "${myName} (verbose): pathPrefix is '${pathPrefix}'."
 
-  if id=$(rdGetDropboxIDFromPath ${myName} ${pathPrefix} ${verbose:-0}) ; then
+  if id=$(rdGetDropboxIDFromPath ${myName} 1 ${pathPrefix} ${verbose:-0}) ; then
 
     # There might not be a running instance of rdimport for this
     # dropbox, especially if there is a problem with the dropbox.
