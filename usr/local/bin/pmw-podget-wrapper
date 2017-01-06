@@ -21,11 +21,15 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  exit $(error ${myName} "Could not fine support library '${ROOT:-/}usr/local/bin/zsh-functions'. Cannot continue.") ;
+fi
 
 ##############################################################################
 ## Locally defined subroutines
@@ -58,38 +62,6 @@ all the addresses listed in the 'PODGET_MAILTO' parameter in the file
 EOF
 }
 
-# Use the configured mailer to send email to one or more addresses.
-sendNotification() {
-  local myName=${1} ; shift
-  local type=${1:?"Need a notification type."} ; shift
-  local message=${1:?"Need a message to send for the notification."} ; shift
-  local messagefile="${1}"
-
-  local PODGET_MAILER_CONFIG=${PODGET_MAILER_CONFIG:-${DIR_CONFIG}/conf.msmtp}
-  local PRETEND=${PRETEND}
-
-  if [[ -x ${PODGET_MAILER} ]] ; then
-
-    ${PODGET_MAILER} $(eval echo ${PODGET_MAILER_ARGS}) ${PRETEND} <<ENDOFMAIL
-From: no-reply@$(${HOSTNAME} -f)
-To: ${${PODGET_MAILTO//( |[ ,][ ,])/,}%,}
-Subject: ATTENTION: podget ${type} Notification
-Reply-To: no-reply@$(${HOSTNAME} -f)
-Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
-X-Script-Name: ${0}
-
-${message}
-
-${messagefile:+$(${CAT} ${messagefile})}
-ENDOFMAIL
-
-  else
-
-    warning ${myName} "Cannot find executable program '${PODGET_MAILER}'."
-
-  fi
-}
-
 # Relevant runtime data in a key-value text file.
 # Returns 0 on success, else 1 or other positive integer (see below for possibilities).
 updateRuntimeData() {
@@ -119,7 +91,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification ${myName} INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
+      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
       returnValue=32
 
     fi
@@ -139,7 +111,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification ${myName} INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
+      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
       ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
       returnValue=34
 
@@ -160,7 +132,7 @@ updateRuntimeData() {
 
     else
 
-      sendNotification ${myName} INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
+      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
       returnValue=36
 
     fi
@@ -262,17 +234,17 @@ exec 2> /var/tmp/${0##*/}.err
 
 [[ -r ${DIR_CONFIG}/${CONFIG_CORE} ]] && source ${DIR_CONFIG}/${CONFIG_CORE}
 [[ -n "${CONFIG_SERVERLIST}" ]] ||
-  error ${myName} "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?"
+  exit $(error ${myName} "Failed to get a setting for 'CONFIG_SERVERLIST'. Does '${DIR_CONFIG}/${CONFIG_CORE}' exist?")
 [[ -r ${DIR_CONFIG}/${CONFIG_NOTIFY} ]] && source ${DIR_CONFIG}/${CONFIG_NOTIFY}
 [[ -n "${PODGET_RUNTIME_DATA}" ]] ||
-  error ${myName} "Failed to get the setting for 'PODGET_RUNTIME_DATA'. Does '${DIR_CONFIG}/${CONFIG_NOTIFY}' exist?"
+  exit $(error ${myName} "Failed to get the setting for 'PODGET_RUNTIME_DATA'. Does '${DIR_CONFIG}/${CONFIG_NOTIFY}' exist?")
 
 # Remember when we started running.
 startTime=${EPOCHSECONDS}
 
 # Create the log directory if it does not already exist.
 [[ -d "${DIR_LOG}" ]] || ${MKDIR} ${DIR_LOG} || {
-    sendNotification ${myName} INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
+    sendNotification ${myName} "${PODGET_MAILTO}" "${PODGET_MAILTO}" INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
     exit $(error ${myName} "Could not create log directory '${DIR_LOG}'. Cannot continue.") ;
   }
 
@@ -292,7 +264,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
     # If lastStart is not set it gets evaluated as zero.
     if (( ( startTime - lastStart ) > PODGET_REASONABLE_RUNTIME )) ; then
 
-      sendNotification ${myName} TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
+      sendNotification ${myName} "${PODGET_MAILTO}" TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
 
       for pid in ${podgetPIDs} ; do
 
@@ -311,7 +283,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
 	    ${SLEEP} 3
 	    if [[ -d /proc/${pid} ]] ; then
 
-	      sendNotification ${myName} TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
+	      sendNotification ${myName} "${PODGET_MAILTO}" TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
 	      exit $(error ${myName} "Cannot terminate running podget. PID is ${pid}.")
 	    fi
 	  fi
@@ -327,7 +299,7 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
 
   else
 
-    sendNotification ${myName} INTERNAL_ERROR "WHAT? podget seems to be running, but missing '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting."
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "WHAT? podget seems to be running, but missing '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting."
     exit $(error ${myName} "podget running but missing ${DIR_LOG}/${PODGET_RUNTIME_DATA}.")
 
   fi
@@ -350,10 +322,13 @@ else
     failures=( $(${CAT} ${DIR_LOG}/${LOG_FAIL}) )
     for failure in ${failures} ; do
 
-      sendNotification ${myName} DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things (see attached log file)." ${DIR_LOG}/${LOG_FAIL}
+      sendNotification ${myName} "${PODGET_MAILTO}" DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things (see attached log file)." ${DIR_LOG}/${LOG_FAIL}
       warning ${myName} "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
 
     done
+
+    # Zero out the error log to prevent reporting the same errors.
+    cp /dev/zero ${DIR_LOG}/${LOG_FAIL}
   fi
 fi
 

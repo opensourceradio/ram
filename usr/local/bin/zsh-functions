@@ -15,7 +15,8 @@
 # configuration file.
 sendNotification() {
   local myName=${1:?"Who am I?"} ; shift
-  local MAILTO=${1:?"Need one or more recipients to send to."} ; shift
+  local MAILTO="${1:?'Need one or more email addresses to send to.'}" ; shift
+  local type=${1:?"Need a notification type."} ; shift
   local message=${1:?"Need a message to send for the notification."} ; shift
   local messagefile=${1} # optional text filename to attach
 
@@ -44,7 +45,7 @@ sendNotification() {
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
-Subject: Notification from ${myName}
+Subject: Notification from ${myName} (${type})
 Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
 MIME-Version: 1.0
@@ -130,7 +131,7 @@ doSQL() {
     # BUG ALERT: this assumes the credentials in .my.cnf are relevant
     # to the Rivendell database.
     if [[ -r ~/.my.cnf ]] && [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-	cd			# Sigh, mapfile cannot deal with path components.
+	cd -q			# Sigh, mapfile cannot deal with path components.
 	myCnfLines=( ${mapfile[.my.cnf]} )
 
 	# Need to check for each of these parameters in .my.cnf in
@@ -183,7 +184,10 @@ getMyIPAddresses() {
   local IP=$(whence ip) ; IP=${IP:-${ROOT:-/}sbin/ip}
   local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
 
-  ipAddresses=( $(${IP} -o -4 addr show | ${GREP} -E -v '^(lo|virbr|tun)' | ${AWK} '{print $4}' | ${SED} -r -e 's,/[[:digit:]]+$,,') )
+  ipAddresses=( $(${IP} -o -4 addr show |
+		     ${GREP} -E -v '^(lo|virbr|tun)' |
+		     ${AWK} '{print $4}' |
+		     ${SED} -r -e 's,/[[:digit:]]+$,,') )
 
   if (( ${#ipAddresses} )) ; then
     echo ${(j: :)ipAddresses}
@@ -267,30 +271,207 @@ rdGetWebServer() {
   return ${returnValue}
 }
 
-# Using the Rivendell Web API, delete the CART, all its CUTS, and the
-# actual audio file for the specified CART.
-rdDropCart() {
-  local cart=${1} ; shift
-  local verbose=${1}
+# Use the Rivendell Web API to execute a command. Unlike most other
+# functions in this library, the arg 'verbose' *must* be set to either
+# '0' or a positive integer.
+rdWebInvoke() {
+  local verbose=${1} ; shift
+  local command=${1} ; shift
+  local -a curlArguments
+  curlArguments=( ${*} )
 
+  local oIFS
   local CURL=$(whence curl) ; CURL=${CURL:-${ROOT:-/}usr/bin/curl}
-  local httpServer=$(rdGetWebServer)
-  local response responseLine
+  local curlVerbosity
+  local httpServer="$(rdGetWebServer)"
+  local -a response
+  local responseLine result c
+  local headerCount=1
   local returnValue=1
 
-  # Delete this cart (and all its cuts): Command 13: RemoveCart
-  curlArguments="-d COMMAND=13 -d LOGIN_NAME='user' -d PASSWORD='' -d CART_NUMBER=${cart}"
+  if (( verbose )) ; then
+    curlVerbosity="--verbose"
+  else
+    curlVerbosity="--silent"
+  fi
 
-  response=$(${CURL} --silent $(eval echo ${curlArguments}) http://${httpServer}/rd-bin/rdxport.cgi)
+  # We want each line as its own array element, so set IFS
+  # accordingly.
+  oIFS="${IFS}"
+  IFS='
+'
+
+  # Invoke the curl(1) utility with a POST to the server and each "-d"
+  # argument containing one attribute/value pair. We --include the
+  # headers in the curl output so we can determine the determine the
+  # HTTP response.
+  # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
+  response=( $(${CURL} --include ${curlVerbosity} -d LOGIN_NAME='user' -d PASSWORD='' -d COMMAND=${command} ${curlArguments:+"-d"} ${(zj: -d :)curlArguments} http://${httpServer}/rd-bin/rdxport.cgi) )
+  returnValue=${?}
   while read responseLine ; do
-    if [[ ${responseLine} =~ 'ErrorString' ]] ; then
+    if [[ ${responseLine} =~ '^HTTP/[[:digit:]]+\.[[:digit:]]+ 200 OK' ]] ; then
+      result=OK
+      break
+    elif [[ ${responseLine} =~ 'ErrorString' ]] ; then
+      # Strip the XML tag and extract just the "error string".
       result=${${responseLine%</ErrorString>*}#*<ErrorString>}
       break
     fi
-  done <<<${response}
+  done <<<"${response}"
+
+  # Calculate the end of the HTTP Response Header and strip if from
+  # the output of curl(1). We use the fact that the HTTP Response
+  # Header is separated from the command output by a blank line (an
+  # empty array element).
+  for c in {1..${#response}} ; do
+    [[ -z "${${(f)response[c]}[2]}" ]] && { (( headerCount=c )) ; break ; }
+  done
+  shift ${headerCount} response
+
+  if [[ "${result:-MISSING RESULT}" = 'OK' ]] ; then
+    returnValue=0
+    echo "${response}"
+  fi
+
+  IFS="${oIFS}"
+    
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to list the cart and cut details for the
+# specified CART.
+# Note that as of Rivendell version 2.10.3 ListCarts is broken if you
+# do not provide search parameters to the "query". This is fixed in
+# 2.15.1, but for now we *REQUIRE* a GROUP in which to list all CARTs.
+rdListAllCarts() {
+  local group=${1} ; shift
+  local verbose=${1:-0}
+
+  # List cart: Command 6: ListCarts
+  local command=6
+  local -a curlArguments
+  local -a result
+  local returnValue
+
+  curlArguments=("GROUP_NAME=${group}")
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to list the CART. The second
+# arg, 0 (default) or 1 to list CUTS.
+rdListCart() {
+  local cartNumber=${1} ; shift
+  local withCuts=${1:-0}
+  local verbose=${2:-0}
+
+  local command=7
+  local -a curlArguments
+  local -a result
+  local returnValue
+
+  # List cart: Command 7: ListCart
+  curlArguments=( "CART_NUMBER=${cartNumber}" "INCLUDE_CUTS=${withCuts}" )
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to list all the CUTS for the specified
+# CART.
+rdListCuts() {
+  local cartNumber=${1} ; shift
+  local verbose=${1:-0}
+
+  local command=9
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # List cuts: Command 9: ListCuts
+  # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
+  curlArguments=( "CART_NUMBER=${cartNumber}" )
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to delete the CART, all its CUTS, and the
+# actual audio file for the specified CART.
+rdDropCart() {
+  local cartNumber=${1} ; shift
+  local verbose=${1:-0}
+
+  local command=13
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # Delete this cart (and all its cuts): Command 13: RemoveCart
+  # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
+  curlArguments=( "CART_NUMBER=${cartNumber}" )
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to delete the specified CUT, and the
+# actual audio file.
+rdDropCut() {
+  local cartNumber=${1} ; shift
+  local cutNumber=${1} ; shift
+  local verbose=${1:-0}
+
+  local command=11
+  local -a curlArguments
+  local response result
+  local returnValue
+
+  # Delete this cut: Command 11: RemoveCut
+  curlArguments=( "CART_NUMBER=${cartNumber}" "CUT_NUMBER=${cutNumber}" )
+
+  result=( $(rdWebInvoke ${verbose} ${command} ${curlArguments}) )
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
 
   [[ "${result:-MISSING RESULT}" = 'OK' ]] && returnValue=0
   echo "${result:-MISSING RESULT}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to list all the CUTS for the specified
+# CART.
+rdListGroups() {
+  local verbose=${1:-0}
+
+  local command=4
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # List cuts: Command 9: ListCuts
+  # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
+  curlArguments=()
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
   return ${returnValue}
 }
 
@@ -344,11 +525,12 @@ rdMaxCartNumberForGroup() {
 
 rdGetNextCartNumber() {
   local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
-  local verbose=${2}
+  local verbose=${1}
 
   local currentCartNumber
   local returnValue=0
-  local defaultLowCart defaultHighCart lastHigh nextAvailable nextCartNum useThisCartNumber
+  local defaultLowCart defaultHighCart nextAvailable nextCartNum useThisCartNumber
+  local lastHigh=0
 
   # This function is compatible with Rivendell database verson:
   local rdDBVersionCompatible=242
@@ -361,6 +543,7 @@ rdGetNextCartNumber() {
   # Get the next available cart number from the group if the group is
   # constrained with default low and default high numbers.
   read defaultLowCart defaultHighCart <<<$(doSQL "select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
+  (( verbose )) && echo "defaultLowCart: ${defaultLowCart}, defaultHighCart: ${defaultHighCart}" >&2
   if (( defaultLowCart )) ; then
 
     nextAvailable=${defaultLowCart}
@@ -584,17 +767,25 @@ rdDropboxStatus() {
 rdGetDropboxIDFromPath() {
   local myName=${1} ; shift
   local pathPrefix=${1} ; shift
+  local interactive=${1} ; shift
   local verbose=${1}
 
   local returnValue=1
   local query="select ID from DROPBOXES where PATH like '${pathPrefix}%'"
-  local id=$(doSQL "${query}")
+  local -a id
 
-  if (( id )) ; then
-    echo ${id}
-    returnValue=0
+  # The query *should* return exactly one dropbox ID; deal with it
+  # gracefully if it returns more than one.
+  id=( $(doSQL "${query}") )
+  if (( ${#id} > 1 )) ; then
+    logit ${myName} ${interactive} "Unable to determine the exact DROPBOX ID for ${pathPrefix}. Make sure this is a unique path."
   else
-    echo -1
+    if (( id[1] )) ; then
+      echo ${id}
+      returnValue=0
+    else
+      echo -1
+    fi
   fi
 
   return ${returnValue}
@@ -617,6 +808,7 @@ logit() {
 
   fi
 }
+
 # Local Variables: ***
 # mode:shell-script ***
 # indent-tabs-mode: f ***
