@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -328,7 +328,7 @@ else
     done
 
     # Zero out the error log to prevent reporting the same errors.
-    cp /dev/zero ${DIR_LOG}/${LOG_FAIL}
+    cp /dev/null ${DIR_LOG}/${LOG_FAIL}
   fi
 fi
 
