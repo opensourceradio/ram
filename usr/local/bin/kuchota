@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -129,19 +129,21 @@ addOrReplaceFeed() {
   read name\?"Enter a name for this podcast (${BOLD}Note: I may do some manipulation of the name${NORM}): ${feedTitle:+[${feedTitle}]} "
   [[ -z "${name}" ]] && name=${feedTitle}
   # From the inside out, this parameter substitution does the following:
-  #    converts ":", "<Space>", ",", and "!" to a dash ("-")
-  #    deletes single (') and double (") quotes
-  #    converts double-dash ("--") to single dash ("-")
+  #    converts the characters <Space> <Comma> : ! # * ? < > & $ / ( ) to a dash ("-")
+  #    deletes single (') and double (") quotesf
   #    deletes a single dash ("-") at the end of the string
-  read -q ok\?"Using ${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/} for the podcast name. OK? [y,N]: "
+  # The sed(1) expression replaces two or more dashes ("-") with a single dash.
+  cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | sed -e 's/--*/-/g')
+  read -q ok\?"Using ${cleanName} for the podcast name. OK? [y,N]: "
   until [[ ${ok} =~ [Yy] ]] ; do
 
     echo
     read name\?"OK, try again. Enter a name for this podcast: "
-    read -q ok\?"Using '${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}' for the podcast name. OK? [y,N]: "
+    cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | sed -e 's/--*/-/g')
+    read -q ok\?"Using '${cleanName}' for the podcast name. OK? [y,N]: "
 
   done
-  feedName="${${${${name//[: ,\!)(]/-}//[\"\']/}//--/-}/%-/}"
+  feedName="${cleanName}"
 
   ##########################################################################################
   ## Get the "category" for this podcast. Use a Rivendell GROUP for the category name.
