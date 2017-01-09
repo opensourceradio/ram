@@ -288,7 +288,7 @@ if [[ -r "${1}" ]] ; then
 		 --set-string-album=${album} \
 		 --set-string-year=${year} \
 		 --set-string-description="Track ${tracknum}" \
-		 --set-string-label=${label:-"UNKNOWN LABEL"} \
+		 --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
 		 --set-string-user-defined="source=${location}" \
 		 $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
 		 ${group} ${track}
