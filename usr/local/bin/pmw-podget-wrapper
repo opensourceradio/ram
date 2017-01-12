@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -244,7 +244,7 @@ startTime=${EPOCHSECONDS}
 
 # Create the log directory if it does not already exist.
 [[ -d "${DIR_LOG}" ]] || ${MKDIR} ${DIR_LOG} || {
-    sendNotification ${myName} "${PODGET_MAILTO}" "${PODGET_MAILTO}" INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Could not create log directory '${DIR_LOG}'. Cannot continue." ;
     exit $(error ${myName} "Could not create log directory '${DIR_LOG}'. Cannot continue.") ;
   }
 
@@ -328,7 +328,7 @@ else
     done
 
     # Zero out the error log to prevent reporting the same errors.
-    cp /dev/null ${DIR_LOG}/${LOG_FAIL}
+    ${CP} /dev/null ${DIR_LOG}/${LOG_FAIL}
   fi
 fi
 
