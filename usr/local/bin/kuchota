@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -996,9 +996,8 @@ showRDDropboxes() {
   local myName=${1} ; shift
   local verbose=${1}
 
-  local query="select d.ID,d.PATH,d.GROUP_NAME,d.TO_CART,c.TITLE from DROPBOXES d left join CART c on (d.TO_CART = c.NUMBER) where d.PATH like '${DIR_LIBRARY}/%'"
+  local query="select d.ID,d.PATH,d.GROUP_NAME,d.TO_CART,d.DELETE_CUTS,c.TITLE from DROPBOXES d left join CART c on (d.TO_CART = c.NUMBER) where d.PATH like '${DIR_LIBRARY}/%'"
   local id boxpath group cart title
-  local maxPathLength=$(doSQL "select LENGTH(PATH) from DROPBOXES order by LENGTH(PATH) desc limit 1")
 
   trap 'trap - 0 1 2 3 ; return ;' 0 1 2 3
 
@@ -1008,6 +1007,8 @@ showRDDropboxes() {
 
   fi
 
+  local maxPathLength=$(doSQL "select LENGTH(PATH) from DROPBOXES order by LENGTH(PATH) desc limit 1")
+
   (
     # The header.
     reportTitleText="Kuchota-related (not all) Rivendell Dropboxes"
@@ -1015,17 +1016,17 @@ showRDDropboxes() {
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
     print "${reportTitle}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-    printf "%3s %-${maxPathLength}s %-12s %6s %-32s\\n"  "ID" "Dropbox Path Spec" "Group" "CART #" "Title"
-    printf '-%.0s' {1..$((4+65+13+7+32))}; print
+    printf "%3s %-${maxPathLength}s %-12s %6s %4s %-32s\\n"  "ID" "Dropbox Path Spec" "Group" "CART #" "Drop" "Title"
+    printf '-%.0s' {1..$((4+65+13+7+5+32))}; print
 
     # The data.
-    doSQL "${query}" | while read id boxpath group cart title ; do
+    doSQL "${query}" | while read id boxpath group cart dropcuts title ; do
 
       if (( cart == 0 )) ; then
 	title='** New cart for each episode **'
       fi
 
-      printf "%3d %-${maxPathLength}s %-12s %06d %-32s\\n" ${id} ${boxpath} ${group} ${cart} ${title}
+      printf "%3d %-${maxPathLength}s %-12s %06d %3s  %-32s\\n" ${id} ${boxpath} ${group} ${cart} ${dropcuts} ${title}
 
     done
 

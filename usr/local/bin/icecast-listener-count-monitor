@@ -1,0 +1,138 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+## listener-count-monitor
+##
+## Using a simple Icecast2 listener count URL, watch a stream and a
+## specific mount point the number of connections. Trigger an action
+## (defined elsewhere) when we reach the threshold.
+##
+## A Broadcast Tool & Die production
+## Copyright 2017 Broadcast Tool & Die
+## Released under the GNU GPL version 3 or later. See
+## https://www.gnu.org/licenses/gpl.html
+##
+##########################################################################################
+##########################################################################################
+
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+
+myName=${0##*/}
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+zmodload zsh/datetime
+
+statsURL=${STATS_URL:-http://142.4.201.222:8000/listener-count.xsl}
+monitorStream=${MONITOR_STREAM:-impact89fm}
+
+connectionThreshold=${CONNECTION_THRESHOLD:-100}
+
+pauseDuration=${PAUSE_DURATION:-15}
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+warning() {
+  local myName=${1}
+  local message=${2}
+
+  ${LOGGER} -t ${myName} -p local7.warn -i "WARNING: ${message}"
+
+}
+
+error() {
+  local myName=${1}
+  local message=${2}
+
+  ${LOGGER} -t ${myName} -p local7.err -i "ERROR: ${message}"
+
+  echo 254
+  return 254
+}
+
+##############################################################################
+## Script main line
+##############################################################################
+
+# The shell commands we will use in this script.
+typeset -a ourCommands
+ourCommands=(
+  awk
+  cat
+  chmod
+  cp
+  diff
+  find
+  getopt
+  grep
+  hostname
+  kill
+  logger
+  mkdir
+  mv
+  pidof
+  podget
+  rm
+  sed
+  touch
+  uuidgen
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the commands later in this function.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+
+while : ; do
+  currentCount=$(curl -o - -s ${statsURL} | awk -F: "/${monitorStream}:/{print \$2}")
+
+  if (( currentCount > tippingPoint )) ; then
+
+    triggerResponse ${EPOCHSECONDS} ${currentCount}
+  fi
+
+  sleep ${pauseDuration}
+  
+done
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
