@@ -149,7 +149,7 @@ archiveFile() {
   local archiveLocation=${1} ; shift
   local VERBOSE=${1}
 
-  local currentDateTime=$(strftime "%F-%H%M%S" ${EPOCHTIME})
+  local currentDateTime=$(strftime "%F-%H%M%S" ${EPOCHSECONDS})
   local returnValue=0;
 
   # Attempt to create the archive location if it does not exist.
