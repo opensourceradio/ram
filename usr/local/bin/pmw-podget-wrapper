@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -137,6 +137,43 @@ updateRuntimeData() {
 
     fi
   fi
+
+  return ${returnValue}
+}
+
+# Simple file archiver with removal of archived files older than a
+# month old.
+archiveFile() {
+  local myName=${1} ; shift
+  local fileName=${1} ; shift
+  local archiveLocation=${1} ; shift
+  local VERBOSE=${1}
+
+  local currentDateTime=$(strftime "%F-%H%M%S" ${EPOCHTIME})
+  local returnValue=0;
+
+  # Attempt to create the archive location if it does not exist.
+  if ! [[ -d ${archiveLocation} ]] ; then
+    if ${MKDIR} -p ${archiveLocation} ; then
+      ${LOGGER} -t ${myName} -p local7.notice -i "NOTICE: created archive directory '${archiveLocation}' for '${fileName}'."
+    else
+      warning ${myName} "Unable to create directory '${archiveLocation}' for '${fileName}'. Seek professional help."
+      returnValue=2
+    fi
+  fi
+
+  if ${MV} ${fileName} ${archiveLocation}/${fileName:t}-${currentDateTime} ; then
+    ${LOGGER} -t ${myName} -p local7.notice -i "NOTICE: archived '${fileName}' to '${archiveLocation}'."
+  else
+    warning ${myName} "Unable to move '${fileName}' to '${archiveLocation}'. You should probably clean this up."
+    returnValue=3
+  fi
+
+  # Clean up old copies of archived files. We do not really care
+  # whether this succeeds, but will output the name(s) of the files if
+  # any are found.
+  echo "${myName}: removing old copies of ${fileName:t}..."
+  returnValue=$(${FIND} ${archiveLocation} -iname ${fileName:t}\* -mtime +31 -ls -delete)
 
   return ${returnValue}
 }
@@ -327,8 +364,8 @@ else
 
     done
 
-    # Zero out the error log to prevent reporting the same errors.
-    ${CP} /dev/null ${DIR_LOG}/${LOG_FAIL}
+    # Archive the error log to prevent reporting the same errors.
+    archiveFile ${myName} ${DIR_LOG}/${LOG_FAIL} ${DIR_LOG}/archive ${VERBOSE}
   fi
 fi
 
