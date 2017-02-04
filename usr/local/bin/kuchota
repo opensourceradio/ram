@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -133,13 +133,13 @@ addOrReplaceFeed() {
   #    deletes single (') and double (") quotesf
   #    deletes a single dash ("-") at the end of the string
   # The sed(1) expression replaces two or more dashes ("-") with a single dash.
-  cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | sed -e 's/--*/-/g')
+  cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | ${SED} -e 's/--*/-/g')
   read -q ok\?"Using ${cleanName} for the podcast name. OK? [y,N]: "
   until [[ ${ok} =~ [Yy] ]] ; do
 
     echo
     read name\?"OK, try again. Enter a name for this podcast: "
-    cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | sed -e 's/--*/-/g')
+    cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | ${SED} -e 's/--*/-/g')
     read -q ok\?"Using '${cleanName}' for the podcast name. OK? [y,N]: "
 
   done
