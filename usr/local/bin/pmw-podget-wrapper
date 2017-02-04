@@ -20,8 +20,8 @@ myName=${0##*/}
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=1
-vPatch=8
+vMinor=2
+vPatch=0
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -69,7 +69,7 @@ updateRuntimeData() {
   local key=${1:?"Need a key to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
   local value=${2:?"Need a value for key '${key}' to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
 
-  local tmpfile=$(mktemp)
+  local tmpfile=$(${MKTEMP})
   local returnValue=1
 
   trap "${RM} -f ${tmpfile} ; exit ; " 0 1 2 3
@@ -78,7 +78,7 @@ updateRuntimeData() {
   [[ -w ${DIR_LOG}/${PODGET_RUNTIME_DATA} ]] || ${TOUCH} ${DIR_LOG}/${PODGET_RUNTIME_DATA}
 
   # Attempt to delete the key and value.
-  if [[ "${value}" = "DELETE" ]] ; then
+  if [[ "${value}" == "DELETE" ]] ; then
 
     # Grab everything except the line with our key on it (we do not
     # care if the key is present in the file).
@@ -137,6 +137,106 @@ updateRuntimeData() {
 
     fi
   fi
+
+  return ${returnValue}
+}
+
+# Housekeeping and other tasks to run before podget.
+preRunProcess() {
+  local myName=${1} ; shift
+  local startTime=${1} ; shift
+  local VERBOSE=${1}
+
+  local doneArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
+  local returnValue=1
+
+  # Copy the "done" file to the archive and add a timestamp to the
+  # filename. This is a different archive process than the "error"
+  # file because podget needs to remember which files it has already
+  # downloaded in order to avoid retrieving the same file multiple
+  # times. postRunProcess cleans up the old entries (FIFO).
+  if ${CP} -p ${DIR_LOG}/${LOG_COMPLETE} ${doneArchive} ; then
+    returnValue=${?}
+  else
+    warning ${myName} "Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneArchive}' (${?})."
+    sendNotification ${myName} "${PODGET_MAILTO}" PRE_PROCESS_ERROR \
+		     "Warning: Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneArchive}' (${?}). Podcast aging records may be off. Seek professional help if this condition persists."
+  fi
+
+  return ${returnValue}
+}
+
+# Housekeeping and other tasks to run after podget.
+postRunProcess() {
+  local myName=${1} ; shift
+  local startTime=${1} ; shift
+  local VERBOSE=${1}
+
+  local doneArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
+  local archivePrefix=${LOG_COMPLETE}
+  local returnValue=1
+
+  # This temp file will be used several times in this process...
+  tmpfile=$(${MKTEMP})
+
+  trap "${RM} -f ${tmpfile} ${doneArchive} ; exit ;" 0 1 2 3
+
+  # Find new additions to the LOG_COMPLETE file and save just those
+  # lines.
+  ${DIFF} ${doneArchive} ${DIR_LOG}/${LOG_COMPLETE} | ${AWK} '/^> /{print $2}' > ${tmpfile}
+
+  # Save the diff output only if podget downloaded any new files.
+  if [[ -s ${tmpfile} ]] ; then
+
+    # The filename is irrelevant, we simply need a unique name to hold
+    # the names of files retrieved in this run of podget.
+    checkSum=$(${SHA256SUM} ${tmpfile} | ${AWK} '{print $1}')
+    ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-${checkSum}
+
+  else
+    ${RM} -f ${tmpfile}
+  fi
+
+  # Purge lines from LOG_COMPLETE that are older than
+  # PODGET_AGE_THRESHOLD.
+  if [[ -n "${PODGET_AGE_THRESHOLD}" ]] ; then
+
+    ${FIND} ${DIR_LOG}/archive -maxdepth 1 -name ${archivePrefix}-\* -mtime +${PODGET_AGE_THRESHOLD} -print | while read filename ; do
+
+      # Verify the checksum just for fun.
+      checksum=$(${SHA256SUM} ${filename} | ${AWK} '{print $1}')
+      if [[ ${filename:t} == ${checksum} ]] ; then
+
+	# This is the crux of the aging process: use the contents of
+	# the file ${filename} to search for and delete old entries
+	# in the podget ${LOG_COMPLETE} file.
+	if ${GREP} -v -f ${filename} ${DIR_LOG}/${LOG_COMPLETE} > ${tmpfile} ; then
+	  if [[ -s ${tmpfile} ]] ; then
+	    if ${MV} ${tmpfile} ${DIR_LOG}/${LOG_COMPLETE} ; then
+	      notice ${myName} "Successfully purged $(${WC} -l ${filename}|${CUT} -d' ' -f1) row(s) from '${DIR_LOG}/${LOG_COMPLETE}'."
+	      ${RM} -f ${filename}
+	      returnValue=0
+	    else
+	      warning ${myName} "Unable to purge entries from '${DIR_LOG}/${LOG_COMPLETE}' (mv failed: ${?})."
+	      ${RM} -f ${tmpfile}
+	    fi
+	  fi
+	else
+	  warning ${myName} "Unable to find old entries from '${filename}' in '${DIR_LOG}/${LOG_COMPLETE}'. Seek help if this condition persists."
+	fi
+      else
+	warning ${myName} "Checksum '${checksum}' does not match file name ${filename:t}. Please find someone who knows what to do about this."
+      fi
+    done
+
+  else
+    warning ${myName} "Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file."
+    sendNotification ${myName} "${PODGET_MAILTO}" POST_PROCESS_ERROR \
+		     "Warning: Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file. Seek professional help if this condition persists."
+  fi
+
+  ${RM} -f ${doneArchive}
+  trap - 0 1 2 3
 
   return ${returnValue}
 }
@@ -214,6 +314,8 @@ typeset -a ourCommands
 ourCommands=(
   awk
   cat
+  cp
+  cut
   diff
   find
   getopt
@@ -226,6 +328,8 @@ ourCommands=(
   podget
   rm
   sed
+  sleep
+  sort
   touch
 )
 # Find the executables we need; this uses a little old fashioned shell and
@@ -347,6 +451,9 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
   fi
 else
 
+  # Execute pre-podget-run tasks.
+  preRunProcess ${myName} ${startTime} ${VERBOSE}
+
   updateRuntimeData ${myName} start-time ${startTime}
 
   # podget is not running, so go ahead and launch it.
@@ -356,6 +463,9 @@ else
 
   # Make a note of the completion time
   updateRuntimeData ${myName} start-time DELETE
+
+  # Execute post-podget-run tasks.
+  postRunProcess ${myName} ${startTime} ${VERBOSE}
 
   # Check the various output and log files to make sure things went well.
   if [[ -s ${DIR_LOG}/${LOG_FAIL} ]] ; then
