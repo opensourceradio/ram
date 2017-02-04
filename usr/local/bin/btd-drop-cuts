@@ -1,0 +1,239 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+##
+## btd-drop-cuts
+##
+## A Broadcast Tool & Die tool to drop cuts from the specified cart number.
+##
+##########################################################################################
+##########################################################################################
+
+setopt REMATCH_PCRE
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+# Get zsh functions necessary for this script.
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+fi
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  local myName=${1}
+
+  ${CAT} << EOF
+${myName}: drop CUTS from a CART in the Rivendell library.
+
+Summary
+${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
+              { --all (-a) | --played (-p) | --short (-s) <seconds> } <Cart Number>
+
+Description
+$(${FMT} <<<"${myName} uses the Rivendell Web API to delete some or all CUTS in CART <Cart Number> according to one of the three required options: --all (drop all cuts), --played (drop cuts with a play count greater than Zero, or --short <seconds> (drop cuts shorter than <seconds> in duration.")
+
+$(${FMT} <<<"The --verbose option enables more chattiness in the operation. ${myName} sends diagnostic output to the standard error (STDERR) channel.")
+
+EOF
+}
+
+warning() {
+  local message=${1}
+
+  ${FMT} >&2 <<EOF
+
+${YELLOW}WARNING:${NORM} ${message}
+
+EOF
+}
+
+error() {
+  local message=${1}
+
+  ${FMT} >&2 <<EOF
+
+${RED}ERROR:${NORM} ${message}
+
+EOF
+  echo 254
+  return 254
+}
+
+##########################################################################################
+## Script main line
+##########################################################################################
+
+# The shell commands we will use in this script.
+typeset -a ourCommands
+ourCommands=(
+  cat
+  curl
+  fmt
+  getopt
+)
+
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the commands later in this function.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+
+VERBOSE=0
+DROP_SPEC=none
+typeset -A cutList
+
+TEMP=$(${GETOPT} -o ahps:Vv --long help,all,played,short:,version,verbose -n "${0##*/}" -- "${@}")
+if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -a|--all) DROP_SPEC=all ; shift ;;
+    -p|--play*) DROP_SPEC=played ; shift ;;
+    -s|--shor*) DROP_SPEC=short ; MINIMUM_DURATION=${2} ; shift 2 ;;
+    -h|--help*) usage ${0##*/} ; exit ;;
+    -v|--verb*) VERBOSE=1 ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) exit $(error "${0:t}: Trouble making sense of options processing. Please seek professional help.") ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+RED="${fg_bold[red]}"
+YELLOW="${fg_bold[yellow]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
+
+targetCart=${1}
+if [[ -z "${targetCart}" ]] ; then
+  exit $(error "Please tell me which CART in which to drop cuts.")
+fi
+if [[ -z "$(rdListCart ${targetCart} 0 0)" ]] ; then
+  exit $(error "CART number '${targetCart}' does not seem to exist in the library.")
+fi
+if [[ "${DROP_SPEC}" = "none" ]] ; then
+  exit $(error "Please specify one of '--all', '--played', or '--short' to drop CUTS for CART ${targetCart}.")
+fi
+echo "Preparing to drop cuts in CART ${targetCart}."
+
+cutListXML=$(rdListCuts ${targetCart})
+if [[ -n "${cutListXML}" ]] ; then
+  # Extract from the XML the list of durations and play counts into
+  # ${cutList}. This yields an associative array (cutList) indexed by
+  # CUT number with values containing the CUT length (in milliseconds)
+  # and Play Count (an integer).
+  cutList=( $(echo "${cutListXML}" | while read xmlLine ; do
+		 # Skip irrelevant lines.
+		 [[ "${xmlLine}" =~ '<(cutNumber|length|playCounter)>' ]] || continue
+		 # Strip the XML tags and output the value of
+		 # <cutNumber> (key), and the colon-separated value of
+		 # <length>:<playCounter> (value).
+		 # Note: this logic depends on the <length> tag being
+		 # emitted before the <playCounter> tag in the XML
+		 # output.
+		 if [[ ${xmlLine} =~ length ]] ; then
+		   echo "${${xmlLine%</*>}#*<[^/]*>}:\c"
+		 else
+		   # Output <cutNumber> or <playCount>.
+		   echo ${${xmlLine%</*>}#*<[^/]*>}
+		 fi
+	       done )
+	  )
+
+  # ZSH DEPENDENCY: The variable expansion ${(knO)cutList} yields a
+  # list of associative array keys (CUT numbers), sorted in reverse
+  # numeric order (highest to lowest). This way, we will drop the
+  # highest numbered CUT first, down to the lowest numbered CUT.
+  for cut in ${(knO)cutList} ; do
+    dropThisCut=0
+    case "${DROP_SPEC}" in
+      all)
+	dropThisCut=1
+	(( VERBOSE )) && echo "Dropping CUT '${cut}' from CART '${targetCart}' (dropping all cuts)." >&2
+	;;
+      played)
+	if (( ${cutList[${cut}]#*:} > 0 )) ; then
+	  (( VERBOSE )) && echo "Dropping CUT '${cut}' from CART '${targetCart}' (previously played)." >&2
+	  dropThisCut=1
+	fi
+	;;
+      # MINIMUM_DURATION is in seconds, cut length is in milliseconds.
+      short)
+	if (( ${cutList[${cut}]%:*} < ( MINIMUM_DURATION * 1000 ) )) ; then
+	  (( VERBOSE )) && echo "Dropping CUT '${cut}' from CART '${targetCart}' ($((${cutList[${cut}]%:*}/1000.)) is shorter than ${MINIMUM_DURATION})." >&2
+	  dropThisCut=1
+	fi
+	;;
+      *)
+	warning "${0:t}: unknown DROP_SPEC: '${DROP_SPEC}' for CART '${targetCart}'. Not dropping cut '${cut}'."
+	;;
+    esac
+
+    if (( dropThisCut )) ; then
+      if ! response=$(rdDropCut ${targetCart} ${cut} ${VERBOSE}) ; then
+	warning "${0:t}: Error in dropping CUT '${cut}' from CART '${targetCart}' (${response}). Please check the CART with RDLibrary."
+      else
+	echo "Successfully dropped CUT '${cut}' from CART '${targetCart}'."
+      fi
+    else
+      (( VERBOSE )) && echo "Not dropping CUT '${cut}' from CART '${targetCart}'." >&2
+    fi
+  done
+else
+  error ${0:t} "Did not find any CUTS for CART '${targetCart}'. Are you sure you wanted to drop cuts for that CART?"
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
