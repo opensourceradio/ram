@@ -23,7 +23,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -212,7 +212,7 @@ if [[ -n "${cutListXML}" ]] ; then
 	  echo "Successfully dropped CUT '${cut}' from CART '${targetCart}'."
 	fi
       else
-	(( VERBOSE )) && echo "Not dropping CUT '${cut}' from CART '${targetCart}'." >&2
+	(( VERBOSE )) && echo "Not dropping CUT '${cut}' from CART '${targetCart}' (not ${SPEC}$([[ ${SPEC} == shorter ]] && echo ' than' ${MINIMUM_DURATION} seconds))." >&2
       fi
     done
   done
