@@ -23,7 +23,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -46,10 +46,10 @@ ${myName}: drop CUTS from a CART in the Rivendell library.
 
 Summary
 ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
-              { --all (-a) | --played (-p) | --short (-s) <seconds> } <Cart Number>
+              { --all (-a) | --played (-p) | --shorter (-s) <seconds> } <Cart Number>
 
 Description
-$(${FMT} <<<"${myName} uses the Rivendell Web API to delete some or all CUTS in CART <Cart Number> according to one of the three required options: --all (drop all cuts), --played (drop cuts with a play count greater than Zero, or --short <seconds> (drop cuts shorter than <seconds> in duration.")
+$(${FMT} <<<"${myName} uses the Rivendell Web API to delete some or all CUTS in CART <Cart Number> according to one of the three required options: --all (drop all cuts), --played (drop cuts with a play count greater than Zero, or --shorter <seconds> (drop cuts shorter than <seconds> in duration.")
 
 $(${FMT} <<<"The --verbose option enables more chattiness in the operation. ${myName} sends diagnostic output to the standard error (STDERR) channel.")
 
@@ -106,7 +106,7 @@ VERBOSE=0
 DROP_SPEC=none
 typeset -A cutList
 
-TEMP=$(${GETOPT} -o ahps:Vv --long help,all,played,short:,version,verbose -n "${0##*/}" -- "${@}")
+TEMP=$(${GETOPT} -o ahps:Vv --long help,all,played,shorter:,version,verbose -n "${0##*/}" -- "${@}")
 if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
@@ -114,7 +114,7 @@ while : ; do
   case "${1}" in
     -a|--all) DROP_SPEC=all ; shift ;;
     -p|--play*) DROP_SPEC=played ; shift ;;
-    -s|--shor*) DROP_SPEC=short ; MINIMUM_DURATION=${2} ; shift 2 ;;
+    -s|--shor*) DROP_SPEC=shorter ; MINIMUM_DURATION=${2} ; shift 2 ;;
     -h|--help*) usage ${0##*/} ; exit ;;
     -v|--verb*) VERBOSE=1 ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
@@ -141,7 +141,7 @@ if [[ -z "$(rdListCart ${targetCart} 0 0)" ]] ; then
   exit $(error "CART number '${targetCart}' does not seem to exist in the library.")
 fi
 if [[ "${DROP_SPEC}" = "none" ]] ; then
-  exit $(error "Please specify one of '--all', '--played', or '--short' to drop CUTS for CART ${targetCart}.")
+  exit $(error "Please specify one of '--all', '--played', or '--shorter' to drop CUTS for CART ${targetCart}.")
 fi
 echo "Preparing to drop cuts in CART ${targetCart}."
 
@@ -187,7 +187,7 @@ if [[ -n "${cutListXML}" ]] ; then
 	fi
 	;;
       # MINIMUM_DURATION is in seconds, cut length is in milliseconds.
-      short)
+      shorter)
 	if (( ${cutList[${cut}]%:*} < ( MINIMUM_DURATION * 1000 ) )) ; then
 	  (( VERBOSE )) && echo "Dropping CUT '${cut}' from CART '${targetCart}' ($((${cutList[${cut}]%:*}/1000.)) is shorter than ${MINIMUM_DURATION})." >&2
 	  dropThisCut=1
