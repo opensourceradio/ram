@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -176,8 +176,8 @@ postRunProcess() {
   local archivePrefix=${LOG_COMPLETE}
   local returnValue=1
 
-  # This temp file will be used several times in this process...
-  tmpfile=$(${MKTEMP})
+  # This temporary file will be used several times in this process.
+  local tmpfile=$(${MKTEMP})
 
   trap "${RM} -f ${tmpfile} ${doneArchive} ; exit ;" 0 1 2 3
 
@@ -323,6 +323,7 @@ ourCommands=(
   kill
   logger
   mkdir
+  mktemp
   mv
   pidof
   podget
