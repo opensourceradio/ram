@@ -329,6 +329,7 @@ ourCommands=(
   podget
   rm
   sed
+  sha256sum
   sleep
   sort
   touch
