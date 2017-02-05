@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -333,6 +333,7 @@ ourCommands=(
   sleep
   sort
   touch
+  wc
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
