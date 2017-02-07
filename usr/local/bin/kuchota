@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -448,7 +448,7 @@ deleteFeed() {
 
 	else
 
-	  warning "Unable to successfully clean up the cruft lying about for feed '${feedName}' (${?}). Please report this number to the authorities."
+	  warning "Unable to successfully clean up the cruft lying about for feed '${feedName}' (cleanupFeed returned '${?}'). Please report this number to the authorities."
 
 	fi
 
@@ -538,11 +538,16 @@ showFeeds() {
   local myName=${1} ; shift
   local verbose=${1}
 
+  local activeCount=0 disabledCount=0
+
+  activeCount=$(${GREP} -c -Ev '^\s*(#|$)' ${DIR_CONFIG}/${CONFIG_SERVERLIST})
+  disabledCount=$(${SED} -e '1,/^# ---------/d' < ${DIR_CONFIG}/${CONFIG_SERVERLIST} | ${GREP} -c '^#DISABLED#')
+
   trap 'trap - ; return ;' 0 1 2 3
 
   (
     # The header.
-    reportTitleText="Kuchota Podcasts"
+    reportTitleText="${activeCount} Kuchota Podcasts ($( ((disabledCount > 0 )) && echo ${RED})${disabledCount} Disabled${NORM})"
     reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${BOLD}${reportTitleText}${NORM}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
     print "${reportTitle}"
@@ -1132,7 +1137,7 @@ cleanupFeed() {
 
   (( verbose )) && warning "${myName} (verbose): pathPrefix is '${pathPrefix}'."
 
-  if id=$(rdGetDropboxIDFromPath ${myName} 1 ${pathPrefix} ${verbose:-0}) ; then
+  if id=$(rdGetDropboxIDFromPath ${myName} ${pathPrefix} 1 ${verbose:-0}) ; then
 
     # There might not be a running instance of rdimport for this
     # dropbox, especially if there is a problem with the dropbox.
