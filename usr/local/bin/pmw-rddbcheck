@@ -21,7 +21,7 @@ startTime=${EPOCHSECONDS}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 MAILTO=dklann@coldcrossing.com
@@ -56,28 +56,26 @@ the user 'root'.
 EOF
 }
 
-# The shell commands we will use in this script.
-typeset -a ourCommands
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 4 external commands.
+# Look for them in their upper case, parameter expanded form.
 ourCommands=(
-  base64
   cat
-  dos2unix
-  hostname
   logger
   mktemp
   rddbcheck
-  uuidgen
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
 # all upper case letters. We will use the command names in upper case as
-# variables by which to call the commands later in this function.
+# variables by which to call the external commands used in this script.
 for C in ${ourCommands} ; do
   for D in ${path} ; do
     [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
   done
-  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done." >&2 ; return 1 }
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
 done
+##################  END shell commands used in this script.  ##################
 
 # Log STDOUT and STDERR of this script and all commands called by this
 # script to separate files.
@@ -102,26 +100,26 @@ if [[ "${USER}" = "root" ]] ; then
     if (( returnValue == 0 )) ; then
 
       ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: sending output of '${RDDBCHECK}'."
-      sendNotification ${0##*/} "Normal output from '${RDDBCHECK}'." ${outputFile}
+      sendNotification ${0##*/} "${MAILTO}" INFO "Normal output from '${RDDBCHECK}'." ${outputFile}
 
     else
 
       ${LOGGER} -t ${0##*/} -p local7.notice -i "NOTICE: '${RDDBCHECK}' completed with non-zero exit status (${returnValue})."
-      sendNotification ${0##*/} "NOTICE: '${RDDBCHECK}' completed with non-zero exit status (${returnValue})." ${outputFile}
+      sendNotification ${0##*/} "${MAILTO}" RDDBCHECK "NOTICE: '${RDDBCHECK}' completed with non-zero exit status (${returnValue})." ${outputFile}
 
     fi
 
   else
 
     ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Could not find executable program 'rddbcheck'."
-    sendNotification ${0##*/} "ERROR: Could not find executable program '${RDDBCHECK}'."
+    sendNotification ${0##*/} "${MAILTO}" INTERNAL_ERROR "ERROR: Could not find executable program '${RDDBCHECK}'."
 
   fi
 
 else
 
   ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
-  sendNotification ${0##*/} "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
+  sendNotification ${0##*/} "${MAILTO}" ROOT_NEEDED "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
 
 fi
 
