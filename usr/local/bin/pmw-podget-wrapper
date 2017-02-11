@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -205,7 +205,7 @@ postRunProcess() {
 
       # Verify the checksum just for fun.
       checksum=$(${SHA256SUM} ${filename} | ${AWK} '{print $1}')
-      if [[ ${filename:t} == ${checksum} ]] ; then
+      if [[ ${filename##*done-} == ${checksum} ]] ; then
 
 	# This is the crux of the aging process: use the contents of
 	# the file ${filename} to search for and delete old entries
