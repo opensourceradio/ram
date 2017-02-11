@@ -3,12 +3,21 @@
 setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
+zmodload zsh/terminfo
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=2
+vHash='$Hash$'
 
 # Tell them how to use this command.
 usage() {
     myName=${1}
 
-    cat << EOF
+    ${CAT} << EOF
 ${myName}: import digital audio tracks into the Rivendell Library using rdimport(1).
 
 Summary: ${myName##*/} [ --code (-c) { <SchedulerCodes> or 'list' } ]
@@ -76,7 +85,7 @@ tags() {
 flacTags() {
     local track="${1}"
     
-    metaflac --list --block-type=VORBIS_COMMENT "${track}" | fgrep ' comment['
+    ${METAFLAC} --list --block-type=VORBIS_COMMENT "${track}" | ${FGREP} ' comment['
 }
 
 # We prefer the style of metaflac(1), so do only minimal processing.
@@ -85,7 +94,7 @@ vorbisTags() {
     local track="${1}"
     local index=1
     
-    vorbiscomment --list "${track}" | while read line ; do
+    ${VORBISCOMMENT} --list "${track}" | while read line ; do
 
         echo "comment[$((index++))]: ${line}"
 
@@ -97,7 +106,7 @@ vorbisTags() {
 id3Tags() {
     local track=${1}
 
-    id3info "${track}" | while read line ; do
+    ${ID3INFO} "${track}" | while read line ; do
         case "${line#=== }" in
             TIT2*) echo "comment[1]: title=${line#*: }" ;; # (Title/songname/content description)
             TALB*) echo "comment[2]: album=${line#*: }" ;; # (Album/Movie/Show title)
@@ -128,13 +137,38 @@ else
     usage ${0##*/}
 fi
 
-# these depends on having ~/.my.cnf configured with valid credentials
-# for accessing the Rivendell database
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 8 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cat
+  fgrep
+  getopt
+  id3info
+  metaflac
+  perl
+  rdimport
+  vorbiscomment
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+# these depends on having ~/.my.cnf or /etc/rd.conf configured with
+# valid credentials for accessing the Rivendell database
 rivendellSchedCodes=( $(doSQL "select CODE from SCHED_CODES") )
 rivendellGroupList=( $(doSQL "select NAME from GROUPS") )
 
 # use getopt to parse the command line args
-TEMP=$(getopt -o hc:g:l:n: --long help,codes:,group:,label:,normalization: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o hc:g:l:n:v --long help,codes:,group:,label:,normalization:version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -146,14 +180,21 @@ do
       -l|--labe*) label=${2} ; shift 2 ;;
       -n|--norm*) normalization=${2} ; shift 2 ;;
       -h|--help) usage ${0} ; exit ;;
+      -V|--vers*) showVersion=1 ; shift ;;
       --) shift ; break ;;
       *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
   esac
 done
 unset TEMP
 
-BOLD="$(tput bold)"
-NORM="$(tput sgr0)"
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+RED="${fg_bold[red]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
 
 if [[ -r "${1}" ]] ; then
 
@@ -215,19 +256,19 @@ if [[ -r "${1}" ]] ; then
 	fi
 
 	meta=$(tags ${track})
-	artist=$(echo ${meta} | perl -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
-	title=$(echo ${meta} | perl -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
-	album=$(echo ${meta} | perl -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
-	year=$(echo ${meta} | perl -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
-	tracknum=$(echo ${meta} | perl -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
+	artist=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
+	title=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
+	album=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
+	year=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
+	tracknum=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
 	# The track may have multiple 'genre' and 'label' tags, so
 	# stash them in arrays for later processing; set IFS to only
 	# NEWLINE while processing.
 	tempIFS="${IFS}"
 	IFS="
 "
-	genre=( $(echo ${meta} | perl -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }') )
-	trackLabel=( $(echo ${meta} | perl -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }') )
+	genre=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }') )
+	trackLabel=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }') )
 	IFS="${tempIFS}"
 	unset tempIFS
 
@@ -278,7 +319,7 @@ if [[ -r "${1}" ]] ; then
 	    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
 	fi
 	
-	${DEBUG} rdimport \
+	${DEBUG} ${RDIMPORT} \
 		 --log-mode \
 		 --verbose \
 		 --fix-broken-formats \
@@ -304,7 +345,7 @@ else
 	message="File '${1}' does not seem to exist (check the name)."
     fi
 
-    echo "${BOLD}${message} Please name at least one audio file to import.${NORM}"
+    echo "${BOLD}${message} Please name at least one audio file for which you have read permission to import.${NORM}"
 
     usage ${0##*/}
 
