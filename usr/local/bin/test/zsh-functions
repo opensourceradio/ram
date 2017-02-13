@@ -1,0 +1,147 @@
+#!/bin/zsh
+
+# This script tests all the functions in zsh-functions, one by one.
+
+. ${DIR:-.}/zsh-functions
+
+#echo "Sending two notifications. Please wait... \c"
+#sendNotification test dklann@coldcrossing.com TEST "This is a test message."
+#sendNotification test dklann@coldcrossing.com TEST "This is a test message with an attachment." ${0}
+#read -q ok\?"Press a key to continue: "
+
+echo "doSQL select count(*) from CART: \c"
+x=$(doSQL "select count(*) from CART")
+if ! [[ ${x} =~ '[[:digit:]]+' ]] ; then
+  echo ${x} invalid
+else
+  echo ${x}
+fi
+read -q ok\?"Press a key to continue: "
+
+echo "rdDatabaseVersion: \c"
+x=$(rdDatabaseVersion)
+read -q ok\?"Press a key to continue: "
+
+echo "getMyIPAddresses: \c"
+x=( $(getMyIPAddresses) )
+read -q ok\?"Press a key to continue: "
+
+echo "rdGetStationName: \c"
+x=$(rdGetStationName)
+read -q ok\?"Press a key to continue: "
+
+echo "rdGetWebServer: \c"
+x=$(rdGetWebServer)
+read -q ok\?"Press a key to continue: "
+
+# List Groups requires no curl argument.
+echo "rdWebInvoke '21' (RDXPORT_COMMAND_LISTSERVICES): \c"
+x="$(rdWebInvoke 1 21)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdListsGroups: \c"
+x="$(rdListGroups)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdListAllCarts Music 1: \c"
+x="$(rdListAllCarts Music 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdListCart 960014: \c"
+# without cuts, not verbose
+x="$(rdListCart 960014)"
+# without cuts, not verbose, explicit
+x="$(rdListCart 960014 0 0)"
+# with cuts, not verbose
+x="$(rdListCart 960014 1 0)"
+# with cuts, verbose
+x="$(rdListCart 960014 1 1)"
+# without cuts, verbose
+read -q ok\?"Press a key to continue: "
+
+echo "rdListCuts 960014: \c"
+x="$(rdListCuts 960014 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdCartNumberFromTitle 'Drop this CART': \c"
+x=$(rdCartNumberFromTitle "Drop this CART" 1)
+# Case sensitivity?
+echo "rdCartNumberFromTitle 'drop this cart': \c"
+x="$(rdCartNumberFromTitle "drop this cart" 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdCartTitleFromPartial 'drop this': \c"
+x="$(rdCartTitleFromPartial "drop this" 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdCartTitleFromNumber 999901: \c"
+x="$(rdCartTitleFromNumber 999901 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdCartGroupFromNumber 999901: \c"
+x="$(rdCartGroupFromNumber 999901 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdMaxCartNumberForGroup Music: \c"
+x="$(rdMaxCartNumberForGroup Music 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdGetNextCartNumber Music: \c"
+x="$(rdGetNextCartNumber Music 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "rdDropboxStatus test 1 1: \c"
+rdDropboxStatus test 1 1
+read -q ok\?"Press a key to continue: "
+
+# test with a known good prefix
+echo "rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews: \c"
+rdGetDropboxIDFromPath test 1 /var/snd/kuchota/rdimport-dropbox/SynNews/Making-Contact 1
+# test with a known invalid prefix
+echo "rdGetDropboxIDFromPath test /var/tmp: \c"
+x="$(rdGetDropboxIDFromPath test 1 /var/tmp 1)"
+read -q ok\?"Press a key to continue: "
+
+echo "logit test 1 'This is an interactive logit test.': \c"
+x=$(logit test 1 "This is an interactive logit test.")
+echo "logit test 0 'This is a non-interactive logit test.': \c"
+x=$(logit test 0 "This is a non-interactive logit test.")
+read -q ok\?"Press a key to continue: "
+
+echo "rdCreateEmptyCart Testing 'Drop this CART Too': \c"
+x=$(rdCreateEmptyCart Testing "Drop this CART Too" 1)
+cartNumberToDrop=$(rdCartNumberFromTitle "drop this cart too" 0)
+
+# THIS IS DESTRUCTIVE!
+echo "rdDropCut 999901 1 1: \c"
+rdDropCut  999901 1 1
+read -q ok\?"Press a key to continue: "
+# THIS IS DESTRUCTIVE!
+echo "rdDropCart ${cartNumberToDrop} 1: \c"
+rdDropCart ${cartNumberToDrop} 1
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
