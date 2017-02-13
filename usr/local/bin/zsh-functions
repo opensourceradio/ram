@@ -2,17 +2,22 @@
 
 ##############################################################################
 #
-# This is a "library" of zsh(1) functions used by the Broadcast Tool &
-# Die Z-Shell scripts. All scripts that need any functions should
+# This is a "library" of zsh(1) functions used by the Broadcast Tool & Die
+# Z-Shell scripts. All scripts that need these support functions should
 # "source" this file.
 #
 # This script is NOT intended to be "run" from the command line.
 #
 ##############################################################################
 
+zmodload zsh/datetime
+
 # Use the configured mailer to send email to one or more
-# addresses. This is starting to rely heavily on msmtp(1) and its
-# configuration file.
+# addresses. This relies heavily on msmtp(1) and its configuration
+# file.
+# Send no more than one notification for each type in 24 hours (and
+# let the recipients know that they will see no more than one per
+# day).
 sendNotification() {
   local myName=${1:?"Who am I?"} ; shift
   local MAILTO="${1:?'Need one or more email addresses to send to.'}" ; shift
@@ -20,33 +25,53 @@ sendNotification() {
   local message=${1:?"Need a message to send for the notification."} ; shift
   local messagefile=${1} # optional text filename to attach
 
+  local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
   local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
   local PRETEND=${PRETEND}
-
-  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-  local BASE64=$(whence base64) ; BASE64=${BASE64:-${ROOT:-/}usr/bin/base64}
-  local CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
-  local DOS2UNIX=$(whence dos2unix) ; DOS2UNIX=${DOS2UNIX:-${ROOT:-/}usr/bin/dos2unix}
-  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
-  local LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
-  local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
-  local UUIDGEN=$(whence uuidgen) ; UUIDGEN=${UUIDGEN:-${ROOT:-/}usr/bin/uuidgen}
-
-  local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
+  local startTime=${EPOCHSECONDS}
   local returnValue=0
 
-  if [[ -x ${MAILER} ]] ; then
-    if [[ -s ${MAILER_CONFIG} ]] ; then
-      if [[ -n "${MAIL_FROM}" ]] ; then
+  #################  BEGIN shell commands used in this function.  #################
+  # This function uses these 7 external commands.
+  # Look for them in their upper case, parameter expanded form.
+  local C D
+  local -a ourCommands
+  ourCommands=(
+    awk
+    base64
+    cat
+    dos2unix
+    hostname
+    logger
+    uuidgen
+  )
+  # Find the executables we need; this uses a little old fashioned shell and
+  # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+  # all upper case letters. We will use the command names in upper case as
+  # variables by which to call the external commands used in this function.
+  for C in ${ourCommands} ; do
+    for D in ${path} ; do
+      [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+    done
+    [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  done
+  ##################  END shell commands used in this function.  ##################
 
-	(
-	  ${CAT} <<EOF
+  local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
+
+  if ! notificationSent ${myName} ${type} ${startTime} ; then
+    if [[ -x ${MAILER} ]] ; then
+      if [[ -s ${MAILER_CONFIG} ]] ; then
+	if [[ -n "${MAIL_FROM}" ]] ; then
+
+	  (
+	    ${CAT} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
 Subject: Notification from ${myName} (${type})
-Message-ID: <$(${UUIDGEN})-${EPOCHSECONDS}@$(${HOSTNAME} -f)>
+Message-ID: <$(${UUIDGEN})-${startTime}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
 MIME-Version: 1.0
 Content-Type: multipart/mixed;
@@ -59,9 +84,16 @@ Content-Transfer-Encoding: 8bit
 
 ${message}
 
+Note that you will see only one notification per day for this
+condition. You may see all notifications (including those for which
+no email was sent) by opening a terminal window on ${HOSTNAME} and
+entering (or pasting) the command:
+
+  journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
+
 EOF
-	  if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
-	    ${CAT} <<EOF
+	    if [[ -n "${messagefile}" ]] && [[ -s ${messagefile} ]] ; then
+	      ${CAT} <<EOF
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
  name="${messagefile##*/}"
@@ -71,32 +103,93 @@ Content-Disposition: attachment;
 
 $(${DOS2UNIX} < ${messagefile} | ${BASE64})
 EOF
-	  fi
+	    fi
 
-	  ${CAT} <<EOF
+	    ${CAT} <<EOF
 ------------${startTime}--
 EOF
-	) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+	  ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+
+	else
+
+	  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
+	  returnValue=3
+
+	fi
 
       else
 
-	${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
-	returnValue=3
+	${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
+	returnValue=2
 
       fi
 
     else
 
-      ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
-      returnValue=2
+      ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
+      returnValue=1
 
     fi
+  fi
 
+  return ${returnValue}
+}
+
+# Make a record of the type and time of a notification
+notificationSent() {
+  local theirName=${1} ; shift
+  local type=${1} ; shift
+  local notificationTime=${1}
+
+  local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
+  local notifyDB=${NOTIFY_DB:-${ROOT:-/}usr/local/etc/pmw/notifications}
+  local notification
+  local foundPriorNotification=0
+  local oneDay=$(( 60 * 60 * 24 ))
+  local returnValue=1
+
+  # Is there a notification database?
+  if [[ -f ${notifyDB} ]] ; then
+    while read notification ; do
+      if [[ "${notification%:*}" == "${theirName}:${type}" ]] ; then
+	foundPriorNotification=1
+	break
+      fi
+    done < ${notifyDB}
+    # Have we seen this notification before?
+    if (( foundPriorNotification )) ; then
+      # Has it been more than a day since we last notified?
+      if (( ( notificationTime - oneDay ) > ${notification##*:} )) ; then
+	if ${SED} -i -e "s/^${theirName}:${type}:.*$/${theirName}:${type}:${notificationTime}/" ${notifyDB} ; then
+	  logit ${0} 0 "${theirName} NOTICE: '${type}' notification UPDATED at $(strftime %F\ %T ${notificationTime})."
+	else
+	  logit ${0} 0 "${theirName} WARNING: Unable to UPDATE '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
+	  returnValue=2
+	fi
+      else
+	# It has been less than a day since we last notified. We are
+	# done here.
+	logit ${0} 0 "${theirName} NOTICE: quiet time for notification '${type}' at $(strftime %F\ %T ${notificationTime}) ($(strftime %F\ %T ${notification##*:}))."
+	returnValue=0
+      fi
+    else
+      # This is a new notification for this ${theirName} and ${type}
+      if echo "${theirName}:${type}:${notificationTime}" >> ${notifyDB} ; then
+	logit ${0} 0 "${theirName} NOTICE: '${type}' notification added at $(strftime %F\ %T ${notificationTime})."
+      else
+	logit ${0} 0 "${theirName} WARNING: Unable to APPEND '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
+	returnValue=3
+      fi
+    fi
   else
-
-    ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
-    returnValue=1
-
+    # No existing notification database, so create it and add this
+    # notification to it.
+    if echo "${theirName}:${type}:${notificationTime}" > ${notifyDB} ; then
+      logit ${0} 0 "${theirName} NOTICE: '${type}' notification created at $(strftime %F\ %T ${notificationTime})."
+    else
+      logit ${0} 0 "${theirName} WARNING: Unable to CREATE '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
+      returnValue=4
+    fi
   fi
 
   return ${returnValue}
@@ -667,16 +760,34 @@ rdDropboxStatus() {
   local interactive=${1} ; shift
   local verbose=${1}
 
-  local AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}usr/bin/awk}
-  local GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
-  local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
-  local KILLALL=$(whence killall) ; KILLALL=${KILLALL:-${ROOT:-/}usr/bin/killall}
-  local PIDOF=$(whence pidof) ; PIDOF=${PIDOF:-${ROOT:-/}bin/pidof}
-  local PS=$(whence ps) ; PS=${PS:-${ROOT:-/}bin/ps}
-  local RDCATCHD=$(whence rdcatchd) ; RDCATCHD=${RDCATCHD:-${ROOT:-/}usr/bin/rdcatchd}
-  local SED=$(whence sed) ; SED=${SED:-${ROOT:-/}bin/sed}
-  local SLEEP=$(whence sleep) ; SLEEP=${SLEEP:-${ROOT:-/}bin/sleep}
-  local SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+  #################  BEGIN shell commands used in this function.  #################
+  # This function uses these 10 external commands.
+  # Look for them in their upper case, parameter expanded form.
+  local C D
+  local -a ourCommands
+  ourCommands=(
+    awk
+    grep
+    hostname
+    killall
+    pidof
+    ps
+    rdcatchd
+    sed
+    sleep
+    sort
+  )
+  # Find the executables we need; this uses a little old fashioned shell and
+  # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+  # all upper case letters. We will use the command names in upper case as
+  # variables by which to call the external commands used in this function.
+  for C in ${ourCommands} ; do
+    for D in ${path} ; do
+      [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+    done
+    [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  done
+  ##################  END shell commands used in this function.  ##################
 
   local -a dropboxIDs
   local -a rdimportIDs
