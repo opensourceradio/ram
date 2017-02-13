@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -166,7 +166,14 @@ preRunProcess() {
   return ${returnValue}
 }
 
-# Housekeeping and other tasks to run after podget.
+# Housekeeping and other tasks to run after podget. Tasks include:
+#
+# archive the contents of the "done" file (${LOG_COMPLETE}) for this
+# run. We do this in order to be able to delete old entries that we no
+# longer want. The assumption is that old podcasts are deleted from
+# the feed server and we will not see them again. Without this
+# housekeeping, the ${LOG_COMPLETE} file grows without bound.
+#
 postRunProcess() {
   local myName=${1} ; shift
   local startTime=${1} ; shift
@@ -179,7 +186,7 @@ postRunProcess() {
   # This temporary file will be used several times in this process.
   local tmpfile=$(${MKTEMP})
 
-  trap "${RM} -f ${tmpfile} ${doneArchive} ; exit ;" 0 1 2 3
+  trap "${RM} -f ${tmpfile} ${doneArchive} ; trap - ; return ;" 0 1 2 3
 
   # Find new additions to the LOG_COMPLETE file and save just those
   # lines.

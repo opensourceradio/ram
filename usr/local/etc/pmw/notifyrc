@@ -34,3 +34,8 @@ PODGET_MAILER_CONFIG=${DIR_CONFIG}/msmtp.kuchota
 # Mailer command line args.
 ###############################################################################################
 PODGET_MAILER_ARGS="--read-recipients --read-envelope-from  --file ${PODGET_MAILER__CONFIG}"
+
+###############################################################################################
+# Aging threshold (in days) to keep podget entries in log/done.
+###############################################################################################
+PODGET_AGE_THRESHOLD=60
