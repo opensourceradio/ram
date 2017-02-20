@@ -791,7 +791,8 @@ rdDropboxStatus() {
 
   local -a dropboxIDs
   local -a rdimportIDs
-  local dropboxID dropboxPath rdcatchdRestartNeeded returnValue=0
+  local dropboxID dropboxPath rdcatchdRestartNeeded=0 returnValue=0
+  local count=0 totalCount=0
 
   # We are looking for dropboxes on *this* host.
   dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)' order by ID") )
@@ -817,18 +818,20 @@ rdDropboxStatus() {
       if ${GREP} -q ${dropboxID} <<<${rdimportIDs} ; then
 
 	logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is running."
+	(( count++ ))
 
       else
 
 	logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is not running. (Will restart rdcatchd.)"
-	rdcatchdRestartNeeded=1
+	(( rdcatchdRestartNeeded++ ))
 
       fi
+      (( totalCount++ ))
     done
 
     if (( rdcatchdRestartNeeded )) ; then
 
-      logit ${myName} ${interactive} "Restarting $(( rdcatchdRestartNeeded )) Rivendell dropboxes...${interactive:+ \\c}"
+      logit ${myName} ${interactive} "${count} of ${totalCount} Rivendell dropboxes are running. Restarting $((rdcatchdRestartNeeded)) Rivendell dropboxes...${interactive:+ \\c}"
 
       ${KILLALL} 'rdcatchd'
 
@@ -864,7 +867,7 @@ rdDropboxStatus() {
       fi
     else
 
-      logit ${myName} ${interactive} "Yay! All Rivendell dropboxes are currently active and running."
+      logit ${myName} ${interactive} "Yay! ${count} of ${totalCount} Rivendell dropboxes are currently active and running."
 
     fi
   else
