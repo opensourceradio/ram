@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=8
+vPatch=9
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -1022,7 +1022,7 @@ showRDDropboxes() {
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
     print "${reportTitle}"
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-    printf "%3s %-12s %-${maxPathLength}s %-12s %6s %4s %-32s\\n"  "ID" "Hostname" "Dropbox Path Spec" "Group" "CART #" "Drop" "Title"
+    printf "%3s %12s %-${maxPathLength}s %-12s %6s %4s %-32s\\n"  "ID" "Hostname  " "Dropbox Path Spec" "Group" "CART #" "Drop" "Title"
     printf '-%.0s' {1..$((4+65+13+7+5+32))}; print
 
     # The data.
@@ -1032,7 +1032,7 @@ showRDDropboxes() {
 	title='** New cart for each episode **'
       fi
 
-      printf "%3d %-${maxPathLength}s %-12s %-12s %06d %3s  %-32s\\n" ${id} ${stationName} ${boxpath} ${group} ${cart} ${dropcuts} ${title}
+      printf "%3d %12s %-${maxPathLength}s %-12s %06d %3s  %-32s\\n" ${id} ${stationName} ${boxpath} ${group} ${cart} ${dropcuts} ${title}
 
     done
 
