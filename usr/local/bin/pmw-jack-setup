@@ -7,39 +7,51 @@
 ##
 ## Set up jack environment for Rivendell and off-board (add-on) audio adapter(s).
 ##
-## This is expected to be called from the Rivendell "Jack Clients"
-## list on a per-host.
+## This is expected to be called per-host from the Rivendell "Jack
+## Clients" list.
 ##
 ##########################################################################################
 ##########################################################################################
 
-## log STDOUT and STDERR of this script and all commands called by this script to separate files
-exec 1> /var/tmp/${0##*/}${1:+"-${1}"}.out
-exec 2> /var/tmp/${0##*/}${1:+"-${1}"}.err
-
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
-## Locate the commands we need in this script.
-ALSA_IN=$(whence alsa_in) ; ALSA_IN=${ALSA_IN:-${ROOT:-/}usr/bin/alsa_in}
-ALSA_OUT=$(whence alsa_out) ; ALSA_OUT=${ALSA_OUT:-${ROOT:-/}usr/bin/alsa_out}
-APLAY=$(whence aplay) ; APLAY=${APLAY:-${ROOT:-/}usr/bin/aplay}
-AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}bin/awk}
-CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
-GETOPT=$(whence getopt) ; GETOPT=${GETOPT:-${ROOT:-/}usr/bin/getopt}
-GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
-JACK_LOAD=$(whence jack_load) ; JACK_LOAD=${JACK_LOAD:-${ROOT:-/}usr/bin/jack_load}
-LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
-SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
-ZITA_A2J=$(whence zita-a2j) ; ZITA_A2J=${ZITA_A2J:-${ROOT:-/}usr/bin/zita-a2j}
-ZITA_J2A=$(whence zita-j2a) ; ZITA_J2A=${ZITA_J2A:-${ROOT:-/}usr/bin/zita-j2a}
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 13 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  alsa_in
+  alsa_out
+  aplay
+  awk
+  cat
+  fmt
+  getopt
+  grep
+  jack_load
+  logger
+  sort
+  zita-a2j
+  zita-j2a
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
 
 ## How does this work again?
 usage() {
-    myName=${1}
+    myName=${1:t}
 
     ${CAT} << EOF
 ${myName}: add audio device to the JACK connection graph
@@ -53,24 +65,17 @@ ${myName} [ --in (-i) ] [ --out (-o) ] \\
                [ --subdevice <Numeric Subdevice ID> (-s) ] \\
                ALSA-Device-Name Jack-Client-Name
 
-This script loads the audio device "ALSA-Device-Name" into the
-currently-running jackd process and names the device
-"Jack-Client-Name". The script requires the ALSA-Device-Name to be an
-exact match to a "card" name as shown with the "aplay -l" command.
+$( ${FMT} <<<'This script loads the audio device "ALSA-Device-Name" into the currently-running jackd process and names the device "Jack-Client-Name". The script requires the ALSA-Device-Name to be an exact match to a "card" name as shown with the "aplay -l" command.' )
 
-With no options, both input and output ports are made available. With
-the --in option, only input ports are added. With only the --out
-option, only output ports are added.
+$( ${FMT} <<<'With no options, both input and output ports are made available. With the --in option, only input ports are added. With only the --out option, only output ports are added.' )
 
-Use the "--device <ID>" option to load a specific "major" ALSA device
-(the default if you do not specify a device is Device ID 0).
+$( ${FMT} <<<'Use the "--device <ID>" option to load a specific "major" ALSA device (the default if you do not specify a device is Device ID 0).' )
 
-UNSUPPORTED, NOT WORKING: Use the "--subdevice <ID>" option to load a
-"device within a device" (e.g., HDMI on-board audio).
+$( ${FMT} <<<'UNSUPPORTED, NOT WORKING: Use the "--subdevice <ID>" option to load a "device within a device" (e.g., HDMI on-board audio).' )
 
 See Also
 
-    aplay(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1)
+    aplay(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)
 
     /etc/modprobe.d/sound.conf (or similar) for the order in
     which sound cards are (or should be) loaded.
@@ -111,7 +116,7 @@ do
       -s|--sub*) subdevice=${2} ; shift 2 ;;
       -v|--ver*) showVersion=1 ; shift ;;
       --) shift ; break ;;
-      *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
+      *) echo 'Internal error!' ; exit 1 ;;
   esac
 done
 unset TEMP
@@ -120,6 +125,10 @@ if (( showVersion )) ; then
   version ${0##*/}
   exit 0
 fi
+
+## log STDOUT and STDERR of this script and all commands called by this script to separate files
+exec 1> /var/tmp/${0##*/}${1:+"-${1}"}.out
+exec 2> /var/tmp/${0##*/}${1:+"-${1}"}.err
 
 ## JACK settings.
 RATE=${RATE:-48000}
@@ -133,7 +142,6 @@ if [[ -z "${1}" ]] ; then
 fi
 if [[ -z "${2}" ]] ; then
     ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing Jack Client Name as the second argument on the command line. Cannot continue."
-
     exit 2
 fi
 
