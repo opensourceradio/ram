@@ -1,0 +1,185 @@
+#!/bin/zsh
+
+##############################################################################
+##
+## This script restores JACK connections from the (PMW-extended)
+## Rivendell database table 'connection_state'. It is intended that
+## the Macro carts listed in the connection_state table were added
+## when those connections previously added.
+##
+## This script will normally be run as the Rivendell system user (see
+## AudioOwner in /etc/rd.conf) for any given Rivendell "workstation".
+##
+##############################################################################
+
+## Arguments:
+## None
+
+zmodload zsh/datetime
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=1
+vHash='$Hash$'
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 6 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cat
+  fmt
+  getopt
+  hostname
+  logger
+  rmlsend
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+## How does this work again?
+usage() {
+    myName=${1:t}
+
+    ${CAT} << EOF
+${myName}: re-establish JACK connections from the Rivendell adjunct database table 'connection_state'
+
+$(version ${myName})
+
+Summary:
+
+${myName} [ --version (-v) ]
+
+$( ${FMT} <<<'This script finds in the add-on Rivendell database table "connection_state" connection macros for for this host and uses "rmlsend" to re-establish those connections. This script is expected to run as the "default cart" for Rivendell Workstations.' )
+
+EOF
+}
+
+version() {
+    myName=${1}
+    echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+}
+
+# Get zsh functions necessary for this script
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  ${LOGGER} --stderr -t ${0:t} -p local7.err -i "ERROR: Cannot find ZSH function library '/usr/local/bin/zsh-functions', cannot continue."
+fi
+
+# Assume success.
+exitValue=0
+
+## Use getopt to parse the command line arguments.
+TEMP=$(${GETOPT} -o v --long version -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+## Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+      -h|--help) usage ${0} ; exit ;;
+      -v|--ver*) showVersion=1 ; shift ;;
+      --) shift ; break ;;
+      *) echo 'Internal error!' ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if (( showVersion )) ; then
+  version ${0##*/}
+  exit 0
+fi
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files. Note that these files will not contain
+# time-stamped messages, this script uses logger(1) to log messages to
+# /var/log/syslog with timestamps.
+exec 1> /var/tmp/${0:t}.out
+exec 2> /var/tmp/${0:t}.err
+
+connectionStateTable=${CONNECTION_STATE_TABLE:-"connection_state"}
+
+# Note: the hostame MUST match the workstation name that is configured
+# in the Rivendell database.
+myHostName=${HOST:-$(${HOSTNAME} -s)}
+if [[ -n "${myHostName}" ]] ; then
+
+    typeset -a connectCarts
+    sqlStatement="SELECT number FROM connection_state WHERE host='${myHostName}'"
+
+    # Get the list of macro carts for this host and run each in
+    # succession. Note that this *may* return 0 rows, which is okay.
+    if connectCarts=( $(doSQL "${sqlStatement}") ) ; then
+
+	for cart in ${connectCarts} ; do
+
+	    # The '!' has special meaning in ZSH, so must be escaped.
+	    if ${RMLSEND} "EX ${cart}\!" ; then
+
+		${LOGGER} -t ${0:t} -p local7.info -i "INFO: ${RMLSEND} EX ${cart}."
+
+	    else
+
+	      ${LOGGER} --stderr -t ${0:t} -p local7.err -i "ERROR: ${RMLSEND} EX ${cart}: FAILED."
+	      exitValue=2
+
+	    fi
+
+	done
+
+    else
+
+	${LOGGER} --stderr -t ${0:t} -p local7.notice -i "NOTICE: doSQL error executing '${sqlStatement}'."
+
+    fi
+
+else
+
+    ${LOGGER} --stderr -t ${0:t} -p local7.err -i "ERROR: cannot determine my hostname with the hostname(1) command."
+    exitValue=3
+
+fi
+
+exit ${exitValue}
+
+mysql <<EOF
+CREATE TABLE `connection_state` (
+  `number` int(10) unsigned NOT NULL,
+  `host` char(64) NOT NULL,
+  PRIMARY KEY (`number`,`host`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+EOF
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
