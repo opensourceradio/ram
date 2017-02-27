@@ -80,7 +80,7 @@ fi
 exitValue=0
 
 ## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o v --long version -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o hv --long help,version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 ## Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
