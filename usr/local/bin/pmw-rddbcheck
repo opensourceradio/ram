@@ -21,13 +21,18 @@ startTime=${EPOCHSECONDS}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 MAILTO=dklann@coldcrossing.com
 
 # Get zsh functions necessary for this script.
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  echo "Cannot read support library '/usr/local/bin/zsh-functions'. Cannot continue." 1>&2
+  exit 127
+fi
 
 ##############################################################################
 ## Locally defined subroutines
@@ -83,7 +88,7 @@ exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
 # Make sure we are running as root (rddbcheck requires it).
-if [[ "${USER}" = "root" ]] ; then
+if [[ "${LOGNAME}" = "root" ]] ; then
 
   if [[ -x ${RDDBCHECK} ]] ; then
 
@@ -118,8 +123,8 @@ if [[ "${USER}" = "root" ]] ; then
 
 else
 
-  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
-  sendNotification ${0##*/} "${MAILTO}" ROOT_NEEDED "ERROR: ${0##*/} must be run as user 'root'. Cannot continue."
+  ${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${0##*/} must be run as user 'root', LOGNAME is '${LOGNAME}'. Cannot continue."
+  sendNotification ${0##*/} "${MAILTO}" ROOT_NEEDED "ERROR: ${0##*/} must be run as user 'root', LOGNAME is '${LOGNAME}'. Cannot continue."
 
 fi
 
