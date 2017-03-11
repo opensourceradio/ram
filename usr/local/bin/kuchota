@@ -24,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=11
+vPatch=12
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -615,10 +615,10 @@ showLastStatus() {
       if [[ -r ${statusFile} ]] ; then
 	${CAT} ${statusFile}
       else
-	warning "Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
+	echo "${YELLOW}WARNING:${NORM} Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
       fi
     else
-      warning "Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
+      echo "${YELLOW}WARNING:${NORM} Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
     fi
 
 
@@ -718,7 +718,7 @@ clearRDimportLog() {
       returnValue=1
     fi
   else
-    warning "\nFound NO rdimport log files containing data in '${DIR_LIBRARY}'."
+    warning "Found NO rdimport log files containing data in '${DIR_LIBRARY}'."
   fi
 
   read -q proceed\?"Press <Enter> to continue. "
