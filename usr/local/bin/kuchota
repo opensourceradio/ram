@@ -13,7 +13,6 @@
 ##########################################################################################
 ##########################################################################################
 
-setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
@@ -25,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=10
+vPatch=11
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -951,7 +950,7 @@ addRDDropbox() {
 	      until [[ -n "${cartTitle}" ]] ; do
 		echo
 		read desiredNumber\?"Enter an existing CART number from group '${feedGroup}' to assign to this podcast feed: "
-		until [[ ${desiredNumber//[.,]/} =~ '^\d{1,6}$' ]] ; do
+		until [[ ${desiredNumber//[.,]/} =~ '^[[:digit:]]{1,6}$' ]] ; do
 		  read desiredNumber\?"Sorry, the CART number must consist of a number between 1 and 999,999.
 Enter an existing CART number to assign to this podcast feed: "
 		done
