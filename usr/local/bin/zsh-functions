@@ -300,9 +300,9 @@ rdGetStationName() {
   local myHostname=$(${HOSTNAME} -s)
 
   # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=242
+  local rdDBVersionCompatible=259
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -343,9 +343,9 @@ rdGetWebServer() {
   local returnValue=1
 
   # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=242
+  local rdDBVersionCompatible=259
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -604,9 +604,9 @@ rdMaxCartNumberForGroup() {
   local verbose=${1}
 
   # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=242
+  local rdDBVersionCompatible=259
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -626,9 +626,9 @@ rdGetNextCartNumber() {
   local lastHigh=0
 
   # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=242
+  local rdDBVersionCompatible=259
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -722,9 +722,9 @@ rdCreateEmptyCart() {
   local returnValue=0
 
   # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=242
+  local rdDBVersionCompatible=259
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi

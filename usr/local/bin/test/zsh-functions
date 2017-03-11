@@ -20,31 +20,33 @@ read -q ok\?"Press a key to continue: "
 
 echo "rdDatabaseVersion: \c"
 x=$(rdDatabaseVersion)
-read -q ok\?"Press a key to continue: "
+read -q ok\?"Database version is '${x}'. Press a key to continue: "
 
 echo "getMyIPAddresses: \c"
 x=( $(getMyIPAddresses) )
-read -q ok\?"Press a key to continue: "
+read -q ok\?"My IP address is '${x}'. Press a key to continue: "
 
 echo "rdGetStationName: \c"
 x=$(rdGetStationName)
-read -q ok\?"Press a key to continue: "
+read -q ok\?"Station name is '${x}'. Press a key to continue: "
 
 echo "rdGetWebServer: \c"
 x=$(rdGetWebServer)
-read -q ok\?"Press a key to continue: "
+read -q ok\?"Web Server is '${x}'. Press a key to continue: "
 
-# List Groups requires no curl argument.
+# List Services requires no curl argument.
 echo "rdWebInvoke '21' (RDXPORT_COMMAND_LISTSERVICES): \c"
 x="$(rdWebInvoke 1 21)"
+echo "${x}"
 read -q ok\?"Press a key to continue: "
 
 echo "rdListsGroups: \c"
 x="$(rdListGroups)"
+echo "${x}"
 read -q ok\?"Press a key to continue: "
 
-echo "rdListAllCarts Music 1: \c"
-x="$(rdListAllCarts Music 1)"
+echo "rdListAllCarts ${group:-Music} 1: \c"
+x="$(rdListAllCarts ${group:-Music} 1)"
 read -q ok\?"Press a key to continue: "
 
 echo "rdListCart 960014: \c"
@@ -82,13 +84,13 @@ echo "rdCartGroupFromNumber 999901: \c"
 x="$(rdCartGroupFromNumber 999901 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "rdMaxCartNumberForGroup Music: \c"
-x="$(rdMaxCartNumberForGroup Music 1)"
-read -q ok\?"Press a key to continue: "
+echo "rdMaxCartNumberForGroup ${group:-Music}: \c"
+x="$(rdMaxCartNumberForGroup ${group:-Music} 1)"
+read -q ok\?"Max Cart Number for Group '${group}' is '${x}'. Press a key to continue: "
 
-echo "rdGetNextCartNumber Music: \c"
-x="$(rdGetNextCartNumber Music 1)"
-read -q ok\?"Press a key to continue: "
+echo "rdGetNextCartNumber ${group:-Music}: \c"
+x="$(rdGetNextCartNumber ${group:-Music} 1)"
+read -q ok\?"Next Cart Number for Group '${group}' is '${x}'. Press a key to continue: "
 
 echo "rdDropboxStatus test 1 1: \c"
 rdDropboxStatus test 1 1
@@ -108,8 +110,9 @@ echo "logit test 0 'This is a non-interactive logit test.': \c"
 x=$(logit test 0 "This is a non-interactive logit test.")
 read -q ok\?"Press a key to continue: "
 
-echo "rdCreateEmptyCart Testing 'Drop this CART Too': \c"
-x=$(rdCreateEmptyCart Testing "Drop this CART Too" 1)
+echo "rdCreateEmptyCart ${testgroup:-Testing} 'Drop this CART Too': \c"
+x=$(rdCreateEmptyCart ${testgroup:-Testing} "Drop this CART Too" 1)
+echo Created Empty Cart '${x}' in Group '${testgroup}'".
 cartNumberToDrop=$(rdCartNumberFromTitle "drop this cart too" 0)
 
 # THIS IS DESTRUCTIVE!

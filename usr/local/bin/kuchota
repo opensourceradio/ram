@@ -75,11 +75,11 @@ addOrReplaceFeed() {
 
   read feedURL\?"Type or paste the RSS feed URL for this podcast: "
 
-  if read -q ok\?"Does this podcast download require a username? [y,N] " ; then
+  if read -q ok\?"Does this podcast download require a username? [y,N] (don't press <Enter>)" ; then
     echo
     read feedUser\?"Enter the feed username: "
 
-    if read -q ok\?"Does this URL require a password for the user ${feedUser}? [y,N] " ; then
+    if read -q ok\?"Does this URL require a password for the user ${feedUser}? [y,N] (don't press <Enter>) " ; then
       echo
       read feedPassword\?"Enter the password for the user ${feedUser}: "
     fi
@@ -134,13 +134,13 @@ addOrReplaceFeed() {
   #    deletes a single dash ("-") at the end of the string
   # The sed(1) expression replaces two or more dashes ("-") with a single dash.
   cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | ${SED} -e 's/--*/-/g')
-  read -q ok\?"Using ${cleanName} for the podcast name. OK? [y,N]: "
+  read -q ok\?"Using ${cleanName} for the podcast name. Is this OK? [y,N] (don't press <Enter>) "
   until [[ ${ok} =~ [Yy] ]] ; do
 
     echo
     read name\?"OK, try again. Enter a name for this podcast: "
     cleanName=$(echo ${${${name//[: ,\!\?\&\$\/\)\(\#\*\\\>\<]/-}//[\"\']/}/%-/} | ${SED} -e 's/--*/-/g')
-    read -q ok\?"Using '${cleanName}' for the podcast name. OK? [y,N]: "
+    read -q ok\?"Using '${cleanName}' for the podcast name. Is this OK? [y,N] (don't press <Enter>) "
 
   done
   feedName="${cleanName}"
@@ -191,7 +191,7 @@ addOrReplaceFeed() {
   if ${GREP} -P -q "^[^#].*\s+${group}\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
 
     addNewFeed=0
-    if read -q ok\?"${feedName} already exists in group ${group}. Replace? [y,N] " ; then
+    if read -q ok\?"${feedName} already exists in group ${group}. Replace? [y,N] (don't press <Enter>) " ; then
 
       ${GREP} -P -v "^[^#].*\s+${group}\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
       replaceFeed=1
@@ -202,7 +202,7 @@ addOrReplaceFeed() {
   elif ${GREP} -P -q "^[^#].*\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} ; then
 
     addNewFeed=0
-    if read -q ok\?"${feedName} already exists in a different group. Change to group '${group}'? [y,N] " ; then
+    if read -q ok\?"${feedName} already exists in a different group. Change to group '${group}'? [y,N] (don't press <Enter>) " ; then
 
       ${GREP} -P -v "^[^#].*\s+${feedName}\s*" ${DIR_CONFIG}/${CONFIG_SERVERLIST} > ${tmpfile}
       replaceFeed=1
@@ -315,7 +315,7 @@ enableFeed() {
 
       # There is only one feed to enable, so prompt to enable it.
       feedName=${feedList}
-      read -q ok\?"Press 'y' to enable the feed '${feedName}', or any other key to cancel: "
+      read -q ok\?"Press 'y' to enable the feed '${feedName}', or any other key to cancel (don't press <Enter>) "
       if [[ "${ok}" != 'y' ]] ; then
 	trap -
 	return
@@ -413,10 +413,10 @@ deleteFeed() {
     group=$(${AWK} "/[[:space:]]${feedName}[[:space:]]*/{print \$2}" ${DIR_CONFIG}/${CONFIG_SERVERLIST})
     (( verbose )) && warning "${myName} (verbose): deleting '${feedName}' from '${group}'."
 
-    read -k 1 deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
+    read deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
     until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
       echo
-      read -k 1 deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' "
+      read deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' and press <Enter>"
     done
     echo
 
@@ -477,7 +477,7 @@ deleteFeed() {
 
 	  echo "Done."
 
-	  if read -q ok\?"Do you want to delete the dropbox for this feed too? [y,N] " ; then
+	  if read -q ok\?"Do you want to delete the dropbox for this feed too? [y,N] (don't press <Enter>) " ; then
 
 	    echo
 	    if cleanupFeed ${myName} ${group} ${feedName} ${verbose} ; then
@@ -612,7 +612,16 @@ showLastStatus() {
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 
     # The data.
-    ${CAT} ${statusFile}
+    if [[ -f ${statusFile} ]] ; then
+      if [[ -r ${statusFile} ]] ; then
+	${CAT} ${statusFile}
+      else
+	warning "Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
+      fi
+    else
+      warning "Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
+    fi
+
 
     # The footer.
     printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
@@ -695,24 +704,22 @@ clearRDimportLog() {
 
     chosenFile=${logFiles[${logfileIndex}]%:*}
     if [[ -w ${chosenFile} ]] ; then
-      if read -q proceed\?"About to clear '${chosenFile}'. Press 'y' to continue, or any other key to cancel: " ; then
+      if read -q proceed\?"About to clear '${chosenFile}'. Press 'y' to continue, any other key to cancel (don't press <Enter>) " ; then
 	if ${CP} /dev/null ${chosenFile} ; then
 	  echo "\nCleared ${chosenFile}. "
 	else
 	  warning "Hmmmm... I encountered an error while trying to clear '${chosenFile}' (${?}). Please pass this number and message on to a professional."
-	  read proceed\?"Press <Enter> to continue."
 	  returnValue=2
 	fi
       else
-	echo
-	read -c -q proceed\?"Did NOT clear '${chosenFile}'. "
+	echo "\nDid NOT clear '${chosenFile}'. \c"
       fi
     else
       warning "No permission to clear '${chosenFile}'. Please contact the authorities."
       returnValue=1
     fi
   else
-    echo "\nFound ${BOLD}NO${NORM} rdimport log files containing data in '${DIR_LIBRARY}'."
+    warning "\nFound NO rdimport log files containing data in '${DIR_LIBRARY}'."
   fi
 
   read -q proceed\?"Press <Enter> to continue. "
@@ -744,7 +751,7 @@ ${BOLD}$(${GREP} 'podget-wrapper' <<<${crontab})${NORM}
 
 EOF
 
-    if ! read -q change\?"Do you want to change the schedule? [y,N] " ; then
+    if ! read -q change\?"Do you want to change the schedule? [y,N] (don't press <Enter>) " ; then
 
       echo "\nLeaving the download schedule as it is."
       read ok\?"Press <Enter> to continue. "
@@ -801,7 +808,7 @@ EOF
 
     echo "Using 'hour: ${hour}' and 'minute: ${minute}' for the podcast download schedule."
 
-    if ! read -q ok\?"Press 'y' to commit this schedule, or 'n' to cancel (you will have to start over): " ; then
+    if ! read -q ok\?"Press 'y' to commit this schedule, or 'n' to cancel (you will have to start over) (don't press <Enter>) " ; then
       echo "\nCanceling this schedule change. Please try your call again later."
       read ok\?"Press <Enter> to continue. "
       trap -
@@ -863,7 +870,7 @@ addRDDropbox() {
   local returnValue=1
   local desiredNumber dropboxCartNumber
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
 
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually or seek professional help in updating this script ('${0}.")
 
@@ -895,7 +902,7 @@ addRDDropbox() {
 
     fi
 
-    if read -q answer\?"Do you want to use this dropbox for the feed '${feedName}'? [y,N] " ; then
+    if read -q answer\?"Do you want to use this dropbox for the feed '${feedName}'? [y,N] (don't press <Enter>) " ; then
 
       echo "\nOK, using existing dropbox."
       returnValue=0
@@ -913,7 +920,7 @@ addRDDropbox() {
   if (( createANewDropbox )) ; then
 
     echo
-    if read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] " ; then
+    if read -q answer\?"Would you like to set up a Rivendell dropbox for '${feedName}'? [y,N] (don't press <Enter>) " ; then
 
       echo
 
@@ -921,25 +928,25 @@ addRDDropbox() {
       # title as this feed.
       existingCartNumber=$(rdCartNumberFromTitle "${feedName}" ${verbose})
       if [[ -n "${existingCartNumber}" ]] ; then
-	if read -q answer\?"CART number ${existingCartNumber} has the title '${feedName}'. Do you want to use this CART? [y,N] " ; then
+	if read -q answer\?"CART number '${existingCartNumber}' has the title '${feedName}'. Do you want to use this CART? [y,N] (don't press <Enter>) " ; then
 	  dropboxCartNumber=${existingCartNumber}
 
 	fi
-      elif read -q answer\?"Create a new CART and assign each '${feedName}' episode to it (one CART for all episodes)? [y,N] " ; then
+      elif read -q answer\?"Create a new CART and assign each '${feedName}' episode to it (one CART for all episodes)? [y,N] (don't press <Enter>) " ; then
 
 	echo
 	dropboxCartNumber=$(rdCreateEmptyCart ${feedGroup} ${feedName})
       else
 
 	echo
-	if read -q answer\?"OK, do you want each '${feedName}' episode to be placed into its own new cart? [y,N] " ; then
+	if read -q answer\?"OK, do you want each '${feedName}' episode to be placed into a new CART? [y,N] (don't press <Enter>) " ; then
 
 	  dropboxCartNumber=0
 
 	else
 
 	  echo
-	  if read -q answer\?"OK, last chance: Do you want to assign an existing CART number to each episode of '${feedName}'? [y,N] " ; then
+	  if read -q answer\?"OK, last chance: Do you want to assign an existing CART number to each episode of '${feedName}'? [y,N] (don't press <Enter>) " ; then
 	    until [[ "${feedGroup}" = "${dropboxCartGroup:-unset}" ]] ; do
 	      until [[ -n "${cartTitle}" ]] ; do
 		echo
@@ -1004,7 +1011,7 @@ showRDDropboxes() {
   local query="select d.ID,d.STATION_NAME,d.PATH,d.GROUP_NAME,d.TO_CART,d.DELETE_CUTS,c.TITLE from DROPBOXES d left join CART c on (d.TO_CART = c.NUMBER) where d.PATH like '${DIR_LIBRARY}/%' order by d.PATH"
   local id stationName boxpath group cart dropcuts title
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
 
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually.")
 
@@ -1064,7 +1071,7 @@ deleteRDDropbox() {
 
   local returnValue=0
 
-  if (( rdDBVersionCompatible != $(rdDatabaseVersion) )) ; then
+  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
 
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to delete the dropbox manually.")
 
@@ -1084,7 +1091,7 @@ About to delete the Rivendell dropbox ID '${id}' which watches for files at '${b
 
 EOF
 
-  if read -q ok\?"Press 'y' to proceed, or 'n' to cancel: " ; then
+  if read -q ok\?"Press 'y' to proceed, or 'n' to cancel (don't press <Enter>) " ; then
 
     query="delete from DROPBOXES where ID = ${id}"
     doSQL "${query}"
@@ -1102,7 +1109,7 @@ EOF
 
     fi
 
-    if read -q ok\?"Do you also want to delete CART '${cart}' and its audio? [y,N] " ; then
+    if read -q ok\?"Do you also want to delete CART '${cart}' and its audio? [y,N] (don't press <Enter>) " ; then
 
       if message=$(rdDropCart ${cart} ${verbose}) ; then
 	echo "\nSuccessfully deleted CART '${cart}'."
@@ -1210,10 +1217,10 @@ createDropbox() {
   local deleteCuts stationName dropboxID
   local -a query
 
-  ## DELETE_CUTS defaults to "N" in the database if they simply press
-  ## <Enter> in response to this prompt.
+  ## DELETE_CUTS is set to "N" in the database only if they press 'y'
+  ## in response to this prompt.
   echo >&2
-  read -q deleteCuts\?"Do you want to delete old cuts before importing new audio for this dropbox? [y,N] "
+  read -q deleteCuts\?"Do you want to delete old cuts before importing new audio for this dropbox? [y,N] (don't press <Enter>) "
   echo >&2
 
   if stationName=$(rdGetStationName) ; then
@@ -1261,7 +1268,7 @@ warning() {
 
   ${CAT} >&2 <<EOF
 
-${BOLD}${RED}WARNING:${NORM}
+${BOLD}${YELLOW}WARNING:${NORM}
 $(${FMT} -w 79 <<< ${message})
 
 EOF
@@ -1353,10 +1360,11 @@ if ((showVersion)) ; then
 fi
 
 RED="${fg_bold[red]}"
+YELLOW="${fg_bold[yellow]}"
 BOLD="${bold_color}"
 NORM="${reset_color}"
 # This script is compatible with Rivendell database verson:
-rdDBVersionCompatible=242
+rdDBVersionCompatible=259
 # Hard code this for now.
 fileExt=mp3
 
