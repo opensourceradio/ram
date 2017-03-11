@@ -24,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=13
+vPatch=14
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -620,13 +620,16 @@ showLastStatus() {
 
       else
 	warning "Could not determine the time of last access of '${statusFile}' (${?}). Please seek professional help."
+	read ok\?"Press <Enter> to continue. "
       fi
 
     else
       warning "Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
+      read ok\?"Press <Enter> to continue. "
     fi
   else
     warning "Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
+    read ok\?"Press <Enter> to continue. "
   fi
 
   trap -
