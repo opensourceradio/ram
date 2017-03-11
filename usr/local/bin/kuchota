@@ -24,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=12
+vPatch=13
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -594,37 +594,40 @@ showLastStatus() {
     err) OUTPUT="diagnostic output" ;;
   esac
 
-  if zstat -H statusStat ${statusFile} ; then
-    fileTime=$(strftime "%A, %B %d, %Y at %T" ${statusStat[mtime]})
-  fi
+  if [[ -f ${statusFile} ]] ; then
+    if [[ -r ${statusFile} ]] ; then
+      if zstat -H statusStat ${statusFile} ; then
+	fileTime=$(strftime "%A, %B %d, %Y at %T" ${statusStat[mtime]})
 
-  (
-    # The header.
-    reportTitleText="Latest Kuchota 'podget' ${(C)OUTPUT}"
-    if [[ -n "${fileTime}" ]] ; then
-      reportTitleText="${reportTitleText} as of ${fileTime}"
-    fi
-    # Center the title on the display.
-    reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${BOLD}${reportTitleText}${NORM}"
-    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-    print "${reportTitle}"
-    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+	(
+	  # The header.
+	  reportTitleText="Latest Kuchota 'podget' ${(C)OUTPUT}"
+	  if [[ -n "${fileTime}" ]] ; then
+	    reportTitleText="${reportTitleText} as of ${fileTime}"
+	  fi
+	  # Center the title on the display.
+	  reportTitle="$(printf ' %.0s' {1..$(( ( ${terminfo[cols]} - ${#reportTitleText} ) / 2 ))})${BOLD}${reportTitleText}${NORM}"
+	  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+	  print "${reportTitle}"
+	  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
 
-    # The data.
-    if [[ -f ${statusFile} ]] ; then
-      if [[ -r ${statusFile} ]] ; then
-	${CAT} ${statusFile}
+	  # The data.
+	  ${CAT} ${statusFile}
+
+	  # The footer.
+	  printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
+	) | ${LESS} -RCiP "Viewing the latest podget ${OUTPUT}?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
+
       else
-	echo "${YELLOW}WARNING:${NORM} Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
+	warning "Could not determine the time of last access of '${statusFile}' (${?}). Please seek professional help."
       fi
+
     else
-      echo "${YELLOW}WARNING:${NORM} Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
+      warning "Kuchota status file '${statusFile}' exists, but is not readable. Please seek professional help."
     fi
-
-
-    # The footer.
-    printf ' '; printf '=%.0s' {1..$(( ${terminfo[cols]} - 2 ))} ; print
-  ) | ${LESS} -RCiP "Viewing the latest podget ${OUTPUT}?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
+  else
+    warning "Missing status file '${statusFile}'. Maybe Kuchota has not been run yet?"
+  fi
 
   trap -
 }
