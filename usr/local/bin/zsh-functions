@@ -86,7 +86,7 @@ ${message}
 
 Note that you will see only one notification per day for this
 condition. You may see all notifications (including those for which
-no email was sent) by opening a terminal window on ${HOSTNAME} and
+no email was sent) by opening a terminal window on $(${HOSTNAME}) and
 entering (or pasting) the command:
 
   journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
