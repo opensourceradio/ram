@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -155,7 +155,7 @@ if (( subdevice )) ; then
     ## THIS IS NOT WORKING. DO NOT USE --subdevice!
     cardIndexAndName=$(${APLAY} -l | ${AWK} "/ subdevice #${subdevice}/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
 else
-    cardIndexAndName=$(${APLAY} -l | ${AWK} "/^card .*, device ${device}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
+    cardIndexAndName=$(${APLAY} -l | ${AWK} "/^card .* ${cardPattern} .*, device ${device}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
 fi
 
 ## Set up the JACK configuration if we found an audio device that
