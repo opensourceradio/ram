@@ -7,6 +7,11 @@ use strict;
 use URI::Escape;
 use Data::Dumper;
 
+use constant vMAJOR => 0;
+use constant vMINOR => 1;
+use constant vPATCH => 1;
+use constant vHASH => '$Hash$';
+
 package Feed;
 
 use URI::Escape;
@@ -22,6 +27,7 @@ my $feeds = {
 	'remoteUSER'       => 'rdmrcom',
 	'remotePASS'       => 'R@dio2435',
 	'remoteDIR'        => '/',
+	# This is the list of fields as returned by curl(1).
 	'longListFormat'   => {
 	    'mode'     => 0,
 	    'links'    => 1,
@@ -199,6 +205,14 @@ main;
 
 1;
 
+sub showVersion( $ ) {
+    my $verbose = shift;
+
+    say STDOUT vMAJOR . "." . vMINOR . "." . vPATCH . "-" . vHASH;
+
+    exit;
+}
+
 sub createXML( $$$$ ) {
     my $feeds = shift;
     my $feedName = shift;
@@ -250,6 +264,7 @@ END
 
 sub main() {
     my( $list, $verbose, $man, $help ) = ( undef, 0, undef, undef );
+    my $version = undef;
     my( $now ) = localtime();
     my( $year ) = ( undef );
     my( $feedName, $feed ) = ( undef, undef );
@@ -259,10 +274,12 @@ sub main() {
         'help|?|h' => \$help,
         'man|m' => \$man,
         'verbose|v+' => \$verbose,
+	'version|V' => \$version,
         ) || pod2usage( 2 );
 
     pod2usage( -verbose => 0, -output  => \*STDERR ) if $help;
-    pod2usage( -verbose => 2, -output  => \*STDERR ) if $man;
+    pod2usage( -verbose => 3, -output  => \*STDERR ) if $man;
+    showVersion( $verbose ) if $version;
 
     $feedName = shift( @ARGV );
 
@@ -296,13 +313,14 @@ btd-ftp-to-rss - Retrieve a list of files on an FTP server and create a (somewha
 
 =head1 SYNOPSIS
 
-btd-ftp-to-rss [ -m ] [ -h ] [ -v ] <feed-name> (or --list (-l))
+btd-ftp-to-rss [ -m ] [ -h ] [ -V ] [ -v ] <feed-name> (or --list (-l))
 
  Options:
  --list (-l)          list all known FTP sites
  --help (-h)          show a brief help message
  --man (-m)           display the full documentation for this command
  --verbose (-v)       run in 'verbose' mode
+ --version (-V)       show the program version and exit
 
 =head1 OPTIONS
 
@@ -320,6 +338,10 @@ Print the manual page and exit.
 
 Run in verbose mode. Use multiple times for more verbosity.
 
+=item B<--verbose (v)>
+
+Display this program's version and exit.
+
 =back
 
 =head1 DESCRIPTION
@@ -328,6 +350,10 @@ B<btd-ftp-to-rss> creates an XML file suitable for advertising as an RSS feed fo
 
 =head1 SEE ALSO
 
+=item B<curl(1)>
+
 =item B<podget(1)>
+
+=item B<kuchota(1)>
 
 =back
