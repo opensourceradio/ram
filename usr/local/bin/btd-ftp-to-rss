@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 3;
+use constant vPATCH => 4;
 use constant vHASH => '$Hash$';
 
 package Feed;
@@ -342,7 +342,7 @@ Print the manual page and exit.
 
 Run in verbose mode. Use multiple times for more verbosity.
 
-=item B<--verbose (v)>
+=item B<--version (V)>
 
 Display this program's version and exit.
 
