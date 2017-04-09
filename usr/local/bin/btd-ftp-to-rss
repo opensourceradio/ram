@@ -208,7 +208,11 @@ main;
 sub showVersion( $ ) {
     my $verbose = shift;
 
-    say STDOUT vMAJOR . "." . vMINOR . "." . vPATCH . "-" . vHASH;
+    my $hash = undef;
+
+    ( $hash = vHASH ) =~ s/\$Hash: //;
+
+    say STDOUT vMAJOR . "." . vMINOR . "." . vPATCH . "-" . $hash;
 
     exit;
 }
