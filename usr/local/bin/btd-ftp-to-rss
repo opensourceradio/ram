@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 2;
+use constant vPATCH => 3;
 use constant vHASH => '$Hash$';
 
 package Feed;
@@ -193,7 +193,7 @@ package main;
 use autodie;
 use English;
 
-use Getopt::Long;
+use Getopt::Long qw(:config no_ignore_case);
 use Pod::Usage;
 
 use Time::localtime qw(localtime);
@@ -353,6 +353,8 @@ Display this program's version and exit.
 B<btd-ftp-to-rss> creates an XML file suitable for advertising as an RSS feed for consumption of a podcast retrieval app such as podget(1).
 
 =head1 SEE ALSO
+
+=over 8
 
 =item B<curl(1)>
 
