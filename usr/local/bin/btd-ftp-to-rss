@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 1;
+use constant vPATCH => 2;
 use constant vHASH => '$Hash$';
 
 package Feed;
