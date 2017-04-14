@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -123,8 +123,7 @@ if [[ -n "${myHostName}" ]] ; then
 
 	for cart in ${connectCarts} ; do
 
-	    # The '!' has special meaning in ZSH, so must be escaped.
-	    if ${RMLSEND} "EX ${cart}\!" ; then
+	    if ${RMLSEND} "EX ${cart}!" ; then
 
 		${LOGGER} -t ${0:t} -p local7.info -i "INFO: ${RMLSEND} EX ${cart}."
 
