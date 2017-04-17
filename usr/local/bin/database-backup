@@ -14,60 +14,80 @@ zmodload zsh/datetime
 # In which we find the '=~' test(1) operator.
 zmodload zsh/regex
 
-# Use msmtp(1) to send email to one or more addresses.
-sendEmail() {
-  local MAILTO="${1}" ; shift
-  local MSG="${1}" ; shift
-  local MSGFILE="${1}"
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=2
+vHash='$Hash$'
 
-  local MSMTP_CONFIG=${MSMTP_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
-  local PRETEND=${PRETEND}
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 10 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  find
+  grep
+  logger
+  mkdir
+  mktemp
+  mysql
+  mysqldump
+  rm
+  rsync
+  tar
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
 
-  msmtp --file ${MSMTP_CONFIG} ${PRETEND} --read-envelope-from --read-recipients <<ENDOFMAIL
-From: no-reply@$(hostname -f)
-To: ${MAILTO// /,}
-Subject: ATTENTION: Rivendell Database Backup Messages
-X-Script-Name: ${0}
-X-Message-ID: $(uuid)-${EPOCHSECONDS}@$(hostname -f)
-
-${MSG}
-
-${MSGFILE:+$(cat ${MSGFILE})}
-ENDOFMAIL
-}
-
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  ${LOGGER} --stderr -t ${0:t} -p local7.err -i "ERROR: Cannot read '/usr/local/bin/zsh-functions' support library. Cannot continue."
+  exit
+fi
 
 # Current date and time.
 TODAY=$(strftime '%Y-%m-%d-%H%M%S' ${EPOCHSECONDS})
 
 TMPDIR=${ROOT:-/}var/tmp
 DUMPDIR=${DUMPDIR:-${TMPDIR}/mysql}
-DUMP_OUTPUT=$(mktemp --tmpdir=${TMPDIR} mysqldump-output.XXXXXXXXXX)
+DUMP_OUTPUT=$(${MKTEMP} --tmpdir=${TMPDIR} mysqldump-output.XXXXXXXXXX)
 
 # Optional: specify the name of an additional backup directory in
-# which to rsync(1) the backup tarball.
+# which to rsync(1) the backup tarball. It is best if this directory
+# is on a physically distinct medium from the database copy that is in
+# ${DUMPDIR}.
 #BACKUP_DIR=${BACKUP_DIR:-${ROOT:-/}var/snd/rivendell-database-backup}
 
-# Database credentials. Keep these secure.
-MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/pmwtech}/.my.cnf-root}
+# Database credentials. This is highly site specific.
+MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/rivendell}/.my.cnf-privileged}
 
 # To whom we should send email if anything breaks.
-MAILTO=${MAILTO:-"support@phantommachineworks.media"}
+MAILTO=${MAILTO:-"david.klann@broadcasttool.com"}
 
-trap "rm -f ${DUMP_OUTPUT}; exit" 0
+trap "${RM} -f ${DUMP_OUTPUT}; exit" 0 1 2 3
 
 # Hang on to this many days of backups.
-KEEP=${KEEP:-61}
+KEEP=${KEEP:-31}
 
-test -d ${DUMPDIR} || mkdir -p ${DUMPDIR}
-test -n "${BACKUP_DIR}" && { test -d ${BACKUP_DIR} || mkdir -p ${BACKUP_DIR} }
+# Neither of these is fatal if they break.
+test -d ${DUMPDIR} || ${MKDIR} -p ${DUMPDIR}
+test -n "${BACKUP_DIR}" && { test -d ${BACKUP_DIR} || ${MKDIR} -p ${BACKUP_DIR} }
 
 # Get a list of all the databases.
-databases=( $(mysql --defaults-file=${MY_CNF} -s -N -e 'show databases') )
+databases=( $(${MYSQL} --defaults-file=${MY_CNF} -s -N -e 'show databases') )
 # Dump master data only if binary logging is enabled.
-masterData=$(mysql --defaults-file=${MY_CNF} -s -N -e 'show master status' | fgrep -q 'mysqld-bin.' && echo '--master-data')
+masterData=$(${MYSQL} --defaults-file=${MY_CNF} -s -N -e 'show master status' | ${GREP} -F -q 'mysqld-bin.' && echo '--master-data')
 
+# Make the ouput files readable only by the owner.
 # u=r,g=,o=
 umask 0377
 
@@ -75,51 +95,110 @@ umask 0377
 # without (to recreate an empty database).
 for database in ${databases} ; do
     # Skip these databases.
-    [[ "${database}" -regex-match '(information|performance)_schema' ]] && continue
+    [[ "${database}" =~ '(information|performance)_schema' ]] && continue
 
     # Dump the database.
-    mysqldump --defaults-file=${MY_CNF} --comments --dump-date ${masterData} --single-transaction --add-drop-database --add-drop-table --databases ${database} > ${DUMPDIR}/${database}-${TODAY}.sql
+    ${MYSQLDUMP} --defaults-file=${MY_CNF} --comments --dump-date ${masterData} --single-transaction --add-drop-database --add-drop-table --databases ${database} > ${DUMPDIR}/${database}-${TODAY}.sql
     dbDumpVal=${?}
     # Dump just the database schema.
-    mysqldump --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
+    ${MYSQLDUMP} --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
     schemaDumpVal=${?}
 
-    test -s ${DUMPDIR}/${database}-${TODAY}.sql || echo "Error dumping ${database} (${dbDumpVal})." >&2
-    test -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql || echo "Error dumping Schema for ${database} (${schemaDumpVal})." >&2
+    if [[ -s ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
+      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database} (${dbDumpVal})."
+    fi
+    if [[ -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
+      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database} (${schemaDumpVal})."
+    fi
 done 2>&1 > ${DUMP_OUTPUT}
-
 
 # Do not proceed if there is output in $DUMP_OUTPUT (we had errors if
 # there is).
 if [[ -s ${DUMP_OUTPUT} ]] ; then
-    sendEmail "${MAILTO}" "Found messages in database dump log. See below." ${DUMP_OUTPUT}
+    sendNotification "${0:t}" "${MAILTO}" DBDUMP-OUTPUT "Unexpectedly found messages in database dump log. See attached." ${DUMP_OUTPUT}
 else
-    if tar --create --bzip2 --atime-preserve --directory=${TMPDIR} --file ${TMPDIR}/mysql-backup-${TODAY}.tar.bz2 mysql ; then
+    if ${TAR} --create --bzip2 --atime-preserve --directory=${TMPDIR} --file ${TMPDIR}/mysql-backup-${TODAY}.tar.bz2 mysql ; then
 	# clean up after archiving the database dumps
-	if rm -rf ${DUMPDIR} ; then
+	if ${RM} -rf ${DUMPDIR} ; then
 	    # remove backup archives that are more than ${KEEP} days old
-	    if find ${TMPDIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -print -delete ; then
+	    if ${FIND} ${TMPDIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -print -delete ; then
 		# successful purge, (optionally) make a backup of the backup
 		if [[ -n "${BACKUP_DIR}" ]] ; then
 		    if [[ -d ${BACKUP_DIR} ]] ; then
-			if rsync --archive --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR} ; then
-			    : all seems well, move on
+		      ${RSYNC} --archive --temp-dir=${TMPDIR} --partial-dir=temp --delay-updates --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
+		      rsyncReturnValue=${?}
+		      if (( rsyncReturnValue == 0 )) ; then
+			: all seems well, move on
+		      else
+			# These error messages are straight from the
+			# rsync(1) manual page (for rsync version
+			# 3.1.1).
+			case ${rsyncReturnValue} in
+			  1) message="Syntax or usage error" ;;
+			  2) message="Protocol incompatibility" ;;
+			  3) message="Errors selecting input/output files, dirs" ;;
+			  4) message="Requested action not supported (see rsync(1) manual page)." ;;
+			  5) message="Error starting client-server protocol" ;;
+			  6) message="Daemon unable to append to log-file" ;;
+			  10) message="Error in socket I/O" ;;
+			  11) message="Error in file I/O" ;;
+			  12) message="Error in rsync protocol data stream" ;;
+			  13) message="Errors with program diagnostics" ;;
+			  14) message="Error in IPC code" ;;
+			  20) message="Received SIGUSR1 or SIGINT" ;;
+			  21) message="Some error returned by waitpid()" ;;
+			  22) message="Error allocating core memory buffers" ;;
+			  23) message="Partial transfer due to error (quiet)" ;;
+			  24) message="Partial transfer due to vanished source files" ;;
+			  25) message="The --max-delete limit stopped deletions" ;;
+			  30) message="Timeout in data send/receive" ;;
+			  35) message="Timeout waiting for daemon connection" ;;
+			  *) message="Unknown rsync(1) return code" ;;
+			esac
+			if [[ ${message} =~ '.*\(quiet\)$' ]] ; then
+			  ${LOGGER} -t ${0:t} -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue}."
 			else
-			    sendEmail "${MAILTO}" "Trouble with making a backup of the backup of the database (ERROR CODE ${!})."
+			  sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC "Trouble with making a backup of the backup of the database (rsync ERROR ${rsyncReturnValue} - ${message})."
 			fi
+			${LOGGER} -t ${0:t} -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue} (${message})."
+		      fi
 		    else
-			sendEmail "${MAILTO}" "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${!})."
+			sendNotification "${0:t}" "${MAILTO}" DBDUMP-BACKUP_DIR "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${?})."
 		    fi
 		fi
 	    else
-		sendEmail "${MAILTO}" "Trouble removing backup archives (ERROR CODE ${!})."
+		sendNotification "${0:t}" "${MAILTO}" DBDUMP-AGING "Trouble removing backup archives (ERROR CODE ${?})."
 	    fi
 	else
-	    sendEmail "${MAILTO}" "Error removing '${DUMPDIR}' (ERROR CODE ${!})."
+	    sendNotification "${0:t}" "${MAILTO}" DBDUMP-CLEANUP "Error removing '${DUMPDIR}' (ERROR CODE ${?})."
 	fi
     else
-	sendEmail "${MAILTO}" "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${!})."
+	sendNotification "${0:t}" "${MAILTO}" DBDUMP-TARBALL "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${?})."
     fi
 fi
 
 exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
