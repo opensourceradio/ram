@@ -1,1 +1,3 @@
 * filter=buildsub
+.gitattributes export-ignore
+.gitignore export-ignore
