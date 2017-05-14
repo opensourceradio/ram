@@ -16,15 +16,18 @@ cartColumns="NUMBER,TITLE"
 
 # With the "-l (--long)" option, display the contents of the macro as
 # well as the number and title.
-TEMP=$(getopt -o lg --long long,group -n ${0:t} -- "${@}")
+# With the "-n (--notes)" option, display the cart notes (if any)
+# as well as the other stuff.
+TEMP=$(getopt -o gln --long group,long,notes -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around `$TEMP': they are essential!
 eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-      -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
       -g|--grou*) cartColumns="${cartColumns},GROUP_NAME" ; shift ;;
+      -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
+      -n|--note*) cartColumns="${cartColumns},NOTES" ; shift ;;
       --) shift ; break ;;
       *) echo "Internal error!" ; exit 1 ;;
   esac
@@ -38,3 +41,27 @@ condition=${1:+" and NUMBER = ${1}"}
 doSQL "select ${cartColumns} from CART where TYPE = 2${condition}"
 
 exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
