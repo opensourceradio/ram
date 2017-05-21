@@ -573,7 +573,7 @@ rdCartNumberFromTitle() {
   local title=${1:?"Need a CART TITLE string to search."} ; shift
   local verbose=${1}
 
-  doSQL "select NUMBER from CART where TITLE like '%${title}%'"
+  doSQL "select NUMBER from CART where TITLE = '${title}'"
 }
 
 # Get a Rivendell CART TITLE from a partial TITLE.
