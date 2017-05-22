@@ -1,0 +1,128 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+##
+## weekly-traffic
+##
+## A BTD tool to report on weekly traffic events.
+##
+##########################################################################################
+##########################################################################################
+
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+# Get zsh functions necessary for this script.
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+fi
+
+service="WDRT"
+typeset -A cartCount
+
+# Start date is midnight seven days ago.
+reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 *7 ) )))
+
+# End date is (almost) Midnight today (that is, report on everything
+# through yesterday).
+reportEndDate=$(strftime "%F 23:59:59" $(( ${EPOCHSECONDS} - (60 * 60 * 24) )))
+
+# How many events will we report?
+selectCountStatement="SELECT
+  COUNT(*)
+  FROM ${service}_SRT
+  WHERE cart_number IN
+  (SELECT number FROM CART WHERE group_name = 'TRAFFIC')
+  AND
+  event_datetime > '${reportStartDate}'
+  AND
+  event_datetime <= '${reportEndDate}'
+  ORDER BY event_datetime"
+eventCount=$(doSQL "${selectCountStatement}")
+
+# The header.
+reportTitleText="${service}: ${eventCount} Traffic Events from ${reportStartDate% *} to ${reportEndDate% *}"
+
+print "${reportTitleText}\n"
+printf "%19s\t%6s\t%5s\t%s\n" "Air Date     " "Cart #" "Len " "Cart Title"
+
+# Find all the events from the _SRT table.
+selectStatement="SELECT
+  event_datetime, title, cart_number, length/1000
+  FROM ${service}_SRT
+  WHERE cart_number IN
+  (SELECT number FROM CART WHERE group_name = 'TRAFFIC')
+  AND
+  event_datetime > '${reportStartDate}'
+  AND
+  event_datetime <= '${reportEndDate}'
+  ORDER BY event_datetime"
+
+# Output fields are <Tab>-separated.
+doSQL "${selectStatement}" | while read line ; do
+
+  airDateTime=${line%%	*}
+  cartTitle=${${line#*	}%%	*}
+  cartNumber=${${line%	*}##*	}
+  cartLength=${line##*	}
+  cartMinSec=$(printf "%02d:%02d" $(( cartLength / 60 )) $(( $(printf "%2.0f" ${cartLength}) % 60 )))
+
+  # Insert a blank line between days.
+  [[ ${airDateTime% *} =~ ${lastAirDate} ]] || echo
+
+  printf "%19s\t%06d\t%5s\t%s\n" ${airDateTime} ${cartNumber} ${cartMinSec} ${cartTitle}
+  cartCount[${cartNumber}]=$(expr ${cartCount[${cartNumber}]} + 1)
+
+  lastAirDate=${airDateTime% *}
+
+done
+
+print "\nPerformance Totals:"
+printf "%6s: %3s %s\n" 'Cart #' 'Plays' 'Cart Title'
+
+for cart in $(echo ${(k)cartCount} | tr ' ' '\012' | sort -n) ; do
+
+  printf "%06d: %5d %s\n" ${cart} ${cartCount[${cart}]} "$(rdCartTitleFromNumber ${cart})"
+
+done
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
