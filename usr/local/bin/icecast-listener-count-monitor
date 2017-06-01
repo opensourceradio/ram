@@ -3,13 +3,12 @@
 ##########################################################################################
 ##########################################################################################
 ##
-## listener-count-monitor
+## icecast-listener-count-monitor
 ##
 ## Using a simple Icecast2 listener count URL, watch a stream and a
 ## specific mount point the number of connections. Trigger an action
 ## (defined elsewhere) when we reach the threshold.
 ##
-## A Broadcast Tool & Die production
 ## Copyright 2017 Broadcast Tool & Die
 ## Released under the GNU GPL version 3 or later. See
 ## https://www.gnu.org/licenses/gpl.html
@@ -21,8 +20,9 @@ setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
+zmodload zsh/mathfunc
 
-myName=${0##*/}
+myName=${0:t}
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
@@ -30,18 +30,74 @@ vMinor=1
 vPatch=0
 vHash='$Hash$'
 
-zmodload zsh/datetime
-
-statsURL=${STATS_URL:-http://142.4.201.222:8000/listener-count.xsl}
-monitorStream=${MONITOR_STREAM:-impact89fm}
-
-connectionThreshold=${CONNECTION_THRESHOLD:-100}
-
-pauseDuration=${PAUSE_DURATION:-15}
-
 ##############################################################################
 ## Locally defined subroutines
 ##############################################################################
+usage() {
+    myName=${1}
+
+    ${CAT} << EOF
+$(${FMT}<<<"${myName}: Trigger one or more actions when a pre-defined number of listeners (the "high water mark") connects to the specified Icecast mount point (default is 100). Trigger again when the pre-defined number of listeners reaches a "low water mark" (intended to reverse the action of the high water mark).
+
+The required parameters are the Icecast mount point and the Icecast statistics URL.")
+
+Summary
+${myName} [ --help (-h) ]
+                               [ --high-water <max-listener threshold> ]
+                               [ --low-water <min-listener threshold> ]
+                               Icecast-mount-point Icecast-stats-URL
+
+EOF
+}
+
+# Calculate an adaptive pause duration so that we may be responsive to
+# changing conditions, and not check too often when things are quiet.
+howLong() {
+  local -F currentCount=${1} ; shift
+  local -F lastCount=${1}
+
+  local -F percentChange
+  local pauseDuration
+
+  (( lastCount == 0 ? 1 : lastCount ))
+
+  percentChange=$((abs( currentCount - lastCount ) / lastCount * 100.0 ))
+
+  # Large swings in listener count change mean a shorter pause
+  # duration.
+  if (( percentChange < 10.0 )) ; then
+    pauseDuration=120
+  elif (( percentChange < 25.0 )) ; then
+    pauseDuration=60
+  elif (( percentChange < 50.0 )) ; then
+    pauseDuration=30
+  elif (( percentChange < 100.0 )) ; then
+    pauseDuration=15
+  else
+    pauseDuration=5
+  fi
+
+  echo ${pauseDuration}
+}
+
+# Initiate a response to hitting either the low or the high water
+# marks for the named stream.
+triggerResponse() {
+  local mode=${1} ; shift
+  local url=${1} ; shift
+  local currentCount=${1} ; shift
+  local timeNow=${1}
+
+  case ${mode} in
+    MAX)
+      : do something in response to hitting the maximum threshold
+    ;;
+
+    MIN)
+      : do something in response to hitting the minimum threshold
+    ;;
+  esac
+}
 
 warning() {
   local myName=${1}
@@ -65,50 +121,81 @@ error() {
 ## Script main line
 ##############################################################################
 
-# The shell commands we will use in this script.
-typeset -a ourCommands
+# A resonable default number of connections at which point we should
+# do something.
+connectionThresholdMax=${CONNECTION_THRESHOLD_MAX:-100}
+connectionThresholdMin=${CONNECTION_THRESHOLD_MIN:-90}
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 7 external commands.
+# Look for them in their upper case, parameter expanded form.
 ourCommands=(
   awk
   cat
-  chmod
-  cp
-  diff
-  find
-  getopt
-  grep
-  hostname
-  kill
+  curl
+  fmt
   logger
-  mkdir
-  mv
-  pidof
-  podget
-  rm
-  sed
-  touch
-  uuidgen
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
 # all upper case letters. We will use the command names in upper case as
-# variables by which to call the commands later in this function.
+# variables by which to call the external commands used in this script.
 for C in ${ourCommands} ; do
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
   done
-  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
 done
+##################  END shell commands used in this script.  ##################
 
+# Use getopt to parse the command line arguments.
+TEMP=$(getopt -o ht:v --long help,threshold:,version -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+    -h|--help) usage ${myName} ; exit ;;
+    --high*) connectionThresholdMax=${2} ; shift 2 ;;
+    --low*) connectionThresholdMin=${2} ; shift 2 ;;
+    -v|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${myName}: getopt internal error!" >&2 ; return 1 ;;
+  esac
+done
+unset TEMP
+
+if (( showVersion )) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+mountPoint=${1:?"Please specify an Icecast mount point to check."} ; shift
+statsURL=${1:?"Please specify an Icecast listener count URL."}
+
+# Forever
 while : ; do
-  currentCount=$(curl -o - -s ${statsURL} | awk -F: "/${monitorStream}:/{print \$2}")
 
-  if (( currentCount > tippingPoint )) ; then
+  currentCount=$(${CURL} -o - -s ${statsURL} | ${AWK} -F: "/${mountPoint}:/{print \$2}")
 
-    triggerResponse ${EPOCHSECONDS} ${currentCount}
+  if (( currentCount > connectionThresholdMax )) ; then
+
+    # triggerResponse should simply register the threshold with its
+    # plugins and return so we can continue watching the stream.
+    triggerResponse MAX ${statsURL%/*}/${mountPoint} ${currentCount} ${EPOCHSECONDS}
+
+  elif (( currentCount < connectionThresholdMin )) ; then
+
+    triggerResponse MIN ${statsURL%/*}/${mountPoint} ${currentCount} ${EPOCHSECONDS}
+
   fi
 
+  pauseDuration=$(howLong ${currentCount} ${lastCount})
   sleep ${pauseDuration}
-  
+
+  lastCount=${currentCount}
+
 done
 
 exit
