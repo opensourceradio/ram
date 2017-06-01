@@ -1,0 +1,265 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+## weekly-report
+##
+## A BTD tool to report on weekly events, per Group and per Service.
+##
+##########################################################################################
+##########################################################################################
+
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=2
+vHash='$Hash$'
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cat
+  column
+  getopt
+  sort
+  tr
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+# Tell them how to use this command.
+usage() {
+    myName=${1}
+
+    ${CAT} << EOF
+${myName}: Generate a weekly report for a Rivendell Group and a Rivendell
+Service for the week ending "yesterday".
+
+Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
+                        [ --end-date (-e) <YYYY-MM-DD> ] 
+                        --group (-g) <Group Name> (or "list")
+                        --service (-s) <Service Name>
+
+The start date defaults to one week ago; the end date defaults to
+yesterday if not specified.
+
+Both the --group (-g) and --service (-s) parameters are required.
+
+EOF
+}
+
+# Check to be sure it is a valid GROUP. Returns true or false based on
+# the regex match test
+validGroup() {
+    local definedGroups=${1} ; shift
+    local requestedGroup=${1} ; shift
+
+    [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+}
+
+# Get zsh functions necessary for this script.
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+fi
+
+# use getopt to parse the command line args
+TEMP=$(${GETOPT} -o hg:s:vS:e: --long help,group:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
+if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+      -g|--grou*) group=${2} ; shift 2 ;;
+      -s|--serv*) service=${2} ; shift 2 ;;
+      -S|--star*) startDate=${2} ; shift 2 ;;
+      -e|--end*) endDate=${2} ; shift 2 ;;
+      -h|--help) usage ${0} ; exit ;;
+      -v|--vers*) showVersion=1 ; shift ;;
+      --) shift ; break ;;
+      *) echo "Internal error, cannot continue!" ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if ((showVersion)) ; then
+  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+RED="${fg_bold[red]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
+
+# Snag the group list for future use. This code works with Group names
+# containing embedded <Space>s.
+typeset -a rivendellGroupList
+oIFS="${IFS}"
+IFS="	"
+rivendellGroupList=( $(doSQL "select NAME from GROUPS" | ${TR} '\012' '\t') )
+IFS="${oIFS}"
+unset oIFS
+
+typeset -A cartCount
+
+# Default start date is midnight seven days ago.
+if [[ -z "${startDate}" ]] ; then
+  reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 *7 ) )))
+else
+  if [[ "${startDate}" =~ '[23][0-9]{3}-[01][0-9]-[0-3][0-9]' ]] ; then
+    reportStartDate="${startDate} 00:00:00"
+  else
+    echo "Start date '${startDate}' is invalid."
+    usage ${0:t}
+    exit 2
+  fi
+fi
+
+# Default end date is (almost) Midnight today (that is, report on
+# everything through yesterday).
+if [[ -z "${endDate}" ]] ; then
+  reportEndDate=$(strftime "%F 23:59:59" $(( ${EPOCHSECONDS} - (60 * 60 * 24) )))
+else
+  if [[ "${endDate}" =~ '[23][0-9]{3}-[01][0-9]-[0-3][0-9]' ]] ; then
+    reportEndDate="${endDate} 23:59:59"
+  else
+    echo "End date '${endDate}' is invalid."
+    usage ${0:t}
+    exit 2
+  fi
+fi
+
+# List the groups and prompt for a group to use in this report.
+if [[ -n "${group}" ]] ; then
+  if [[ "${group}" =~ 'list' ]] ; then
+    echo "Current list of GROUPs:"
+    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    read group\?"Enter a GROUP to import into: "
+  fi
+else
+  echo "Current list of GROUPs:"
+  echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  read group\?"Enter a GROUP for this import: "
+fi
+
+validGroup "${rivendellGroupList}" ${group} || {
+  echo "${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}" 1>&2
+  exit 2
+}
+
+# How many events will we report?
+selectCountStatement="SELECT
+  COUNT(*)
+  FROM ${service}_SRT
+  WHERE cart_number IN
+  (SELECT number FROM CART WHERE group_name = '${group}')
+  AND
+  event_datetime > '${reportStartDate}'
+  AND
+  event_datetime <= '${reportEndDate}'
+  ORDER BY event_datetime"
+eventCount=$(doSQL "${selectCountStatement}")
+
+# The header.
+reportTitleText="${service}: ${eventCount} ${group} Events from ${reportStartDate% *} to ${reportEndDate% *}"
+
+print "${reportTitleText}\n"
+printf "%19s\t%6s\t%5s\t%s\n" "Air Date     " "Cart #" "Len " "Cart Title"
+
+# Find all the events from the _SRT table.
+selectStatement="SELECT
+  event_datetime, title, cart_number, length/1000
+  FROM ${service}_SRT
+  WHERE cart_number IN
+  (SELECT number FROM CART WHERE group_name = '${group}')
+  AND
+  event_datetime > '${reportStartDate}'
+  AND
+  event_datetime <= '${reportEndDate}'
+  ORDER BY event_datetime"
+
+# Change input field separator (IFS) to <Tab>.
+oIFS="${IFS}"
+IFS="	"
+# Output fields are <Tab>-separated.
+doSQL "${selectStatement}" | while read line ; do
+
+  # Set the positional parameters to the fields in ${line}.
+  set - $(echo "${line}")
+  airDateTime=${1}
+  cartTitle=${2}
+  cartNumber=${3}
+  cartLength=${4}
+  set -
+
+  cartMinSec=$(printf "%02d:%02d" $(( cartLength / 60 )) $(( cartLength % 60 )))
+
+  # Insert a blank line between days.
+  [[ ${airDateTime% *} =~ ${lastAirDate} ]] || echo
+
+  printf "%19s\t%06d\t%5s\t%s\n" ${airDateTime} ${cartNumber} ${cartMinSec} ${cartTitle}
+  cartCount[${cartNumber}]=$(expr ${cartCount[${cartNumber}]} + 1)
+
+  lastAirDate=${airDateTime% *}
+
+done
+
+# Restore the default value of ${IFS}
+IFS="${oIFS}"
+unset oIFS
+
+print "\nPerformance Totals:"
+printf "%6s\t%3s\t%s\n" 'Cart #' 'Plays' 'Cart Title'
+
+for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
+
+  printf "%06d\t%5d\t%s\n" ${cart} ${cartCount[${cart}]} "$(rdCartTitleFromNumber ${cart})"
+
+done
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
