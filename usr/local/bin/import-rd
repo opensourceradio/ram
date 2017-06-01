@@ -15,9 +15,9 @@ vHash='$Hash$'
 
 # Tell them how to use this command.
 usage() {
-    myName=${1}
+  myName=${1}
 
-    ${CAT} << EOF
+  ${CAT} << EOF
 ${myName}: import digital audio tracks into the Rivendell Library using rdimport(1).
 
 Summary: ${myName##*/} [ --code (-c) { <SchedulerCodes> or 'list' } ]
@@ -48,100 +48,101 @@ EOF
 # Check to be sure it is a valid Scheduler Code. Returns true or false
 # based on the regex match test.
 validSchedCode() {
-    local definedCodes=${1} ; shift
-    local requestedCode=${1} ; shift
+  local definedCodes=${1} ; shift
+  local requestedCode=${1} ; shift
 
-    [[ "${definedCodes}" =~ ".*${requestedCode}.*" ]]
+  [[ "${definedCodes}" =~ ".*${requestedCode}.*" ]]
 }
 
 # Check to be sure it is a valid GROUP. Returns true or false based on
 # the regex match test
 validGroup() {
-    local definedGroups=${1} ; shift
-    local requestedGroup=${1} ; shift
+  local definedGroups=${1} ; shift
+  local requestedGroup=${1} ; shift
 
-    [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+  [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
 }
 
 # Figure out the file type and extract the meta tags from it.
 tags() {
-    local track="${1}"
+  local track="${1}"
 
-    # NB: these string match tests are performed case INsensitively
-    # (see setopt, above).
-    if [[ "${track##*.}" =~ 'flac' ]] ; then
-        flacTags "${track}"
-    elif [[ "${track##*.}" =~ 'ogg' ]] ; then
-        vorbisTags "${track}"
-    elif [[ "${track##*.}" =~ 'mp3' ]] ; then
-        id3Tags "${track}"
-    else
-        echo "${BOLD}Cannot figure out what kind of file this is. I give up!${NORM}" >&2
-        exit
-    fi
+  # NB: these string match tests are performed case INsensitively
+  # (see setopt, above).
+  if [[ "${track##*.}" =~ 'flac' ]] ; then
+    flacTags "${track}"
+  elif [[ "${track##*.}" =~ 'ogg' ]] ; then
+    vorbisTags "${track}"
+  elif [[ "${track##*.}" =~ 'mp3' ]] ; then
+    id3Tags "${track}"
+  else
+    echo "${BOLD}Cannot figure out what kind of file this is. I give up!${NORM}" >&2
+    exit
+  fi
 }
 
 # We prefer the style of metaflac(1), so leave these alone.
 flacTags() {
-    local track="${1}"
+  local track="${1}"
     
-    ${METAFLAC} --list --block-type=VORBIS_COMMENT "${track}" | ${FGREP} ' comment['
+  ${METAFLAC} --list --block-type=VORBIS_COMMENT "${track}" | ${FGREP} ' comment['
 }
 
 # We prefer the style of metaflac(1), so do only minimal processing.
 # Output from vorbiscomment(1) is expected to be simply "key=value" format.
 vorbisTags() {
-    local track="${1}"
-    local index=1
+  local track="${1}"
+  local index=1
     
-    ${VORBISCOMMENT} --list "${track}" | while read line ; do
+  ${VORBISCOMMENT} --list "${track}" | while read line ; do
 
-        echo "comment[$((index++))]: ${line}"
+    echo "comment[$((index++))]: ${line}"
 
-    done
+  done
 }
 
 # We prefer the style of metaflac(1), so convert the ID3 tags to
 # metaflac style.
 id3Tags() {
-    local track=${1}
+  local track=${1}
 
-    ${ID3INFO} "${track}" | while read line ; do
-        case "${line#=== }" in
-            TIT2*) echo "comment[1]: title=${line#*: }" ;; # (Title/songname/content description)
-            TALB*) echo "comment[2]: album=${line#*: }" ;; # (Album/Movie/Show title)
-            TCON*) echo "comment[3]: genre=${line#*: }" ;; # (Content type)
-            TPE3*) : ;; # (Conductor/performer refinement)
-            TRCK*) echo "comment[4]: tracknumber=${${line#*: }%/*}" ;; # (Track number/Position in set)
-            TYER*) echo "comment[5]: date=${line#*: }" ;; # (Year)
-            TPE1*) echo "comment[6]: artist=${line#*: }" ;; # (Lead performer(s)/Soloist(s))
-            TPE2*) : ;; # (Band/orchestra/accompaniment):
-            COMM*) : ;; # (Comments)
-            TCOP*) : ;; # (Copyright message)
-            TPOS*) : ;; # (Part of a set)
-            APIC*) : ;; # (Attached picture)
-            PRIV*) : ;; # (Private frame):  (unimplemented)
-            TPUB*) echo "comment[7]: label=${line#*: }" ;; # (Publisher)
-            TCOM*) : ;; # (Composer)
-            COMM*) : ;; # (Comments)
-            *) : ;; # WTF? Unknown ID3 keyword.
-        esac
-    done
+  ${ID3INFO} "${track}" | while read line ; do
+    case "${line#=== }" in
+      TIT2*) echo "comment[1]: title=${line#*: }" ;; # (Title/songname/content description)
+      TALB*) echo "comment[2]: album=${line#*: }" ;; # (Album/Movie/Show title)
+      TCON*) echo "comment[3]: genre=${line#*: }" ;; # (Content type)
+      TPE3*) : ;; # (Conductor/performer refinement)
+      TRCK*) echo "comment[4]: tracknumber=${${line#*: }%/*}" ;; # (Track number/Position in set)
+      TYER*) echo "comment[5]: date=${line#*: }" ;; # (Year)
+      TPE1*) echo "comment[6]: artist=${line#*: }" ;; # (Lead performer(s)/Soloist(s))
+      TPE2*) : ;; # (Band/orchestra/accompaniment):
+      COMM*) : ;; # (Comments)
+      TCOP*) : ;; # (Copyright message)
+      TPOS*) : ;; # (Part of a set)
+      APIC*) : ;; # (Attached picture)
+      PRIV*) : ;; # (Private frame):  (unimplemented)
+      TPUB*) echo "comment[7]: label=${line#*: }" ;; # (Publisher)
+      TCOM*) : ;; # (Composer)
+      COMM*) : ;; # (Comments)
+      *) : ;; # WTF? Unknown ID3 keyword.
+    esac
+  done
 }
 
 # Get zsh functions necessary for this script
 if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
-    source ${ROOT:-/}usr/local/bin/zsh-functions
+  source ${ROOT:-/}usr/local/bin/zsh-functions
 else
-    echo "${BOLD}Cannot read /usr/local/bin/zsh-functions, which is necessary for this script to operate.${NORM}"
-    usage ${0##*/}
+  echo "${BOLD}Cannot read /usr/local/bin/zsh-functions, which is necessary for this script to operate.${NORM}"
+  usage ${0##*/}
 fi
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 8 external commands.
+# This script uses these 9 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
+  column
   fgrep
   getopt
   id3info
@@ -156,9 +157,9 @@ ourCommands=(
 # variables by which to call the external commands used in this script.
 for C in ${ourCommands} ; do
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
   done
-  [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
 done
 ##################  END shell commands used in this script.  ##################
 
@@ -175,14 +176,14 @@ eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-      -c|--code*) ourSchedCodes=${2} ; shift 2 ;;
-      -g|--grou*) group=${2} ; shift 2 ;;
-      -l|--labe*) label=${2} ; shift 2 ;;
-      -n|--norm*) normalization=${2} ; shift 2 ;;
-      -h|--help) usage ${0} ; exit ;;
-      -V|--vers*) showVersion=1 ; shift ;;
-      --) shift ; break ;;
-      *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
+    -c|--code*) ourSchedCodes=${2} ; shift 2 ;;
+    -g|--grou*) group=${2} ; shift 2 ;;
+    -l|--labe*) label=${2} ; shift 2 ;;
+    -n|--norm*) normalization=${2} ; shift 2 ;;
+    -h|--help) usage ${0} ; exit ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
   esac
 done
 unset TEMP
@@ -198,157 +199,180 @@ NORM="${reset_color}"
 
 if [[ -r "${1}" ]] ; then
 
-    # list the groups and prompt them for a group to use in this import
-    if [[ -n "${group}" ]] ; then
-	if [[ "${group}" =~ 'list' ]] ; then
-	    echo "Current list of GROUPs:"
-	    echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-	    read group\?"Enter a GROUP to import into: "
-	fi
-    else
-	echo "Current list of GROUPs:"
-	echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-	read group\?"Enter a GROUP for this import: "
+  # list the groups and prompt them for a group to use in this import
+  if [[ -n "${group}" ]] ; then
+    if [[ "${group}" =~ 'list' ]] ; then
+      echo "Current list of GROUPs:"
+      echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      read group\?"Enter a GROUP to import into: "
     fi
+  else
+    echo "Current list of GROUPs:"
+    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    read group\?"Enter a GROUP for this import: "
+  fi
 
-    validGroup "${rivendellGroupList}" ${group} || { echo
-    "${BOLD}${group} is not in the list. Please use a valid GROUP
+  validGroup "${rivendellGroupList}" ${group} || { echo
+						   "${BOLD}${group} is not in the list. Please use a valid GROUP
     name.${NORM}" 1>&2 ; exit 2 ; }
 
-    # List the codes and prompt the user for codes to use in this
-    # import.  See also, below where we attempt to assign the "genre"
-    # to a Scheduler Code.
-    if [[ -n "${ourSchedCodes}" ]] ; then
-	if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
-	    echo "Current list of Scheduler codes:"
-	    echo ${(F)rivendellSchedCodes} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-	    read ourSchedCodes\?"Enter a comma-separated list of scheduler codes (no spaces): "
-	fi
-
-	# We have to echo(1) this else the expanded and edited
-	# variable is still a single word.
-	for code in $(echo ${ourSchedCodes//,/ })
-	do
-	    validSchedCode "${rivendellSchedCodes}" ${code} || { echo "${BOLD}${code} is not in the list. Please use a valid scheduler code.${NORM}" 1>&2 ; exit 2 ; }
-	done
+  # List the codes and prompt the user for codes to use in this
+  # import.  See also, below where we attempt to assign the "genre"
+  # to a Scheduler Code.
+  if [[ -n "${ourSchedCodes}" ]] ; then
+    if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
+      echo "Current list of Scheduler codes:"
+      echo ${(F)rivendellSchedCodes} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      read ourSchedCodes\?"Enter a comma-separated list of scheduler codes (no spaces): "
     fi
 
-    # Save the initial list of Scheduler Codes (stripping whitespace from the list).
-    initialSchedCodes="${ourSchedCodes// /}"
-
-    # snarf each track one by one, extract metadata and import with
-    # rdimport(1) TODO: add support for other import audio file formats
-    for track
+    # We have to echo(1) this else the expanded and edited
+    # variable is still a single word.
+    for code in $(echo ${ourSchedCodes//,/ })
     do
-	# Reset the list of scheduler Codes for this track.
-	ourSchedCodes="${initialSchedCodes}"
-
-	# Store the file location of the source material for reference.
-	if [[ "${track}" =~ '^/.*' ]] ; then
-            # Track is a full path, save it as is.
-            location=${track#/*/*/}
-	elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
-            # Track is a relative path, leave it alone.
-            location=${track}
-	else
-            # Track is in the current directory, get the full path.
-            location=${PWD}/${track}
-	fi
-
-	meta=$(tags ${track})
-	artist=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
-	title=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
-	album=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
-	year=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
-	tracknum=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
-	# The track may have multiple 'genre' and 'label' tags, so
-	# stash them in arrays for later processing; set IFS to only
-	# NEWLINE while processing.
-	tempIFS="${IFS}"
-	IFS="
-"
-	genre=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }') )
-	trackLabel=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }') )
-	IFS="${tempIFS}"
-	unset tempIFS
-
-	# Attempt to tease out the year from the DATE string; we assume
-	# that the year is ALWAYS a four-digit string.
-	if [[ "${year}" =~ '\d{4}[-/ ]\d{2}[-/ ]\d{2}' ]] ; then
-            # YYYY-MM-DD format (separated with "/" or "-" or " ")
-	    year="${year%%[-/ ]*}"
-	elif [[ "${year}" =~ '\d{2}[-/ ]\d{2}[-/ ]\d{4}' ]] ; then
-            # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
-            year="${year##*[-/ ]}"
-	fi
-
-	# Prefer the embedded label (publisher), but use the one passed on
-	# the command line if necessary (set above).
-	# The track may have had multiple embedded label names, so
-	# separate them with a semicolon (';')
-	if [[ -n "${trackLabel}" ]] ; then
-	    label="$(echo ${(apj';')trackLabel})"
-	fi
-
-	# If there are one or more embedded genres, see if any are in
-	# our chosen list of scheduler codes, or if we already have
-	# the 'genre' in our scheduler code list.  We need to put a
-	# comma at the beginning of the string in order for the
-	# parameter expansion below (in the rdimport invocation) to
-	# work properly.
-	if [[ -n "${genre}" ]] ; then
-            # Ignore the embedded 'genre' tags if they are not in the
-            # list of Rivendell Scheduler Codes
-	    for g in ${genre} ; do
-		if validSchedCode "${rivendellSchedCodes}" "${g}" ; then
-		    # Add the embedded 'genre' to our list of
-		    # Scheduler Codes if it is not already there.
-		    if ! validSchedCode "${ourSchedCodes}" "${g}" ; then
-			ourSchedCodes=,${g}${ourSchedCodes:+",${ourSchedCodes}"}
-		    fi
-		else
-		    # We do not know about this genre, ignore it and
-		    # prepare the list of Scheduler Codes for parmeter
-		    # substitution.
-		    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
-		fi
-	    done
-	else
-	    # No embedded genre, so prepare the list of Scheduler Codes
-	    # for parmeter substitution.
-	    ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
-	fi
-	
-	${DEBUG} ${RDIMPORT} \
-		 --log-mode \
-		 --verbose \
-		 --fix-broken-formats \
-		 --normalization-level=${normalization:-"-4"} \
-		 --set-string-artist=${artist} \
-		 --set-string-title=${title} \
-		 --set-string-album=${album} \
-		 --set-string-year=${year} \
-		 --set-string-description="Track ${tracknum}" \
-		 --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
-		 --set-string-user-defined="source=${location}" \
-		 $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
-		 ${group} ${track}
+      validSchedCode "${rivendellSchedCodes}" ${code} || { echo "${BOLD}${code} is not in the list. Please use a valid scheduler code.${NORM}" 1>&2 ; exit 2 ; }
     done
+  fi
+
+  # Save the initial list of Scheduler Codes (stripping whitespace from the list).
+  initialSchedCodes="${ourSchedCodes// /}"
+
+  # snarf each track one by one, extract metadata and import with
+  # rdimport(1) TODO: add support for other import audio file formats
+  for track ; do
+    # Reset the list of scheduler Codes for this track.
+    ourSchedCodes="${initialSchedCodes}"
+
+    # Store the file location of the source material for reference.
+    if [[ "${track}" =~ '^/.*' ]] ; then
+      # Track is a full path, save it as is.
+      location=${track#/*/*/}
+    elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
+      # Track is a relative path, leave it alone.
+      location=${track}
+    else
+      # Track is in the current directory, get the full path.
+      location=${PWD}/${track}
+    fi
+
+    meta=$(tags ${track})
+    artist=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: artist=/i ) { @x=split(/\=/); print $x[1]; }') ; artist=${artist:-UNKNOWN ARTIST}
+    title=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: title=/i ) { @x=split(/\=/); print $x[1]; }') ; title=${title:-UNKNOWN TITLE}
+    album=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: album=/i ) { @x=split(/\=/); print $x[1]; }') ; album=${album:-UNKNOWN ALBUM}
+    year=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: date=/i ) { @x=split(/\=/); print $x[1]; }') ; year=${year:-9999}
+    tracknum=$(echo ${meta} | ${PERL} -ne 'if ( /comment.*: tracknumber=/i ) { @x=split(/\=/); print $x[1]; }') ; tracknum=${tracknum:-999}
+    # The track may have multiple 'genre' and 'label' tags, so
+    # stash them in arrays for later processing; set IFS to only
+    # NEWLINE while processing.
+    tempIFS="${IFS}"
+    IFS="
+"
+    genre=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: genre=/i ) { @x=split(/\=/); print $x[1]; }') )
+    trackLabel=( $(echo ${meta} | ${PERL} -ne 'if ( /comment.*: (label|organization)=/i ) { @x=split(/\=/); print $x[1]; }') )
+    IFS="${tempIFS}"
+    unset tempIFS
+
+    # Attempt to tease out the year from the DATE string; we assume
+    # that the year is ALWAYS a four-digit string.
+    if [[ "${year}" =~ '\d{4}[-/ ]\d{2}[-/ ]\d{2}' ]] ; then
+      # YYYY-MM-DD format (separated with "/" or "-" or " ")
+      year="${year%%[-/ ]*}"
+    elif [[ "${year}" =~ '\d{2}[-/ ]\d{2}[-/ ]\d{4}' ]] ; then
+      # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
+      year="${year##*[-/ ]}"
+    fi
+
+    # Prefer the embedded label (publisher), but use the one passed on
+    # the command line if necessary (set above).
+    # The track may have had multiple embedded label names, so
+    # separate them with a semicolon (';')
+    if [[ -n "${trackLabel}" ]] ; then
+      label="$(echo ${(apj';')trackLabel})"
+    fi
+
+    # If there are one or more embedded genres, see if any are in
+    # our chosen list of scheduler codes, or if we already have
+    # the 'genre' in our scheduler code list.  We need to put a
+    # comma at the beginning of the string in order for the
+    # parameter expansion below (in the rdimport invocation) to
+    # work properly.
+    if [[ -n "${genre}" ]] ; then
+      # Ignore the embedded 'genre' tags if they are not in the
+      # list of Rivendell Scheduler Codes
+      for g in ${genre} ; do
+	if validSchedCode "${rivendellSchedCodes}" "${g}" ; then
+	  # Add the embedded 'genre' to our list of
+	  # Scheduler Codes if it is not already there.
+	  if ! validSchedCode "${ourSchedCodes}" "${g}" ; then
+	    ourSchedCodes=,${g}${ourSchedCodes:+",${ourSchedCodes}"}
+	  fi
+	else
+	  # We do not know about this genre, ignore it and
+	  # prepare the list of Scheduler Codes for parmeter
+	  # substitution.
+	  ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+	fi
+      done
+    else
+      # No embedded genre, so prepare the list of Scheduler Codes
+      # for parmeter substitution.
+      ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
+    fi
+    
+    ${DEBUG} ${RDIMPORT} \
+	     --log-mode \
+	     --verbose \
+	     --fix-broken-formats \
+	     --normalization-level=${normalization:-"-4"} \
+	     --set-string-artist=${artist} \
+	     --set-string-title=${title} \
+	     --set-string-album=${album} \
+	     --set-string-year=${year} \
+	     --set-string-description="Track ${tracknum}" \
+	     --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
+	     --set-string-user-defined="source=${location}" \
+	     $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
+	     ${group} ${track}
+  done
 
 else
 
-    if [[ -z "${1}" ]] ; then
-	message="No audio file name specified."
-    elif [[ -r "${1}" ]] ; then
-	message="Cannot read audio file '${1}'."
-    else
-	message="File '${1}' does not seem to exist (check the name)."
-    fi
+  if [[ -z "${1}" ]] ; then
+    message="No audio file name specified."
+  elif [[ -r "${1}" ]] ; then
+    message="Cannot read audio file '${1}'."
+  else
+    message="File '${1}' does not seem to exist (check the name)."
+  fi
 
-    echo "${BOLD}${message} Please name at least one audio file for which you have read permission to import.${NORM}"
+  echo "${BOLD}${message} Please name at least one audio file for which you have read permission to import.${NORM}"
 
-    usage ${0##*/}
+  usage ${0##*/}
 
 fi
 
 exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
