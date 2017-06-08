@@ -2,9 +2,9 @@
 
 ##############################################################################
 ##
-## pmw-stream-feed
+## btd-stream-feed
 ## start a liquidsoap process connected to a running instance of JACK
-## arguments: Stream-URL Source-client-password
+## arguments: Liquidsoap-script-path Stream-URL
 ##
 ##############################################################################
 
@@ -12,23 +12,41 @@
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
-AWK=$(whence awk) ; AWK=${AWK:-${ROOT:-/}bin/awk}
-CUT=$(whence cut) ; CUT=${CUT:-${ROOT:-/}usr/bin/cut}
-GETOPT=$(whence getopt) ; GETOPT=${GETOPT:-${ROOT:-/}usr/bin/getopt}
-GREP=$(whence grep) ; GREP=${GREP:-${ROOT:-/}bin/grep}
-JACK_CONNECT=$(whence jack_connect) ; JACK_CONNECT=${JACK_CONNECT:-${ROOT:-/}usr/bin/jack_connect}
-JACK_LSP=$(whence jack_lsp) ; JACK_LSP=${JACK_LSP:-${ROOT:-/}usr/bin/jack_lsp}
-LIQUIDSOAP=$(whence liquidsoap) ; LIQUIDSOAP=${LIQUIDSOAP:-${ROOT:-/}usr/bin/liquidsoap}
-LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
-SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 8 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cut
+  fgrep
+  grep
+  jack_connect
+  jack_lsp
+  liquidsoap
+  logger
+  tail
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+##
+## the liquidsoap script to use for this instance of the stream
+##
+streamScript=${1:-${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/pmw/btd-stream-feed.liq}}
 
 ##
 ## the stream URL should be of the form
 ## http://source:<PASSWORD>@<HOSTNAME-OR-IP-ADDRESS>:<PORT>/<MOUNTPOINT>
 ##
-streamURL=${1:?"What stream URL?"}
-
-streamScript=${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/pmw/pmw-stream-feed.liq}
+streamURL=${2:?"What stream URL?"}
 
 ## Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -46,14 +64,14 @@ streamMountPoint=${streamURL##*/}
 
 ## The default Rivendell production playback port (we tack on the "L"
 ## and "R" when we connect the ports below).
-rivendellPlaybackPort=${2:-"rivendell_0:playout_0"}
+rivendellPlaybackPort=${RIVENDELL_STREAM_PORT:-"rivendell_0:playout_0"}
 
 if [[ -r ${streamScript} ]] ; then
 
     ## snag the encoder jack client name from the script
     ## BUG ALERT: this completely depends on the formatting of the "input.jack" lines in that script!
-    ## default to the PMW standard: "encode-in"
-    encoderID=$(fgrep -A 1 "input.jack" ${streamScript} | tail -n 1 | cut -d'"' -f2)
+    ## default to the BTD standard: "encode-in"
+    encoderID=$(${FGREP} -A 1 "input.jack" ${streamScript} | ${TAIL} -n 1 | ${CUT} -d'"' -f2)
     encoderID=${encoderID:-"encode-in"}
 
     if ${LIQUIDSOAP} --daemon ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${streamPassword}" ; then
@@ -84,3 +102,27 @@ else
 fi
 
 exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
