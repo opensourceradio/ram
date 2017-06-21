@@ -73,7 +73,7 @@ validGroup() {
     local definedGroups=${1} ; shift
     local requestedGroup=${1} ; shift
 
-    [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+    [[ "${requestedGroup}" == '%' ]] || [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
 }
 
 # Get zsh functions necessary for this script.
@@ -84,21 +84,22 @@ else
 fi
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o hg:s:vS:e: --long help,group:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o ahg:s:vS:e: --long all,help,group:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-      -g|--grou*) group=${2} ; shift 2 ;;
-      -s|--serv*) service=${2} ; shift 2 ;;
-      -S|--star*) startDate=${2} ; shift 2 ;;
-      -e|--end*) endDate=${2} ; shift 2 ;;
-      -h|--help) usage ${0} ; exit ;;
-      -v|--vers*) showVersion=1 ; shift ;;
-      --) shift ; break ;;
-      *) echo "Internal error, cannot continue!" ; exit 1 ;;
+    -a|--all) group=ALL_GROUPS ; shift ;;
+    -g|--grou*) group=${2} ; shift 2 ;;
+    -s|--serv*) service=${2} ; shift 2 ;;
+    -S|--star*) startDate=${2} ; shift 2 ;;
+    -e|--end*) endDate=${2} ; shift 2 ;;
+    -h|--help) usage ${0} ; exit ;;
+    -v|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "Internal error, cannot continue!" ; exit 1 ;;
   esac
 done
 unset TEMP
@@ -122,6 +123,7 @@ IFS="${oIFS}"
 unset oIFS
 
 typeset -A cartCount
+whereClauseOp='='
 
 # Default start date is midnight seven days ago.
 if [[ -z "${startDate}" ]] ; then
@@ -152,7 +154,10 @@ fi
 
 # List the groups and prompt for a group to use in this report.
 if [[ -n "${group}" ]] ; then
-  if [[ "${group}" =~ 'list' ]] ; then
+  if [[ "${group}" == 'ALL_GROUPS' ]] ; then
+    group='%'
+    whereClauseOp='LIKE'
+  elif [[ "${group}" =~ 'list' ]] ; then
     echo "Current list of GROUPs:"
     echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
     read group\?"Enter a GROUP to import into: "
@@ -173,7 +178,7 @@ selectCountStatement="SELECT
   COUNT(*)
   FROM ${service}_SRT
   WHERE cart_number IN
-  (SELECT number FROM CART WHERE group_name = '${group}')
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
   AND
   event_datetime > '${reportStartDate}'
   AND
@@ -192,7 +197,7 @@ selectStatement="SELECT
   event_datetime, title, cart_number, length/1000
   FROM ${service}_SRT
   WHERE cart_number IN
-  (SELECT number FROM CART WHERE group_name = '${group}')
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
   AND
   event_datetime > '${reportStartDate}'
   AND
