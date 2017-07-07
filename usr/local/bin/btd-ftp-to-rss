@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 4;
+use constant vPATCH => 5;
 use constant vHASH => '$Hash$';
 
 package Feed;
@@ -20,52 +20,56 @@ use Data::Dumper;
 # Define the data here because ... it's just easier.
 my $feeds = {
     'RedDirtMusicRadio' => {
-	'feedTitle'        => 'Red Dirt Music Radio',
-	'feedDescription'  => 'Red Dirt Music Radio Segments',
-	'remotePROTO'      => 'ftp',
-	'remoteHOST'       => 'ftp.radioidl.com',
-	'remoteUSER'       => 'rdmrcom',
-	'remotePASS'       => 'R@dio2435',
-	'remoteDIR'        => '/',
-	# This is the list of fields as returned by curl(1).
-	'longListFormat'   => {
-	    'mode'     => 0,
-	    'links'    => 1,
-	    'owner'    => 2,
-	    'group'    => 3,
-	    'size'     => 4,
-	    'mon'      => 5,
-	    'mday'     => 6,
-	    'hhmm'     => 7,
-	    'filename' => 8,
-	},
-	# The minimum number of files we expect to exist on the remote server
-	# (this is a total crap-shoot, and is merely a sanity check).
-	'minimumFileCount' => 4,
-	# Where we will put the RSS XML data.
-	'outputFile'       => '/var/www/grunch.org/htdocs/rss/rdmr.xml',
+        'feedTitle'        => 'Red Dirt Music Radio',
+        'feedDescription'  => 'Red Dirt Music Radio Segments',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.radioidl.com',
+        'remoteUSER'       => 'rdmrcom',
+        'remotePASS'       => 'R@dio2435',
+        # Note that remoteDir must begin with a '/'.
+        'remoteDIR'        => '/',
+        # This is the list of fields as returned by curl(1). The
+        # digits are the indexes into the array returned by
+        # split(). Note that filenames with spaces in them will cause
+        # the split() array to contain more than 9 elements.
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        # The minimum number of files we expect to exist on the remote server
+        # (this is a total crap-shoot, and is merely a sanity check).
+        'minimumFileCount' => 4,
+        # Where we will put the RSS XML data.
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/rdmr.xml',
     },
     'UnderCurrents' => {
-	'feedTitle'        => 'UnderCurrents',
-	'feedDescription'  => 'UnderCurrents 1-hour segments',
-	'remotePROTO'      => 'ftp',
-	'remoteHOST'       => 'ftp.nativeftp.org',
-	'remoteUSER'       => 'undercurrents@nativeftp.org',
-	'remotePASS'       => 'undercurrents@nativeftp.org',
-	'remoteDIR'        => 'UnderCurrents',
-	'longListFormat'   => {
-	    'mode'     => 0,
-	    'links'    => 1,
-	    'owner'    => 2,
-	    'group'    => 3,
-	    'size'     => 4,
-	    'mon'      => 5,
-	    'mday'     => 6,
-	    'hhmm'     => 7,
-	    'filename' => 8,
-	},
-	'minimumFileCount' => 20,
-	'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc.xml',
+        'feedTitle'        => 'UnderCurrents',
+        'feedDescription'  => 'UnderCurrents 1-hour segments',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.nativeftp.org',
+        'remoteUSER'       => 'undercurrents@nativeftp.org',
+        'remotePASS'       => 'undercurrents@nativeftp.org',
+        'remoteDIR'        => '/UnderCurrents',
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        'minimumFileCount' => 20,
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc.xml',
     },
 };
 
@@ -95,8 +99,8 @@ sub feedURL( $$ ) {
     my $feedName = shift;
 
     my $url = $self->{feedList}->{$feedName}->{remotePROTO} . '://' .
-	$self->{feedList}->{$feedName}->{remoteHOST} . '/' .
-	$self->{feedList}->{$feedName}->{remoteDIR} . '/';
+	$self->{feedList}->{$feedName}->{remoteHOST} .
+	$self->{feedList}->{$feedName}->{remoteDIR};
 
     $url;
 }
@@ -131,9 +135,20 @@ sub getFilename( $$$ ) {
     my $feedName = shift;
     my $fileListing = shift;
 
-    my @fileListing = split( ' ', $fileListing );
+    my $filename = undef;
 
-    @fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{filename}];
+    # Strip off everything up to and including the file date and time
+    # stamp.
+    ( $filename = $fileListing ) =~ s/^.*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}\s+//;
+
+    # Sanity check for a filename ending in .mp3 or a directory (. or
+    # ..).
+    if ( $filename =~ m/(.*\.mp3|\.+)/ ) {
+	$filename;
+    } else {
+	say STDERR "ERROR: Unable to discern an MP3 file from $fileListing!";
+	"";
+    }
 }
 
 sub getPubDate( $$$ ) {
@@ -171,11 +186,19 @@ sub getFileListingForFeed( $$ ) {
     my $feedName = shift;
 
     my @fileList = ();
-    my $feedURL = $self->feedURL( $feedName );
+
+    # Directory listings (at least for UnderCurrents) need a trailing
+    # "/" in order to list the contents of the directory rather than
+    # the directory itself, as of Thu Jul 6 20:05:14 CDT 2017.
+    my $feedURL = $self->feedURL( $feedName ) . q(/);
     my $feedUser = $self->feedUser( $feedName );
     my $feedPass = $self->feedPass( $feedName );
+
+    # Need the FTP CWD method and list options to make UnderCurrents
+    # listings work correctly. They also work for RDMR as of Thu Jul 6
+    # 20:05:14 CDT 2017.
     my $curlCommand =
-	qq(curl --silent --user) . q( ) .
+	qq(curl --silent --ftp-method singlecwd --list --request LIST --user) . q( ) .
 	qq($feedUser:$feedPass) . q( ) .
 	qq("$feedURL");
 
@@ -242,7 +265,7 @@ END
     # make each entry
     foreach my $file ( @$files ) {
         next unless ( $file =~ /\.mp3$/ );
-	my $fullURL = $feeds->feedURL( $feedName ) . uri_escape( $feeds->getFilename( $feedName, $file ));
+	my $fullURL = $feeds->feedURL( $feedName ) . q(/) . uri_escape( $feeds->getFilename( $feedName, $file ));
 	my $rawFileName = $feeds->getFilename( $feedName, $file );
 	my $length = $feeds->getSize( $feedName, $file );
 	my $pubDate = $feeds->getPubDate( $feedName, $file );
@@ -297,7 +320,7 @@ sub main() {
 	$feed = $feeds->feedName( $feedName );
 	my $files = $feeds->getFileListingForFeed( $feedName );
 	say STDERR map {
-	    $feed->{remoteDIR} . '/' . $feeds->getFilename( $feedName, $_ ) . "\n"
+	    $feed->{remoteDIR} . $feeds->getFilename( $feedName, $_ ) . "\n"
 	} @$files if ( $verbose > 1 );
 
 	open my $feedFH, ">", $feeds->outputFile( $feedName ) ||
