@@ -17,7 +17,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -127,7 +127,7 @@ else
 		    if [[ -d ${BACKUP_DIR} ]] ; then
 		      ${RSYNC} --archive --temp-dir=${TMPDIR} --partial-dir=temp --delay-updates ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
 		      rsyncReturnValue=${?}
-		      if (( rsyncReturnValue == 0 )) ; then
+		      if (( rsyncReturnValue == 0 || rsyncReturnValue == 23 || rsyncReturnValue == 24 )) ; then
 			# We cannot use the --delete option to
 			# rsync(1) because we are specifying
 			# individual files. Delete the backups
