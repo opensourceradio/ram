@@ -104,11 +104,20 @@ for database in ${databases} ; do
     ${MYSQLDUMP} --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
     schemaDumpVal=${?}
 
-    if [[ -s ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
-      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database} (${dbDumpVal})."
+    # Sanity checks for the output files.
+    if [[ -f ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
+      if ! [[ -s ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
+	${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql exists but is empty (${dbDumpVal})."
+      fi
+    else
+      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql was not created (${dbDumpVal})."
     fi
-    if [[ -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
-      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database} (${schemaDumpVal})."
+    if [[ -f ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
+      if ! [[ -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
+	${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql exists but is empty (${schemaDumpVal})."
+      fi
+    else
+      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql was not created (${schemaDumpVal})."
     fi
 done 2>&1 > ${DUMP_OUTPUT}
 
