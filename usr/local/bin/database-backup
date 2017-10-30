@@ -17,7 +17,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -125,10 +125,19 @@ else
 		# successful purge, (optionally) make a backup of the backup
 		if [[ -n "${BACKUP_DIR}" ]] ; then
 		    if [[ -d ${BACKUP_DIR} ]] ; then
-		      ${RSYNC} --archive --temp-dir=${TMPDIR} --partial-dir=temp --delay-updates --delete ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
+		      ${RSYNC} --archive --temp-dir=${TMPDIR} --partial-dir=temp --delay-updates ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
 		      rsyncReturnValue=${?}
 		      if (( rsyncReturnValue == 0 )) ; then
-			: all seems well, move on
+			# We cannot use the --delete option to
+			# rsync(1) because we are specifying
+			# individual files. Delete the backups
+			# "manually".
+			# As above: remove backup archives that are more than ${KEEP} days old
+			if ${FIND} ${BACKUP_DIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -delete ; then
+			  : all seems well, move on
+			else
+			  sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC-CLEAN "Trouble deleting files from ${BACKUP_DIR} (${?}). Seek professional help!"
+			fi
 		      else
 			# These error messages are straight from the
 			# rsync(1) manual page (for rsync version
