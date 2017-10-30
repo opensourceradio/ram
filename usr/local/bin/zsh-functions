@@ -254,23 +254,25 @@ doSQL() {
     else
       # Horribly insecure, but this is the "Rivendell Way".
       if [[ -r ${rdconfig} ]] ; then
-	HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
-	USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
-	PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
-	DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
+	DB_HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Hostname=/{print $2}')
+	DB_USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Loginname=/{print $2}')
+	DB_PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Password=/{print $2}')
+	DB_DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | ${AWK} -F'=' '/^Database=/{print $2}')
       else
 	# Last ditch effort to set the MySQL access credentials.
-	HOST=${RD_DB_HOST:-"localhost"}
-	USER=${RD_USER:-"rduser"}
-	PASSWORD=${RD_PASS:-"letmein"}
-	DATABASE=${RD_DATABASE:-"Rivendell"}
+	# These are the "conventional" defaults that might otherwise
+	# exist in /etc/rd.conf (and friends).
+	DB_HOST=${RD_DB_HOST:-"localhost"}
+	DB_USER=${RD_DB_USER:-"rduser"}
+	DB_PASSWORD=${RD_DB_PASS:-"letmein"}
+	DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
       fi
     fi
 
-    _DB_HOST=${HOST}
-    _DB_USER=${USER}
-    _DB_PWD=${PASSWORD}
-    _DB_DATABASE=${DATABASE}
+    _DB_HOST=${DB_HOST}
+    _DB_USER=${DB_USER}
+    _DB_PWD=${DB_PASSWORD}
+    _DB_DATABASE=${DB_DATABASE}
     _USE_MYCNF=${useMyCNF}
   fi
 

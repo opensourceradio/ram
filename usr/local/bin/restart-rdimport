@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Get the name of the "incoming" folder from the list of existing
+# mounted file systems.
+INCOMING=$(mount | awk '/[Ii]ncoming/{print $3}')
+SHOWS=$(mount | awk '/\/Shows/{print $3}')
+
+# Make sure they are readable.
+if test -r ${INCOMING} && test -r ${SHOWS} ; then
+
+    # Similarly, get the name of the Kuchota folder and make sure it exists.
+    # Use the contents of $PODCASTS if it is set, otherwise use $HOME/kuchota
+    PODCASTS=${PODCASTS:-${HOME}/kuchota}
+    if test -r ${PODCASTS} ; then
+
+        echo -e "About to stop and restart rdcatchd ... Press <Enter> to continue: \c"
+        read proceed
+
+        # Stop all running instances of rdcatchd.
+        killall rdcatchd
+
+        # Restart rdcatchd which will, in turn start all the rdimport processes for
+        # all the dropboxes.
+        rdcatchd
+
+        # Pause for 5 seconds before continuing.
+        sleep 5
+
+        # Make sure rdimport is running before touching all the files
+        # in the incoming folder.
+        if pidof rdimport > /dev/null ; then
+
+            echo "Done. Now touching all audio files in '${INCOMING}', '${SHOWS}' and '${PODCASTS}'..."
+
+            # Search for all regular files with names ending in ".mp3" under /mnt/Incoming and
+            # touch them in order to update their timestamps and make rdimport think they are new files...
+            # Send error messages to the bit bucket (/dev/null).
+            find ${INCOMING} ${PODCASTS} -type f -iname \*.mp3 -print -exec touch '{}' \; 2>/dev/null
+
+            echo -e "\nComplete. Press <Enter> to continue."
+            read proceed
+
+        else
+
+            # rdimport seems to be not running.
+            cat << EOF
+    rdimport does not seem to be running.
+
+    Make sure the Rivendell database is available and try starting it again
+    (by running this script again).
+
+    Press <Enter> to continue.
+
+EOF
+            read proceed
+
+        fi
+    else
+
+        echo "Cannot see '${PODCASTS}'. Permissions? Does it exist? (error code: ${?}). Press <Enter> to continue." >&2
+        read proceed
+
+    fi
+else
+
+    echo "Cannot see '${INCOMING}' and/or '${SHOWS}'. Permissions error? (error code: ${?}). Press <Enter> to continue." >&2
+    read proceed
+
+fi
+
+exit

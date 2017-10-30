@@ -1,0 +1,79 @@
+#!/bin/zsh
+
+##############################################################################
+##############################################################################
+##
+## Generate logs for the main service (e.g., Production)
+##
+## See also: rdlogmanager --help
+##
+##############################################################################
+##############################################################################
+
+zmodload zsh/datetime
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cp
+  logger
+  mktemp
+  rdlogmanager
+  rm
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+if [[ -r /usr/local/bin/zsh-functions ]] ; then
+    source /usr/local/bin/zsh-functions
+else
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
+fi
+
+#MAILTO="daleconnelly@kfai.org,mason@kfai.org,dklann@broadcasttool.com"
+MAILTO="dklann@broadcasttool.com"
+
+# Gather all the services from Rivendell.
+services=( $(doSQL "SELECT name FROM SERVICES") )
+
+outputFile=$(${MKTEMP})
+
+trap "${RM} -f ${outputFile} ; exit ;" 0 1 2 3
+
+# Get the current weekday name in full (%A) (but permit setting it in
+# the calling environment for testing).
+today=${TODAY:-$(strftime "%A" ${EPOCHSECONDS})}
+
+# For each service found:
+# Generate a log (-g) for tomorrow
+#   service: "Production" (-s)
+#   merge traffic (-t)
+#   merge music (-m)
+for service in ${services} ; do
+    ${RDLOGMANAGER} -s ${service} -g -t -m
+
+    # Create logs for Sunday and Monday as well if today is Friday.
+    if [[ ${today} == Friday ]] ; then
+	${RDLOGMANAGER} -s ${service} -g -t -m -d 1
+	${RDLOGMANAGER} -s ${service} -g -t -m -d 2
+    fi
+done > ${outputFile}
+
+# Save a copy on the user's desktop.
+${CP} ${outputFile} ${HOME}/Desktop/RD-Log-Generate.txt
+
+# Send email to the addresses in $MAILTO with the same output as is on
+# the desktop.
+sendNotification ${0:t} ${MAILTO} LOG-GENERATE "Rivendell Logs have been generated." ${outputFile}
+
+exit
