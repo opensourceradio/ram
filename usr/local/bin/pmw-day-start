@@ -84,7 +84,7 @@ if [[ -n "${currentLog}" ]] ; then
     # MN 1: Make Next, the first cart in the log (line ID 0, should be a "Start Immediately", or "Make Next")
     # auxLog: if the shell variable auxLog is set, Make Next the first cart in Auxiliary Log 1 (line ID 0)
     # PM 2: Set Mode, RDAirPlay mode "Auto"
-    ${RMLSEND} --from-file=- <<EOF
+    if rmlsendOutput=$(${RMLSEND} --from-file=- 2>&1) <<EOF
 PW 1!
 LL 1 ${nextLog} -1!
 ${auxLog:+LL 2 ${auxLog}! -1}
@@ -92,7 +92,16 @@ MN 1 0!
 ${auxLog:+MN 2 0!}
 PM 2!
 EOF
-    ${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's log ${nextLog}."
+
+    then
+
+      ${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's log '${nextLog}'. rmlsend says: '${rmlsendOutput}'"
+
+    else
+
+      ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: rmlsend may not have loaded tomorrow's log '${nextLog}'. rmlsend says: '${rmlsendOutput}'"
+
+    fi
 
   else
 
