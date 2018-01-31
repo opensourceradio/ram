@@ -195,11 +195,13 @@ elif [[ -n "${1}" ]] ; then
 
   if [[ ${(L)1} = 'list' ]] ; then
     echo "Current list of CLOCKs:"
-    echo ${(F)rivendellClockList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    echo ${(F)rivendellClockList} | ${COLUMN} -x -c ${COLUMNS}
     read clock\?"Enter a Clock to list: "
+  else
+    clock="${1}"
   fi
 
-    showClock "${rivendellClockList}" ${1} ${VERBOSE}
+  showClock "${rivendellClockList}" ${clock} ${VERBOSE}
 
 else
 

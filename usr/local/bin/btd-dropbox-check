@@ -1,0 +1,203 @@
+#!/bin/zsh
+
+##########################################################################################
+##########################################################################################
+##
+##
+## restart-all-dropboxes
+##
+## Examine the current state of all the Rivendell dropboxes on the current host (usually
+## TABLE_NAME.station_name in the Rivendell database) and restart rdcatchd(8) if all
+## instances of rdimport are not running.
+##
+##
+##########################################################################################
+##########################################################################################
+
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+export PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/${HOME}/.local/bin:/${HOME}/bin
+
+# Get zsh functions necessary for this script.
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+fi
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} << EOF
+${myName}: check and restart (if necessary) all Rivendell dropbox processes.
+
+Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
+
+EOF
+}
+
+# Return a line-separated list of all dropbox paths, or (optionally)
+# just the paths for the named host. Strip the 'basename' or
+# right-most components of the paths before returning them.
+getDropboxPaths() {
+  local stationName=${1} ; shift
+
+  local stationName
+  local query="SELECT path FROM DROPBOXES"
+  local -a paths
+
+  if [[ -n "${stationName}" ]] ; then
+    whereClause=" WHERE station_name = '${stationName}'"
+  fi
+
+  paths=( $(doSQL "${query}${whereClause:+${whereClause}}") )
+
+  # Output the paths with the 'basename' component stripped off. See
+  # zshparam(1) for details.
+  echo ${paths:h}
+}
+  
+
+warning() {
+  local message=${1}
+
+  ${CAT} >&2 <<EOF
+
+${BOLD}${YELLOW}WARNING:${NORM}
+$(${FMT} -w 79 <<< ${message})
+
+EOF
+}
+
+error() {
+  local message=${1}
+
+  ${CAT} >&2 <<EOF
+
+${RED}${BOLD}ERROR:${NORM}
+$(${FMT} -w 79 <<< ${message})
+
+EOF
+  echo 254
+  return 254
+}
+
+##########################################################################################
+## Script main line
+##########################################################################################
+
+RED="${fg_bold[red]}"
+YELLOW="${fg_bold[yellow]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
+# This script is compatible with Rivendell database verson:
+rdDBVersionCompatible=259
+
+# Get all the dropbox paths for this host.
+local -a dropboxPaths
+dropboxPaths=( $(getDropboxPaths $(rdGetStationName)) )
+
+# Make sure they are accessible.
+for dir in ${dropboxPaths} ; do
+
+  if [[ -d ${dir} ]] ; then
+
+    if [[ -w ${dir} ]] ; then
+
+      : all seems well with this directory
+
+    else
+
+      warning "Dropbox folder '${dir}' exists, but is not writeable. Please correct the permissions on this folder."
+
+    fi
+
+  else
+
+    mkdir -p ${dir}
+
+    if [[ -d ${dir} ]] ; then
+
+      echo "Created missing dropbox folder '${dir}'."
+
+    else
+
+      warning "Could not create missing dropbox folder '${dir}'. Please check and correct permissions of the parent folder '${dir:h}'."
+
+    fi
+  fi
+done
+
+
+# Make sure rdimport is running before touching all the files
+# in the incoming folder.
+if pidof rdimport > /dev/null 2>&1 ; then
+
+  echo "Done. Now 'touching' all audio files in '${SHOWS}' and '${PODCASTS}'..."
+
+  # Search for all regular files with names ending in ".mp3" under /mnt/Incoming and
+  # touch them in order to update their timestamps and make rdimport think they are new files...
+  # Send error messages to the bit bucket (/dev/null).
+  find ${SHOWS} ${PODCASTS} -type f -regextype 'posix-egrep' -iregex '.*\.(mp3|ogg|flac|wav)' -print -exec touch '{}' \; 2>/dev/null
+
+  echo "\nComplete. Press <Enter> to continue."
+  read proceed
+
+else
+
+  # rdimport seems to be not running.
+  cat << EOF
+    rdimport does not seem to be running.
+
+    Make sure the Rivendell database is available and try starting it again
+    (by running this script again).
+
+    Press <Enter> to continue.
+
+EOF
+  read proceed
+
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
