@@ -163,13 +163,17 @@ for C in ${ourCommands} ; do
 done
 ##################  END shell commands used in this script.  ##################
 
+RED="${fg_bold[red]}"
+BOLD="${bold_color}"
+NORM="${reset_color}"
+
 # these depends on having ~/.my.cnf or /etc/rd.conf configured with
 # valid credentials for accessing the Rivendell database
 rivendellSchedCodes=( $(doSQL "select CODE from SCHED_CODES") )
 rivendellGroupList=( $(doSQL "select NAME from GROUPS") )
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o hc:g:l:n:v --long help,codes:,group:,label:,normalization:version -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o hc:g:l:n:V --long help,codes:,group:,label:,normalization:,version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -192,10 +196,6 @@ if ((showVersion)) ; then
   echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
-
-RED="${fg_bold[red]}"
-BOLD="${bold_color}"
-NORM="${reset_color}"
 
 if [[ -r "${1}" ]] ; then
 
