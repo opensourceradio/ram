@@ -134,7 +134,7 @@ NORM="${reset_color}"
 rdDBVersionCompatible=259
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 9 external commands.
+# This script uses these 10 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
@@ -146,6 +146,7 @@ ourCommands=(
   pidof
   sleep
   touch
+  xargs
 )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
@@ -264,12 +265,14 @@ if ${PIDOF} rdimport > /dev/null 2>&1 ; then
   # Search for audio files (names ending in ".(flac|mp2|mp3|ogg|wav)")
   # in all the directories in ${dropboxPaths}. Touch them in order to
   # make rdimport think they are new files.
+  # WARNING: this REQUIRES that all dropbox path directories are free
+  # of <Space>es.
   typeset -a allFoundFiles
-  for dir in ${dropboxPaths} ; do
-    foundFiles=$(${FIND} ${dir} -type f -regextype 'posix-egrep' -iregex '.*\.(flac|mp2|mp3|ogg|wav)' -print -exec touch '{}' \; 2>/dev/null)
+  for dir in $(echo ${dropboxPaths} | tr ' ' '\012' | sort -u); do
+    foundFiles=$(${FIND} ${dir} -type f -regextype 'posix-egrep' -iregex '.*\.(flac|mp2|mp3|ogg|wav)' -print 2>/dev/null | ${XARGS} --no-run-if-empty touch)
     (( VERBOSE )) && ${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${foundFiles}
-    allFoundFiles=( ${allFoundFiles} ${foundFiles} )
-  done    
+    allFoundFiles=( $(echo ${allFoundFiles} ${foundFiles} | tr ' ' '\012' | sort -u) )
+  done
 
   echo "\nComplete. \c"
 
