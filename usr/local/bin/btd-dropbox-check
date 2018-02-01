@@ -270,7 +270,12 @@ if ${PIDOF} rdimport > /dev/null 2>&1 ; then
   typeset -a allFoundFiles
   for dir in $(echo ${dropboxPaths} | tr ' ' '\012' | sort -u); do
     foundFiles=$(${FIND} ${dir} -type f -regextype 'posix-egrep' -iregex '.*\.(flac|mp2|mp3|ogg|wav)' -print 2>/dev/null | ${XARGS} --no-run-if-empty touch)
-    (( VERBOSE )) && ${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${foundFiles}
+
+    if (( VERBOSE )) && [[ -n "${foundFiles}" ]] ; then
+      ${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${foundFiles}
+    fi
+
+    # Save any stray file names.
     allFoundFiles=( $(echo ${allFoundFiles} ${foundFiles} | tr ' ' '\012' | sort -u) )
   done
 
