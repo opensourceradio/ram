@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=0
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 export PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/${HOME}/.local/bin:/${HOME}/bin
@@ -247,6 +247,9 @@ for logfile in ${dropboxLogPaths} ; do
     warning "Cannot write to the dropbox log file '${logfile}'. Please check and correct the permissions of this file."
   fi
 done
+
+# Check the dropbox status and restart the dropboxes if necessary.
+rdDropboxStatus ${0:t} 1 ${VERBOSE}
 
 exit
 
