@@ -25,7 +25,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=0
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 export PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/${HOME}/.local/bin:/${HOME}/bin
@@ -134,7 +134,7 @@ NORM="${reset_color}"
 rdDBVersionCompatible=259
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 8 external commands.
+# This script uses these 9 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
@@ -144,6 +144,7 @@ ourCommands=(
   getopt
   mkdir
   pidof
+  sleep
   touch
 )
 # Find the executables we need; this uses a little old fashioned shell and
@@ -208,7 +209,7 @@ passes=0
 for logfile in ${dropboxLogPaths} ; do
   if [[ -w "${logfile}" ]] ; then
     : all seems well with this file
-  else
+  elif [[ -f "${logfile}" ]] ; then
     # Check the permissions of the directory that contains the logfile.
     if [[ -w ${logfile:h} ]] ; then
       until [[ -w ${logfile} ]] ; do
@@ -221,6 +222,7 @@ for logfile in ${dropboxLogPaths} ; do
 	  warning "Tried $((passes - 1)) times to make '${logfile}' writeable without success. I give up."
 	  break
 	fi
+	${SLEEP} 1
       done
     elif [[ -d ${logfile:h} ]] ; then
       # See if we can set the directory to be writeable.
@@ -245,26 +247,32 @@ for logfile in ${dropboxLogPaths} ; do
       fi
     fi
     warning "Cannot write to the dropbox log file '${logfile}'. Please check and correct the permissions of this file."
+  else
   fi
 done
 
 # Check the dropbox status and restart the dropboxes if necessary.
+echo "Checking the status of all active dropboxes ..."
 rdDropboxStatus ${0:t} 1 ${VERBOSE}
-
-exit
-
+${SLEEP} 2 
 
 # Make sure rdimport is running before touching all the files
 # in the incoming folder.
 if ${PIDOF} rdimport > /dev/null 2>&1 ; then
   echo "Done. Now updating time-stamps for all audio files... \c"
 
-  # Search for all regular files with names ending in ".mp3" under /mnt/Incoming and
-  # touch them in order to update their timestamps and make rdimport think they are new files...
-  # Send error messages to the bit bucket (/dev/null).
-  ${FIND} ${changeMeSoon} -type f -regextype 'posix-egrep' -iregex '.*\.(mp3|ogg|flac|wav)' -print -exec touch '{}' \; 2>/dev/null
+  # Search for all regular files with names ending in
+  # ".(flac|mp2|mp3|ogg|wav)" in all the directories in
+  # ${dropboxPaths}.  Touch them in order to update their timestamps
+  # and make rdimport think they are new files...  Send error messages
+  # to the bit bucket (/dev/null).
+  typeset -a allFoundFiles
+  for dir in ${dropboxPaths} ; do
+    foundFiles=$(${FIND} ${dir} -type f -regextype 'posix-egrep' -iregex '.*\.(flac|mp2|mp3|ogg|wav)' -print -exec touch '{}' \; 2>/dev/null)
+    allFoundFiles=( ${allFoundFiles} ${foundFiles} )
+  done    
 
-  echo "\nComplete. Press <Enter> to continue."
+  echo "\nComplete. Found ${#allFoundFiles} audio files waiting to be imported. Press <Enter> to continue."
   read proceed
 else
   # rdimport seems to be not running.
