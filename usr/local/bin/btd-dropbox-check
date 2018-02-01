@@ -24,8 +24,8 @@ colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=0
-vPatch=3
+vMinor=1
+vPatch=0
 vHash='$Hash$'
 
 export PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/${HOME}/.local/bin:/${HOME}/bin
@@ -255,12 +255,13 @@ done
 # Check the dropbox status and restart the dropboxes if necessary.
 echo "Checking the status of all active dropboxes ..."
 rdDropboxStatus ${0:t} 1 ${VERBOSE}
+echo "Done... \c"
 ${SLEEP} 2 
 
 # Make sure rdimport is running before touching all the files
 # in the incoming folder.
 if ${PIDOF} rdimport > /dev/null 2>&1 ; then
-  echo "Done. Searching for stray, un-imported audio files... \c"
+  echo "Searching for stray, un-imported audio files... \c"
 
   # Search for audio files (names ending in ".(flac|mp2|mp3|ogg|wav)")
   # in all the directories in ${dropboxPaths}. Touch them in order to
