@@ -136,13 +136,14 @@ NORM="${reset_color}"
 rdDBVersionCompatible=259
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 7 external commands.
+# This script uses these 8 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
   chmod
   find
   fmt
+  getopt
   mkdir
   pidof
   touch
