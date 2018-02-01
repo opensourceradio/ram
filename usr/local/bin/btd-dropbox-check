@@ -4,7 +4,7 @@
 ##########################################################################################
 ##
 ##
-## restart-all-dropboxes
+## btd-dropbox-check
 ##
 ## Examine the current state of all the Rivendell dropboxes on the current host (usually
 ## TABLE_NAME.station_name in the Rivendell database) and restart rdcatchd(8) if all
@@ -73,6 +73,25 @@ getDropboxPaths() {
   # zshparam(1) for details.
   echo ${paths:h}
 }
+
+# Return a line-separated list of all dropbox log paths, or (optionally)
+# just the log paths for the named host.
+getDropboxLogPaths() {
+  local stationName=${1} ; shift
+
+  local stationName
+  local query="SELECT log_path FROM DROPBOXES"
+  local -a logPaths
+
+  if [[ -n "${stationName}" ]] ; then
+    whereClause=" WHERE station_name = '${stationName}'"
+  fi
+
+  logPaths=( $(doSQL "${query}${whereClause:+${whereClause}}") )
+
+  # Output the full log paths with the 'basename' component included.
+  echo ${logPaths}
+}
   
 
 warning() {
@@ -111,45 +130,80 @@ NORM="${reset_color}"
 rdDBVersionCompatible=259
 
 # Get all the dropbox paths for this host.
-local -a dropboxPaths
+local -a dropboxPaths dropboxLogPaths
 dropboxPaths=( $(getDropboxPaths $(rdGetStationName)) )
+# Get all the dropbox log file paths for this host.
+dropboxLogPaths=( $(getDropboxLogPaths $(rdGetStationName)) )
 
-# Make sure they are accessible.
+# Make sure the paths are accessible.
 for dir in ${dropboxPaths} ; do
-
   if [[ -d ${dir} ]] ; then
-
     if [[ -w ${dir} ]] ; then
-
       : all seems well with this directory
-
     else
-
       warning "Dropbox folder '${dir}' exists, but is not writeable. Please correct the permissions on this folder."
-
     fi
-
   else
-
-    mkdir -p ${dir}
-
-    if [[ -d ${dir} ]] ; then
-
-      echo "Created missing dropbox folder '${dir}'."
-
+    if returnValue=mkdir -p ${dir} ; then
+      : Created missing dropbox folder '${dir}'
     else
-
-      warning "Could not create missing dropbox folder '${dir}'. Please check and correct permissions of the parent folder '${dir:h}'."
-
+      warning "Could not create missing dropbox folder '${dir}' (${returnValue}). Please check and correct permissions of the parent folder '${dir:h}'."
     fi
   fi
 done
+
+# Avoid infinite loops.
+passes=0
+# Make sure the log files are writeable
+for logfile in ${dropboxLogPaths} ; do
+  if [[ -w "${logfile}" ]] ; then
+    : all seems well with this file
+  else
+    # Check the permissions of the directory that contains the logfile.
+    if [[ -w ${logfile:h} ]] ; then
+      until [[ -w ${logfile} ]] ; do
+	if chmod +w ${logfile} ; then
+	  touch ${logfile}
+	else
+	  warning "Could not set '${logfile}' to be writeable (${?}). Please seek professional help."
+	fi
+	if (( passes++ > 4 )) ; then
+	  warning "Tried $((passes - 1)) times to make '${logfile}' writeable without success. I give up."
+	  break
+	fi
+      done
+    elif [[ -d ${logfile:h} ]] ; then
+      # See if we can set the directory to be writeable.
+      if chmod u+w ${logfile:h} ; then
+	if touch ${logfile} ; then
+	  : able to write the log file, so move on
+	else
+	  warning "Cannot write to the dropbox log file '${logfile}'. Please check and correct the permissions of this file."
+	fi
+      else
+	warning "The log file folder '${logfile:h}' exists, but is missing write (create) permissions. Please check and correct the permissions of this folder."
+      fi
+    else
+      if mkdir ${logfile:h} ; then
+	if touch ${logfile} ; then
+	  : all is corrected
+	else
+	  warning "Odd. I was able to create the missing log file folder ${logfile:h}, but I cannot create the log file '${logfile}'. Please seek expert help."
+	fi
+      else
+	warning "The log file folder '${logfile:h}' does not exist and I was unable to create it. Please seek the help of a sage."
+      fi
+    fi
+    warning "Cannot write to the dropbox log file '${logfile}'. Please check and correct the permissions of this file."
+  fi
+done
+
+exit
 
 
 # Make sure rdimport is running before touching all the files
 # in the incoming folder.
 if pidof rdimport > /dev/null 2>&1 ; then
-
   echo "Done. Now 'touching' all audio files in '${SHOWS}' and '${PODCASTS}'..."
 
   # Search for all regular files with names ending in ".mp3" under /mnt/Incoming and
@@ -159,9 +213,7 @@ if pidof rdimport > /dev/null 2>&1 ; then
 
   echo "\nComplete. Press <Enter> to continue."
   read proceed
-
 else
-
   # rdimport seems to be not running.
   cat << EOF
     rdimport does not seem to be running.
@@ -173,7 +225,6 @@ else
 
 EOF
   read proceed
-
 fi
 
 exit
