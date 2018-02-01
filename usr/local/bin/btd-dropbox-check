@@ -115,7 +115,7 @@ error() {
 
   ${CAT} >&2 <<EOF
 
-${RED}${BOLD}ERROR:${NORM} $(${FMT} $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
+${RED}${BOLD}ERROR:${NORM} $(${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
 
 EOF
   echo 254
@@ -259,20 +259,25 @@ ${SLEEP} 2
 # Make sure rdimport is running before touching all the files
 # in the incoming folder.
 if ${PIDOF} rdimport > /dev/null 2>&1 ; then
-  echo "Done. Now updating time-stamps for all audio files... \c"
+  echo "Done. Searching for stray, un-imported audio files... \c"
 
-  # Search for all regular files with names ending in
-  # ".(flac|mp2|mp3|ogg|wav)" in all the directories in
-  # ${dropboxPaths}.  Touch them in order to update their timestamps
-  # and make rdimport think they are new files...  Send error messages
-  # to the bit bucket (/dev/null).
+  # Search for audio files (names ending in ".(flac|mp2|mp3|ogg|wav)")
+  # in all the directories in ${dropboxPaths}. Touch them in order to
+  # make rdimport think they are new files.
   typeset -a allFoundFiles
   for dir in ${dropboxPaths} ; do
     foundFiles=$(${FIND} ${dir} -type f -regextype 'posix-egrep' -iregex '.*\.(flac|mp2|mp3|ogg|wav)' -print -exec touch '{}' \; 2>/dev/null)
+    (( VERBOSE )) && ${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${foundFiles}
     allFoundFiles=( ${allFoundFiles} ${foundFiles} )
   done    
 
-  echo "\nComplete. Found ${#allFoundFiles} audio files waiting to be imported. Press <Enter> to continue."
+  echo "\nComplete. \c"
+
+  if (( ${#allFoundFiles} )) ; then
+    echo "Found ${#allFoundFiles} audio files waiting to be imported."
+  fi
+
+  echo "Press <Enter> to continue."
   read proceed
 else
   # rdimport seems to be not running.
