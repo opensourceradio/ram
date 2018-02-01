@@ -70,7 +70,7 @@ getDropboxPaths() {
 
   paths=( $(doSQL "${query}${whereClause:+${whereClause}}") )
 
-  (( verbose )) && echo "${0}: paths: ${paths}"
+  (( verbose )) && echo "${0}: paths: ${paths}" >&2
 
   # Output the paths with the 'basename' component stripped off. See
   # zshparam(1) for details.
@@ -93,7 +93,7 @@ getDropboxLogPaths() {
 
   logPaths=( $(doSQL "${query}${whereClause:+${whereClause}}") )
 
-  (( verbose )) && echo "${0}: logPaths: ${logPaths}"
+  (( verbose )) && echo "${0}: logPaths: ${logPaths}" >&2
 
   # Output the full log paths with the 'basename' component included.
   echo ${logPaths}
@@ -105,8 +105,7 @@ warning() {
 
   ${CAT} >&2 <<EOF
 
-${BOLD}${YELLOW}WARNING:${NORM}
-$(${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
+${BOLD}${YELLOW}WARNING:${NORM} $(${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
 
 EOF
 }
@@ -116,8 +115,7 @@ error() {
 
   ${CAT} >&2 <<EOF
 
-${RED}${BOLD}ERROR:${NORM}
-$(${FMT} $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
+${RED}${BOLD}ERROR:${NORM} $(${FMT} $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
 
 EOF
   echo 254
@@ -183,11 +181,11 @@ fi
 
 # Get all the dropbox paths for this host.
 typeset -a dropboxPaths dropboxLogPaths
-dropboxPaths=( $(getDropboxPaths $(rdGetStationName) ${VERBOSE}) )
+dropboxPaths=( $(getDropboxPaths "$(rdGetStationName)" ${VERBOSE}) )
 # Get all the dropbox log file paths for this host.
-dropboxLogPaths=( $(getDropboxLogPaths $(rdGetStationName) ${VERBOSE}) )
+dropboxLogPaths=( $(getDropboxLogPaths "$(rdGetStationName)" ${VERBOSE}) )
 
-# Make sure the paths are accessible.
+# Make sure the dropbox paths are accessible.
 for dir in ${dropboxPaths} ; do
   if [[ -d ${dir} ]] ; then
     if [[ -w ${dir} ]] ; then
