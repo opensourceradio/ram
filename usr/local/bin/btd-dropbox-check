@@ -24,8 +24,8 @@ colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=1
-vPatch=0
+vMinor=0
+vPatch=1
 vHash='$Hash$'
 
 export PATH=/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/${HOME}/.local/bin:/${HOME}/bin
@@ -100,7 +100,7 @@ warning() {
   ${CAT} >&2 <<EOF
 
 ${BOLD}${YELLOW}WARNING:${NORM}
-$(${FMT} -w 79 <<< ${message})
+$(${FMT} -w $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
 
 EOF
 }
@@ -111,7 +111,7 @@ error() {
   ${CAT} >&2 <<EOF
 
 ${RED}${BOLD}ERROR:${NORM}
-$(${FMT} -w 79 <<< ${message})
+$(${FMT} $(echo $((${COLUMNS:-80} - 2))) <<< ${message})
 
 EOF
   echo 254
@@ -129,6 +129,30 @@ NORM="${reset_color}"
 # This script is compatible with Rivendell database verson:
 rdDBVersionCompatible=259
 
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 7 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cat
+  chmod
+  find
+  fmt
+  mkdir
+  pidof
+  touch
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
 # Get all the dropbox paths for this host.
 local -a dropboxPaths dropboxLogPaths
 dropboxPaths=( $(getDropboxPaths $(rdGetStationName)) )
@@ -144,7 +168,7 @@ for dir in ${dropboxPaths} ; do
       warning "Dropbox folder '${dir}' exists, but is not writeable. Please correct the permissions on this folder."
     fi
   else
-    if returnValue=mkdir -p ${dir} ; then
+    if returnValue=${MKDIR} -p ${dir} ; then
       : Created missing dropbox folder '${dir}'
     else
       warning "Could not create missing dropbox folder '${dir}' (${returnValue}). Please check and correct permissions of the parent folder '${dir:h}'."
@@ -162,8 +186,8 @@ for logfile in ${dropboxLogPaths} ; do
     # Check the permissions of the directory that contains the logfile.
     if [[ -w ${logfile:h} ]] ; then
       until [[ -w ${logfile} ]] ; do
-	if chmod +w ${logfile} ; then
-	  touch ${logfile}
+	if ${CHMOD} +w ${logfile} ; then
+	  ${TOUCH} ${logfile}
 	else
 	  warning "Could not set '${logfile}' to be writeable (${?}). Please seek professional help."
 	fi
@@ -174,8 +198,8 @@ for logfile in ${dropboxLogPaths} ; do
       done
     elif [[ -d ${logfile:h} ]] ; then
       # See if we can set the directory to be writeable.
-      if chmod u+w ${logfile:h} ; then
-	if touch ${logfile} ; then
+      if ${CHMOD} u+w ${logfile:h} ; then
+	if ${TOUCH} ${logfile} ; then
 	  : able to write the log file, so move on
 	else
 	  warning "Cannot write to the dropbox log file '${logfile}'. Please check and correct the permissions of this file."
@@ -184,8 +208,8 @@ for logfile in ${dropboxLogPaths} ; do
 	warning "The log file folder '${logfile:h}' exists, but is missing write (create) permissions. Please check and correct the permissions of this folder."
       fi
     else
-      if mkdir ${logfile:h} ; then
-	if touch ${logfile} ; then
+      if ${MKDIR} ${logfile:h} ; then
+	if ${TOUCH} ${logfile} ; then
 	  : all is corrected
 	else
 	  warning "Odd. I was able to create the missing log file folder ${logfile:h}, but I cannot create the log file '${logfile}'. Please seek expert help."
@@ -203,19 +227,19 @@ exit
 
 # Make sure rdimport is running before touching all the files
 # in the incoming folder.
-if pidof rdimport > /dev/null 2>&1 ; then
-  echo "Done. Now 'touching' all audio files in '${SHOWS}' and '${PODCASTS}'..."
+if ${PIDOF} rdimport > /dev/null 2>&1 ; then
+  echo "Done. Now updating time-stamps for all audio files... \c"
 
   # Search for all regular files with names ending in ".mp3" under /mnt/Incoming and
   # touch them in order to update their timestamps and make rdimport think they are new files...
   # Send error messages to the bit bucket (/dev/null).
-  find ${SHOWS} ${PODCASTS} -type f -regextype 'posix-egrep' -iregex '.*\.(mp3|ogg|flac|wav)' -print -exec touch '{}' \; 2>/dev/null
+  ${FIND} ${changeMeSoon} -type f -regextype 'posix-egrep' -iregex '.*\.(mp3|ogg|flac|wav)' -print -exec touch '{}' \; 2>/dev/null
 
   echo "\nComplete. Press <Enter> to continue."
   read proceed
 else
   # rdimport seems to be not running.
-  cat << EOF
+  ${CAT} << EOF
     rdimport does not seem to be running.
 
     Make sure the Rivendell database is available and try starting it again
