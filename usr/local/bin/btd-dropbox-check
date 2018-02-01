@@ -163,7 +163,7 @@ done
 VERBOSE=0
 
 TEMP=$(${GETOPT} -o hVv --long help,version,verbose -n "${0##*/}" -- "${@}")
-if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
+if (( ${?} != 0 )) ; then echo "${BOLD}getopt error: ${?}. Seek professional help. Terminating.${NORM}" >&2 ; return ${?} ; fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
 while : ; do
@@ -172,7 +172,7 @@ while : ; do
     -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "Internal error!" >&2 ; return 1 ;;
+    *) echo "${BOLD}getopt internal error (${?})! Seek help!${NORM}" >&2 ; return ${?} ;;
   esac
 done
 
@@ -196,10 +196,10 @@ for dir in ${dropboxPaths} ; do
       warning "Dropbox folder '${dir}' exists, but is not writeable. Please correct the permissions on this folder."
     fi
   else
-    if returnValue=${MKDIR} -p ${dir} ; then
+    if ${MKDIR} -p ${dir} ; then
       : Created missing dropbox folder '${dir}'
     else
-      warning "Could not create missing dropbox folder '${dir}' (${returnValue}). Please check and correct permissions of the parent folder '${dir:h}'."
+      warning "Could not create missing dropbox folder '${dir}' (${?}). Please check and correct permissions of the parent folder '${dir:h}'."
     fi
   fi
 done
