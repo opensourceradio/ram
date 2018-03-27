@@ -56,34 +56,58 @@ Service for the week ending "yesterday".
 
 Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
                         [ --end-date (-e) <YYYY-MM-DD> ]
-                        [ --csv ] [ --schedcodes ]
+                        [ --csv (-c) ]
+                        [ --schedcodes <Code>[,<Code>,...] (or "list") ]
                         --group (-g) <Group Name> (or "list")
-                        --service (-s) <Service Name>
+                        --service (-s) <Service Name> (or "list")
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
 
-Both the --group (-g) and --service (-s) parameters are required.
+The --group (-g) parameter is required.
 
-Adding the --schedcodes option causes ${myName} to include the
-Rivendell Scheduler Codes for each Cart
+The --service (-s) parameter is required unless only one Service is
+configured. In that case the sole Service is chosen for you.
+
+Adding the --schedcodes option causes ${myName:t} to include Carts that
+have any of the Scheduler Codes "<Code>,..." assigned (multiple Codes
+separated by commas). You may use the word "list" to list and choose
+from the available Scheduler Codes. This option also causes the output
+to include all Rivendell Scheduler Codes for each Cart.
 
 The "Len" field is represented as MM:SS when --csv is not specified,
-and is represented as number of seconds when --csv is specified.
+and is represented as number of seconds (including the fractional
+part) when --csv is specified.
 
-${myName} generates Performance Totals (for each Cart) for the period
+${myName:t} generates Performance Totals (for each Cart) for the period
 at the end of the report unless --csv is specified.
 
 EOF
 }
 
-# Check to be sure it is a valid GROUP. Returns true or false based on
+# Check to be sure it is a valid GROUP. Return true or false based on
 # the regex match test
 validGroup() {
-  local definedGroups=${1} ; shift
+  local knownGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  [[ "${requestedGroup}" == '%' ]] || [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+  [[ "${requestedGroup}" == '%' ]] || [[ "${knownGroups}" =~ ".*${requestedGroup}.*" ]]
+}
+
+# Check the (list of) Scheduler Code(s) agains the list of known
+# Codes. Return true or false based on the regex match (return false
+# on first failure).
+validSchedCodes() {
+  local knownSchedCodes=${1} ; shift
+  local requestedSchedCodes=${1} ; shift
+  local code
+  local returnValue=0
+
+  for code in $(echo ${requestedSchedCodes//,/ }) ; do
+    [[ "${knownSchedCodes}" =~ ".*${code}.*" ]] || { returnValue=1 ; break ; }
+  done
+
+  return ${returnValue}
 }
 
 # Given a <Space>-separated list of Scheduler Codes, return a list
@@ -114,7 +138,7 @@ CSV=0
 SCHEDCODES=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o achg:s:vS:e: --long all,csv,help,group:,schedcodes,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o achg:s:vS:e: --long all,csv,help,group:,schedcodes:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -125,7 +149,7 @@ do
     -c|--csv) CSV=1 ; shift ;;
     -g|--grou*) group=${2} ; shift 2 ;;
     -s|--serv*) service=${2} ; shift 2 ;;
-    --sched*) SCHEDCODES=1 ; shift ;;
+    --sched*) schedCodes=${2} ; shift 2 ;;
     -S|--star*) startDate=${2} ; shift 2 ;;
     -e|--end*) endDate=${2} ; shift 2 ;;
     -h|--help) usage ${0} ; exit ;;
@@ -151,14 +175,23 @@ else
   fs='\t'
 fi
 
-# Snag the group list for future use. This code works with Group names
+# Snag the GROUP list for future use. This code works with GROUP names
 # containing embedded <Space>s.
 typeset -a rivendellGroupList
 oIFS="${IFS}"
 IFS="	"
-rivendellGroupList=( $(doSQL "select NAME from GROUPS" | ${TR} '\012' '\t') )
+rivendellGroupList=( $(doSQL "SELECT name FROM GROUPS" | ${TR} '\012' '\t') )
 IFS="${oIFS}"
 unset oIFS
+
+# Snag the SERVICES list for future use. SERVICES may not contain whitespace.
+typeset -a rivendellServiceList
+rivendellServiceList=( $(doSQL "SELECT name FROM SERVICES") )
+
+# Snag the SCHED_CODES list for future use. Rivendell does not permit
+# whitespace in CODE names.
+typeset -a rivendellSchedCodeList
+rivendellSchedCodeList=( $(doSQL "SELECT CODE from SCHED_CODES" | ${TR} '\012' '\t') )
 
 typeset -A cartCount
 whereClauseOp='='
@@ -196,27 +229,60 @@ if [[ -n "${group}" ]] ; then
     group='%'
     whereClauseOp='LIKE'
   elif [[ "${group}" =~ 'list' ]] ; then
-    echo "Current list of GROUPs:"
+    echo "Current Groups:"
     echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-    read group\?"Enter a GROUP to import into: "
+    read group\?"Enter a Group to report: "
   fi
 else
-  echo "Current list of GROUPs:"
+  echo "Current Groups:"
   echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-  read group\?"Enter a GROUP for this import: "
+  read group\?"Enter a Group to report: "
 fi
 
 validGroup "${rivendellGroupList}" ${group} || {
-  echo "${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}" 1>&2
+  echo "${BOLD}${group} is not in the list. Please use a valid Group name.${NORM}" 1>&2
   exit 2
 }
+
+# List the SERVICES if there are more than one, otherwise use the lone SERVICE.
+if [[ -z "${service}" ]] || [[ "${service}" =~ 'list' ]] ; then
+  if (( ${#rivendellServiceList} > 1 )) ; then
+    echo "Current Services:"
+    echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    read service\?"Enter a Service on which to report: "
+  else
+    service=${rivendellServiceList[1]}
+  fi
+fi
+
+# List the Scheduler Codes and prompt for one (or more) to use in this report.
+if [[ "${schedCodes}" =~ 'list' ]] ; then
+  echo "Current Scheduler Codes:"
+  echo ${(F)rivendellSchedCodeList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  read schedCodes\?"Enter one or more Scheduler Code(s) to report (separate with ',' (comma): "
+fi
+if [[ -n "${schedCodes}" ]] ; then
+  # Purge spaces just in case ...
+  schedCodes=${schedCodes// /}
+
+  validSchedCodes "${rivendellSchedCodeList}" "${schedCodes}" || {
+    echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" 1>&2
+    exit 3
+  }
+  andClause="AND "
+  for code in $(echo ${schedCodes//,/ }) ; do
+    andClause="${andClause} ${OR:+"OR "}sched_codes LIKE '%${code}%'"
+    OR=1
+  done
+  SCHEDCODES=1
+fi
 
 # How many events will we report?
 selectCountStatement="SELECT
   COUNT(*)
   FROM ${service}_SRT
   WHERE cart_number IN
-  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${andClause})
   AND
   event_datetime > '${reportStartDate}'
   AND
@@ -224,12 +290,13 @@ selectCountStatement="SELECT
   ORDER BY event_datetime"
 eventCount=$(doSQL "${selectCountStatement}")
 
-# Find the longest title string in the selection.
+# Find the longest title string in the selection for proper horizontal
+# spacing in the text report.
 selectCountStatement="SELECT
   MAX(LENGTH(title))
   FROM ${service}_SRT
   WHERE cart_number IN
-  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${andClause})
   AND
   event_datetime > '${reportStartDate}'
   AND
@@ -239,7 +306,6 @@ len=$(doSQL "${selectCountStatement}")
 
 # The report title.
 reportTitleText="${service}: ${eventCount} ${group} Events from ${reportStartDate% *} to ${reportEndDate% *}"
-
 (( CSV )) || print "${reportTitleText}\n"
 
 # The report header.
@@ -265,7 +331,7 @@ selectStatement="SELECT
   FROM ${service}_SRT AS s
   LEFT JOIN CART AS c on (s.cart_number = c.number)
   WHERE cart_number IN
-  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${andClause})
   AND
   event_datetime > '${reportStartDate}'
   AND
