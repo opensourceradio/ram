@@ -21,7 +21,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -48,14 +48,15 @@ done
 
 # Tell them how to use this command.
 usage() {
-    myName=${1}
+  myName=${1}
 
-    ${CAT} << EOF
+  ${CAT} << EOF
 ${myName}: Generate a weekly report for a Rivendell Group and a Rivendell
 Service for the week ending "yesterday".
 
 Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
-                        [ --end-date (-e) <YYYY-MM-DD> ] 
+                        [ --end-date (-e) <YYYY-MM-DD> ]
+                        [ --csv ] [ --schedcodes ]
                         --group (-g) <Group Name> (or "list")
                         --service (-s) <Service Name>
 
@@ -64,16 +65,42 @@ yesterday if not specified.
 
 Both the --group (-g) and --service (-s) parameters are required.
 
+Adding the --schedcodes option causes ${myName} to include the
+Rivendell Scheduler Codes for each Cart
+
+The "Len" field is represented as MM:SS when --csv is not specified,
+and is represented as number of seconds when --csv is specified.
+
+${myName} generates Performance Totals (for each Cart) for the period
+at the end of the report unless --csv is specified.
+
 EOF
 }
 
 # Check to be sure it is a valid GROUP. Returns true or false based on
 # the regex match test
 validGroup() {
-    local definedGroups=${1} ; shift
-    local requestedGroup=${1} ; shift
+  local definedGroups=${1} ; shift
+  local requestedGroup=${1} ; shift
 
-    [[ "${requestedGroup}" == '%' ]] || [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+  [[ "${requestedGroup}" == '%' ]] || [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+}
+
+# Given a <Space>-separated list of Scheduler Codes, return a list
+# separated by the desired delimiter
+getSchedCodes() {
+  local codes="${1}"
+  echo "${codes}" | sed -e 's/  *\.$//' -e 's/  */,/g'
+}
+
+quote() {
+  local item="${1}"
+
+  if (( CSV )) ; then
+    print '\"'$(echo ${item}|sed -e 's,","",g')'\"'
+  else
+    print ${item}
+  fi
 }
 
 # Get zsh functions necessary for this script.
@@ -83,8 +110,11 @@ else
   exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
 fi
 
+CSV=0
+SCHEDCODES=0
+
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o ahg:s:vS:e: --long all,help,group:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o achg:s:vS:e: --long all,csv,help,group:,schedcodes,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -92,8 +122,10 @@ while :
 do
   case "${1}" in
     -a|--all) group=ALL_GROUPS ; shift ;;
+    -c|--csv) CSV=1 ; shift ;;
     -g|--grou*) group=${2} ; shift 2 ;;
     -s|--serv*) service=${2} ; shift 2 ;;
+    --sched*) SCHEDCODES=1 ; shift ;;
     -S|--star*) startDate=${2} ; shift 2 ;;
     -e|--end*) endDate=${2} ; shift 2 ;;
     -h|--help) usage ${0} ; exit ;;
@@ -112,6 +144,12 @@ fi
 RED="${fg_bold[red]}"
 BOLD="${bold_color}"
 NORM="${reset_color}"
+
+if (( CSV )) ; then
+  fs=,
+else
+  fs='\t'
+fi
 
 # Snag the group list for future use. This code works with Group names
 # containing embedded <Space>s.
@@ -186,16 +224,46 @@ selectCountStatement="SELECT
   ORDER BY event_datetime"
 eventCount=$(doSQL "${selectCountStatement}")
 
-# The header.
+# Find the longest title string in the selection.
+selectCountStatement="SELECT
+  MAX(LENGTH(title))
+  FROM ${service}_SRT
+  WHERE cart_number IN
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
+  AND
+  event_datetime > '${reportStartDate}'
+  AND
+  event_datetime <= '${reportEndDate}'
+  ORDER BY event_datetime"
+len=$(doSQL "${selectCountStatement}")
+
+# The report title.
 reportTitleText="${service}: ${eventCount} ${group} Events from ${reportStartDate% *} to ${reportEndDate% *}"
 
-print "${reportTitleText}\n"
-printf "%19s\t%6s\t%5s\t%s\n" "Air Date     " "Cart #" "Len " "Cart Title"
+(( CSV )) || print "${reportTitleText}\n"
+
+# The report header.
+if (( CSV )) ; then
+  printf "\"%s\",\"%s\",%s,\"%s\",$(((${SCHEDCODES})) && echo %s)\n" \
+	 "Air Date" \
+	 "Cart #" \
+	 "Len" \
+	 "Cart Title" \
+	 $( ((SCHEDCODES)) && echo "SchedCodes")
+else
+  printf "%19s${fs}%6s${fs}%5s${fs}%${len}s$(((SCHEDCODES)) && echo ${fs}%s)\n" \
+	 "Air Date" \
+	 "Cart #" \
+	 "Len" \
+	 "Cart Title" \
+	 $( ((SCHEDCODES)) && echo "SchedCodes")
+fi
 
 # Find all the events from the _SRT table.
 selectStatement="SELECT
-  event_datetime, title, cart_number, length/1000
-  FROM ${service}_SRT
+  s.event_datetime, s.title, c.number, s.length/1000$(((SCHEDCODES)) && echo ', c.sched_codes')
+  FROM ${service}_SRT AS s
+  LEFT JOIN CART AS c on (s.cart_number = c.number)
   WHERE cart_number IN
   (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}')
   AND
@@ -212,36 +280,62 @@ doSQL "${selectStatement}" | while read line ; do
 
   # Set the positional parameters to the fields in ${line}.
   set - $(echo "${line}")
-  airDateTime=${1}
-  cartTitle=${2}
+  airDateTime="${1}"
+  cartTitle="${2}"
   cartNumber=${3}
   cartLength=${4}
+  ((SCHEDCODES)) && schedCodes="${5}"
   set -
 
-  cartMinSec=$(printf "%02d:%02d" $(( cartLength / 60 )) $(( cartLength % 60 )))
+  # Do not convert to MM:SS if we are in CSV mode.
+  if (( CSV )) ; then
+    cartMinSec=${cartLength}
+  else
+    cartMinSec=$(printf "%02d:%02d" $(( cartLength / 60 )) $(( cartLength % 60 )))
+  fi
 
   # Insert a blank line between days.
   [[ ${airDateTime% *} =~ ${lastAirDate} ]] || echo
 
-  printf "%19s\t%06d\t%5s\t%s\n" ${airDateTime} ${cartNumber} ${cartMinSec} ${cartTitle}
+  if (( CSV )) ; then
+    # CSV mode: do not format the fields.
+    printf "%s${fs}%d${fs}%s${fs}%s$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+	   $(quote "${airDateTime}") \
+	   ${cartNumber} \
+	   ${cartMinSec} \
+	   $(quote "${cartTitle}") \
+	   $( ((SCHEDCODES)) && print $(getSchedCodes "${schedCodes}"))
+  else
+    # Text mode: space the fields according to field lengths.
+    printf "%19s${fs}%06d${fs}%5s${fs}%${len}s$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+	   $(quote "${airDateTime}") \
+	   ${cartNumber} \
+	   ${cartMinSec} \
+	   $(quote "${cartTitle}") \
+	   $( ((SCHEDCODES)) && print $(getSchedCodes "${schedCodes}"))
+  fi
   cartCount[${cartNumber}]=$(expr ${cartCount[${cartNumber}]} + 1)
 
   lastAirDate=${airDateTime% *}
 
 done
 
-# Restore the default value of ${IFS}
-IFS="${oIFS}"
-unset oIFS
+if ! (( CSV )) ; then
 
-print "\nPerformance Totals:"
-printf "%6s\t%3s\t%s\n" 'Cart #' 'Plays' 'Cart Title'
+  # Restore the default value of ${IFS}
+  IFS="${oIFS}"
+  unset oIFS
 
-for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
+  print "\nPerformance Totals:"
+  printf "%6s\t%3s\t%s\n" 'Cart #' 'Plays' 'Cart Title'
 
-  printf "%06d\t%5d\t%s\n" ${cart} ${cartCount[${cart}]} "$(rdCartTitleFromNumber ${cart})"
+  for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
 
-done
+    printf "%06d\t%5d\t%s\n" ${cart} ${cartCount[${cart}]} "$(rdCartTitleFromNumber ${cart})"
+
+  done
+
+fi
 
 exit
 
