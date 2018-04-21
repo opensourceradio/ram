@@ -21,7 +21,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -51,16 +51,17 @@ usage() {
   myName=${1}
 
   ${CAT} << EOF
-${myName}: Generate a weekly report for a Rivendell Group and a Rivendell
-Service for the week ending "yesterday".
+${myName:t}: Generate a weekly report for a Rivendell Group and a
+Rivendell Service for the week ending "yesterday" (or the specified
+date).
 
 Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
-                        [ --end-date (-e) <YYYY-MM-DD> ]
-                        [ --csv (-c) ]
-                        [ --schedcodes <Code>[,<Code>,...] (or "list") ]
-                        [ --pro-data (-p) ]
-                        --group (-g) <Group Name> (or "list")
-                        --service (-s) <Service Name> (or "list")
+                       [ --end-date (-e) <YYYY-MM-DD> ]
+                       [ --csv (-c) ]
+                       [ --schedcodes <Code>[,<Code>,...] (or "list") ]
+                       [ --pro-data (-p) ]
+                       --group (-g) <Group Name> (or "list")
+                       --service (-s) <Service Name> (or "list")
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
@@ -70,11 +71,11 @@ The --group (-g) parameter is required.
 The --service (-s) parameter is required unless only one Service is
 configured. In that case the sole Service is chosen for you.
 
-Adding the --schedcodes option causes ${myName:t} to include Carts that
-have any of the Scheduler Codes "<Code>,..." assigned (multiple Codes
-separated by commas). You may use the word "list" to list and choose
-from the available Scheduler Codes. This option also causes the output
-to include all Rivendell Scheduler Codes for each Cart.
+Adding the --schedcodes option causes ${myName:t} to include Carts
+that have any of the Scheduler Codes "<Code>,..." assigned (separate
+multiple Codes by commas). You may use the word "list" to list and
+choose from the available Scheduler Codes. This option also causes the
+output to include all Rivendell Scheduler Codes for each Cart.
 
 The --pro-data (-p) option tells ${myName:t} to include performance
 rights organization (PRO) data (such as artist, album, and record
@@ -131,7 +132,7 @@ quote() {
   local item="${1}"
 
   if (( CSV )) ; then
-    print '\"'$(echo ${item}|sed -e 's,","",g')'\"'
+    print '\"'${item//\"/\"\"}'\"'
   else
     print ${item}
   fi
