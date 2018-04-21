@@ -21,7 +21,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -58,6 +58,7 @@ Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
                         [ --end-date (-e) <YYYY-MM-DD> ]
                         [ --csv (-c) ]
                         [ --schedcodes <Code>[,<Code>,...] (or "list") ]
+                        [ --pro-data (-p) ]
                         --group (-g) <Group Name> (or "list")
                         --service (-s) <Service Name> (or "list")
 
@@ -74,6 +75,10 @@ have any of the Scheduler Codes "<Code>,..." assigned (multiple Codes
 separated by commas). You may use the word "list" to list and choose
 from the available Scheduler Codes. This option also causes the output
 to include all Rivendell Scheduler Codes for each Cart.
+
+The --pro-data (-p) option tells ${myName:t} to include performance
+rights organization (PRO) data (such as artist, album, and record
+label) in the report output.
 
 The "Len" field is represented as MM:SS when --csv is not specified,
 and is represented as number of seconds (including the fractional
@@ -114,7 +119,12 @@ validSchedCodes() {
 # separated by the desired delimiter
 getSchedCodes() {
   local codes="${1}"
-  echo "${codes}" | sed -e 's/  *\.$//' -e 's/  */,/g'
+  local fieldSeparator=${2:-,}
+
+  local newCodes=$(printf "%s${fieldSeparator}" ${(z)codes})
+
+  # To strip the trailing field separator.
+  print ${newCodes%${fieldSeparator}}
 }
 
 quote() {
@@ -127,6 +137,14 @@ quote() {
   fi
 }
 
+max() {
+  local a=${1}
+  local b=${2}
+
+  (( a > b )) && { echo ${a} ; return ; }
+  echo ${b}
+}
+
 # Get zsh functions necessary for this script.
 if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
   source ${ROOT:-/}usr/local/bin/zsh-functions
@@ -134,11 +152,14 @@ else
   exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
 fi
 
-CSV=0
+#CSV=0
 SCHEDCODES=0
+# This will be set to 4 (the number of PRO fields) if requested on
+# invocation.
+PROdata=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o achg:s:vS:e: --long all,csv,help,group:,schedcodes:,service:,version,start-date:,end-date: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o achg:s:vS:e:p --long all,csv,help,group:,schedcodes:,service:,version,start-date:,end-date:,pro-data -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -152,6 +173,7 @@ do
     --sched*) schedCodes=${2} ; shift 2 ;;
     -S|--star*) startDate=${2} ; shift 2 ;;
     -e|--end*) endDate=${2} ; shift 2 ;;
+    -p|--pro*) PROdata=4 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
     -v|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -269,11 +291,12 @@ if [[ -n "${schedCodes}" ]] ; then
     echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" 1>&2
     exit 3
   }
-  andClause="AND "
+  andClause="AND ("
   for code in $(echo ${schedCodes//,/ }) ; do
     andClause="${andClause} ${OR:+"OR "}sched_codes LIKE '%${code}%'"
     OR=1
   done
+  andClause="${andClause})"
   SCHEDCODES=1
 fi
 
@@ -302,32 +325,36 @@ selectCountStatement="SELECT
   AND
   event_datetime <= '${reportEndDate}'
   ORDER BY event_datetime"
-len=$(doSQL "${selectCountStatement}")
+# This can return the word "NULL" so make sure it is reasonable.
+len=$(doSQL "${selectCountStatement}" | sed -e 's/NULL/0/')
 
 # The report title.
 reportTitleText="${service}: ${eventCount} ${group} Events from ${reportStartDate% *} to ${reportEndDate% *}"
 (( CSV )) || print "${reportTitleText}\n"
 
-# The report header.
+# The report header with optional column headings, based on invocation
+# options.
 if (( CSV )) ; then
-  printf "\"%s\",\"%s\",%s,\"%s\",$(((${SCHEDCODES})) && echo %s)\n" \
+  printf "\"%s\",\"%s\",%s,\"%s\"$(((${PROdata})) && echo ,%s,%s,%s,%s)$(((${SCHEDCODES})) && echo ,%s)\n" \
 	 "Air Date" \
 	 "Cart #" \
 	 "Len" \
 	 "Cart Title" \
-	 $( ((SCHEDCODES)) && echo "SchedCodes")
+	 $(((${PROdata})) && echo "Artist\nAlbum\nLabel\nPublisher") \
+	 $(((SCHEDCODES)) && echo "SchedCodes")
 else
-  printf "%19s${fs}%6s${fs}%5s${fs}%${len}s$(((SCHEDCODES)) && echo ${fs}%s)\n" \
+  printf "%19s${fs}%6s${fs}%5s${fs}%${len}s\n" \
 	 "Air Date" \
 	 "Cart #" \
 	 "Len" \
-	 "Cart Title" \
-	 $( ((SCHEDCODES)) && echo "SchedCodes")
+	 "Cart Title"
 fi
 
-# Find all the events from the _SRT table.
+# Find all matching events in the _SRT table.
 selectStatement="SELECT
-  s.event_datetime, s.title, c.number, s.length/1000$(((SCHEDCODES)) && echo ', c.sched_codes')
+  s.event_datetime,s.title,c.number,s.length/1000
+    $(((PROdata)) && echo ',c.artist,c.album,c.label,c.publisher')
+    $(((SCHEDCODES)) && echo ',c.sched_codes')
   FROM ${service}_SRT AS s
   LEFT JOIN CART AS c on (s.cart_number = c.number)
   WHERE cart_number IN
@@ -338,19 +365,32 @@ selectStatement="SELECT
   event_datetime <= '${reportEndDate}'
   ORDER BY event_datetime"
 
-# Change input field separator (IFS) to <Tab>.
+typeset -A artist album label publisher
+
+# Change input field separator (IFS) to just <Tab>.
 oIFS="${IFS}"
 IFS="	"
 # Output fields are <Tab>-separated.
 doSQL "${selectStatement}" | while read line ; do
 
+  # Because some fields might be the "empty string" and we don't like that.
+  line=$(print "${line}" | sed -e 's/\t\t/\tNA\t/g' -e 's/\t\t/\tNA\t/g')
+
   # Set the positional parameters to the fields in ${line}.
-  set - $(echo "${line}")
+  set - $(print "${line}")
   airDateTime="${1}"
   cartTitle="${2}"
   cartNumber=${3}
   cartLength=${4}
-  ((SCHEDCODES)) && schedCodes="${5}"
+  if ((PROdata)) ; then
+    cartArtist="${5}"
+    cartAlbum="${6}"
+    cartLabel="${7}"
+    cartPublisher="${8}"
+  fi
+  # Position of schedCodes is dependent on the --pro-data option, also
+  # strip the trailing period (.) from the database record.
+  ((SCHEDCODES)) && schedCodes=${(P)$((5 + PROdata))%.}
   set -
 
   # Do not convert to MM:SS if we are in CSV mode.
@@ -361,26 +401,36 @@ doSQL "${selectStatement}" | while read line ; do
   fi
 
   # Insert a blank line between days.
-  [[ ${airDateTime% *} =~ ${lastAirDate} ]] || echo
+  [[ ${airDateTime% *} =~ ${lastAirDate} ]] || print
 
   if (( CSV )) ; then
-    # CSV mode: do not format the fields.
-    printf "%s${fs}%d${fs}%s${fs}%s$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+    printf "%s${fs}%d${fs}%s${fs}%s$(((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
 	   ${cartMinSec} \
 	   $(quote "${cartTitle}") \
-	   $( ((SCHEDCODES)) && print $(getSchedCodes "${schedCodes}"))
+	   $(((${PROdata})) && quote "${cartArtist}") \
+	   $(((${PROdata})) && quote "${cartAlbum}") \
+	   $(((${PROdata})) && quote "${cartLabel}") \
+	   $(((${PROdata})) && quote "${cartPublisher}") \
+	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   else
-    # Text mode: space the fields according to field lengths.
-    printf "%19s${fs}%06d${fs}%5s${fs}%${len}s$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+    printf "%20s${fs}%06d${fs}%5s${fs}%${len}s\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
 	   ${cartMinSec} \
-	   $(quote "${cartTitle}") \
-	   $( ((SCHEDCODES)) && print $(getSchedCodes "${schedCodes}"))
+	   $(quote "${cartTitle}")
   fi
-  cartCount[${cartNumber}]=$(expr ${cartCount[${cartNumber}]} + 1)
+
+  # Save the meta data and the maximum field widths (we already know it for Title).
+  title[${cartNumber}]="${cartTitle}"
+  artist[${cartNumber}]="${cartArtist}" ;      fwArtist=$(max ${fwArtist} ${#artist[${cartNumber}]})
+  album[${cartNumber}]="${cartAlbum}" ;        fwAlbum=$(max ${fwAlbum} ${#album[${cartNumber}]})
+  label[${cartNumber}]="${cartLabel}" ;        fwLabel=$(max ${fwLabel} ${#label[${cartNumber}]})
+  publisher[${cartNumber}]="${cartPublisher}"; fwPub=$(max ${fwPub} ${#publisher[${cartNumber}]})
+  schedcodes[${cartNumber}]="${schedCodes}"
+
+  (( cartCount[${cartNumber}] += 1 ))
 
   lastAirDate=${airDateTime% *}
 
@@ -388,16 +438,32 @@ done
 
 if ! (( CSV )) ; then
 
-  # Restore the default value of ${IFS}
+  # Restore the default value of ${IFS} in order to format the header.
   IFS="${oIFS}"
-  unset oIFS
 
   print "\nPerformance Totals:"
-  printf "%6s\t%3s\t%s\n" 'Cart #' 'Plays' 'Cart Title'
+  printf "%6s${fs}%3s${fs}%${len}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((SCHEDCODES)) && echo ${fs}%s)\n" \
+	 'Cart #' \
+	 'Plays' \
+	 'Cart Title' \
+	 $(((${PROdata})) && print -l Artist Album Label Publisher) \
+	 $(((SCHEDCODES)) && print SchedCodes)
+
+  # set IFS back to a single <TAB> and a single newline
+  IFS='	
+'
 
   for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
 
-    printf "%06d\t%5d\t%s\n" ${cart} ${cartCount[${cart}]} "$(rdCartTitleFromNumber ${cart})"
+    printf "%06d${fs}%5d${fs}%${len}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
+	   ${cart} \
+	   ${cartCount[${cart}]} \
+	   "${title[${cart}]}" \
+	   $(((${PROdata})) && print "${artist[${cart}]}") \
+	   $(((${PROdata})) && print "${album[${cart}]}") \
+	   $(((${PROdata})) && print "${label[${cart}]}") \
+	   $(((${PROdata})) && print "${publisher[${cart}]}") \
+	   $(((${SCHEDCODES})) && getSchedCodes "${schedcodes[${cart}]}" ", ")
 
   done
 
