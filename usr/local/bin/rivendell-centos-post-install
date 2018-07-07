@@ -5,7 +5,7 @@
 ##
 ## rivendell-centos-post-install
 ##
-## Perform tasks to customize Rivendell after installing *OR* upgrading
+## Perform tasks to customize Rivendell after installing *AND* upgrading
 ## Rivendell on a workstation.
 ##
 ##############################################################################
