@@ -23,22 +23,23 @@
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
 
-## log STDOUT and STDERR of this script and all commands called by this script to separate files
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+##############################################################################
+##############################################################################
+##
+## Start local function definitions
+##
+##############################################################################
+##############################################################################
 
-## Locate the commands we need in this script.
-CAT=$(whence cat) ; CAT=${CAT:-${ROOT:-/}bin/cat}
-CURL=$(whence curl) ; CURL=${CURL:-${ROOT:-/}usr/bin/curl}
-LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
-PING=$(whence ping) ; PING=${PING:-${ROOT:-/}bin/ping}
-SORT=$(whence sort) ; SORT=${SORT:-${ROOT:-/}usr/bin/sort}
+##############################################################################
+# function usage()
+# How does this work?
+# Returns null
+##############################################################################
+function usage() {
+  local myName=${1:t}
 
-## How does this work again?
-usage() {
-    myName=${1}
-
-    ${CAT} << EOF
+  ${CAT} << EOF
 
 ${myName}: issue a required weekly test (RWT) on the specified EAS
 device
@@ -51,22 +52,61 @@ without actually triggering the EAS test.
 EOF
 }
 
+##############################################################################
+##############################################################################
+##
+## End local function definitions
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+##############################################################################
+##
+## Start script mainline
+##
+## Call the SAGE HTTP "API" to trigger an EAS Required Weekly Test.
+##
+##############################################################################
+##############################################################################
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 4 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  cat
+  curl
+  logger
+  ping
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
 ## Get zsh functions necessary for this script.
 [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
 
 if [[ -z "${1}" ]] ; then
-  usage ${0##*/}
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing host." 2>&1
+  usage ${0}
+  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing host." 2>&1
   exit 256
 fi
 if [[ -z "${2}" ]] ; then
-  usage ${0##*/}
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing the device username." 2>&1
+  usage ${0}
+  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing the device username." 2>&1
   exit 255
 fi
 if [[ -z "${3}" ]] ; then
-  usage ${0##*/}
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Missing the device password." 2>&1
+  usage ${0}
+  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing the device password." 2>&1
   exit 254
 fi
 
@@ -76,41 +116,69 @@ SAGEHOST=${1}
 SAGEUSER=${2}
 SAGEPASS=${3}
 
-CURL_OUTPUT=${CURL_OUTPUT:-${ROOT:-/}var/tmp/${0##*/}-curl.out}
+CURL_OUTPUT=${CURL_OUTPUT:-${ROOT:-/}var/tmp/${0:t}-curl.out}
 
-if [[ -x ${LOGGER} ]] ; then
-    if [[ -x ${CURL} ]] ; then
+# Log STDOUT and STDERR of this script and all commands called by this script to
+# separate files.
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
 
-	if ${PING} -q -c 1 -w 1 ${SAGEHOST} 2>&1 > /dev/null ; then
+if [[ -x ${CURL} ]] ; then
 
-	    ${LOGGER} -t ${0##*/} -p local7.info -i -- "INFO: Running curl(1) to ${SAGEHOST}."
-	    ${DEBUG} ${CURL} \
-		     --silent \
-		     --output ${CURL_OUTPUT} \
-		     --anyauth \
-		     --user ${SAGEUSER}:${SAGEPASS} \
-		     --data 'rwt=1\&handle=1' \
-		     "http://${SAGEHOST}/cgi-bin/pend.cgi"
+  if ${PING} -q -c 1 -w 1 ${SAGEHOST} 2>&1 > /dev/null ; then
 
-	else
+    ${LOGGER} -t ${0##*/} -p local7.info -i -- "INFO: Running curl(1) to ${SAGEHOST}."
+    ${DEBUG} ${CURL} \
+	     --silent \
+	     --output ${CURL_OUTPUT} \
+	     --anyauth \
+	     --user ${SAGEUSER}:${SAGEPASS} \
+	     --data 'rwt=1\&handle=1' \
+	     "http://${SAGEHOST}/cgi-bin/pend.cgi"
 
-	    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: ping '${SAGEHOST}', cannot continue." 2>&1
-	    exit 3
+  else
 
-	fi
+    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: cannot ping '${SAGEHOST}', cannot continue." 2>&1
+    exit 3
 
-    else
-
-	${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Cannot find curl app." 2>&1
-	exit 2
-
-    fi
+  fi
 
 else
 
-    echo "Cannot find logger app. Did not run curl(1)." 2>&1
-    exit 1
+  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Cannot find curl app." 2>&1
+  exit 2
 
 fi
 
 exit
+
+##############################################################################
+##############################################################################
+##
+## End script mainline
+##
+##############################################################################
+##############################################################################
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
