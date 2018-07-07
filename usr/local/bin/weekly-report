@@ -12,9 +12,6 @@
 
 setopt NO_CASE_MATCH
 zmodload zsh/regex
-zmodload zsh/datetime
-zmodload zsh/terminfo
-zmodload zsh/stat
 autoload colors
 colors
 
