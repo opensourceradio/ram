@@ -1,0 +1,134 @@
+#!/bin/zsh
+
+##############################################################################
+##############################################################################
+##
+## rivendell-centos-post-install
+##
+## Perform tasks to customize Rivendell after installing *OR* upgrading
+## Rivendell on a workstation.
+##
+##############################################################################
+##############################################################################
+
+# This script complies with Semantic Versioning: http://semver.org/
+vRelease=0
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+##############################################################################
+##############################################################################
+##
+## Start local function definitions
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+# function usage()
+# Display script usage details.
+# Returns null
+##############################################################################
+function usage() {
+  local myName=${1:t}
+
+  cat << EOF
+Usage:
+${myName} [ --help (-h) ] [ --version (-v) ] --owner (-o) <User Name>
+
+${myName} configures Rivendell for use after installing or upgrading the Paravel
+package from its repository.
+
+One of its tasks is to set the ownership of the executable programs (apps) to
+the proper user ID. You must include this (using the '--owner' parameter) on the
+command line.
+
+EOF
+}
+
+##############################################################################
+##############################################################################
+##
+## End local function definitions
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+##############################################################################
+##
+## Start script mainline
+##
+##############################################################################
+##############################################################################
+
+bindir=${BINDIR:-${ROOT:-/}usr/bin}
+
+## Use getopt to parse the command line arguments.
+TEMP=$(getopt -o o:hv --long owner:,help,version -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "getopt(1) failed (${?}). Terminating..." >&2 ; exit 1 ; fi
+## Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -o|--owner) fileOwner=${2} ; shift 2 ;;
+    -h|--help) usage ${0} ; exit ;;
+    -v|--ver*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo 'Unknown option: Internal error, I quit!' ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#$Hash: }%$}"
+  exit 0
+fi
+
+[[ -n "${fileOwner}" ]] || { usage ${0} ; exit 2; }
+
+for executable in caed ripcd rdcatchd ; do
+  for dir in ${PATH//:/ } ; do
+    if [[ -x ${bindir}/${executable} ]] ; then
+      sudo chown ${fileOwner}: ${bindir}/${executable}
+      sudo chmod u+s ${bindir}/${executable}
+      ((VERBOSE)) && ls -l ${bindir}/${executable}
+      break
+    fi
+  done
+done
+
+exit
+
+##############################################################################
+##############################################################################
+##
+## End script mainline
+##
+##############################################################################
+##############################################################################
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
