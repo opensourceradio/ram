@@ -15,7 +15,7 @@
 vRelease=0
 vMajor=0
 vMinor=1
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 ##############################################################################
@@ -89,7 +89,7 @@ fi
 
 [[ -n "${fileOwner}" ]] || { usage ${0} ; exit 2; }
 
-for executable in caed ripcd rdcatchd ; do
+for executable in caed ; do
   for dir in ${PATH//:/ } ; do
     if [[ -x ${bindir}/${executable} ]] ; then
       sudo chown ${fileOwner}: ${bindir}/${executable}
