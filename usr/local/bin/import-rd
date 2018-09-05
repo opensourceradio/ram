@@ -10,7 +10,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Tell them how to use this command.
@@ -51,7 +51,11 @@ validSchedCode() {
   local definedCodes=${1} ; shift
   local requestedCode=${1} ; shift
 
-  [[ "${definedCodes}" =~ ".*${requestedCode}.*" ]]
+  for schedCode in $(echo ${definedCodes}) ; do
+    [[ "${requestedCode}" = ${schedCode} ]] && return 0
+  done
+
+  return 1
 }
 
 # Check to be sure it is a valid GROUP. Returns true or false based on
@@ -60,7 +64,7 @@ validGroup() {
   local definedGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+  ${EXPR} "${definedGroups}" : ".*${requestedGroup}.*" >/dev/null
 }
 
 # Figure out the file type and extract the meta tags from it.
@@ -69,11 +73,11 @@ tags() {
 
   # NB: these string match tests are performed case INsensitively
   # (see setopt, above).
-  if [[ "${track##*.}" =~ 'flac' ]] ; then
+  if [[ "${track##*.}" = 'flac' ]] ; then
     flacTags "${track}"
-  elif [[ "${track##*.}" =~ 'ogg' ]] ; then
+  elif [[ "${track##*.}" = 'ogg' ]] ; then
     vorbisTags "${track}"
-  elif [[ "${track##*.}" =~ 'mp3' ]] ; then
+  elif [[ "${track##*.}" = 'mp3' ]] ; then
     id3Tags "${track}"
   else
     echo "${BOLD}Cannot figure out what kind of file this is. I give up!${NORM}" >&2
@@ -108,23 +112,22 @@ id3Tags() {
 
   ${ID3INFO} "${track}" | while read line ; do
     case "${line#=== }" in
-      TIT2*) echo "comment[1]: title=${line#*: }" ;; # (Title/songname/content description)
-      TALB*) echo "comment[2]: album=${line#*: }" ;; # (Album/Movie/Show title)
-      TCON*) echo "comment[3]: genre=${line#*: }" ;; # (Content type)
-      TPE3*) : ;; # (Conductor/performer refinement)
-      TRCK*) echo "comment[4]: tracknumber=${${line#*: }%/*}" ;; # (Track number/Position in set)
-      TYER*) echo "comment[5]: date=${line#*: }" ;; # (Year)
-      TPE1*) echo "comment[6]: artist=${line#*: }" ;; # (Lead performer(s)/Soloist(s))
-      TPE2*) : ;; # (Band/orchestra/accompaniment):
-      COMM*) : ;; # (Comments)
+      TT2*|TIT2*) echo "comment[1]: title=${line#*: }" ;; # (Title/songname/content description)
+      TAL*|TALB*) echo "comment[2]: album=${line#*: }" ;; # (Album/Movie/Show title)
       TCOP*) : ;; # (Copyright message)
-      TPOS*) : ;; # (Part of a set)
+      TCO*|TCON*) echo "comment[3]: genre=${line#*: }" ;; # (Content type)
+      TRK*|TRCK*) echo "comment[4]: tracknumber=${${line#*: }%/*}" ;; # (Track number/Position in set)
+      TYE*|TYER*) echo "comment[5]: date=${line#*: }" ;; # (Year)
+      TP1*|TPE1*) echo "comment[6]: artist=${line#*: }" ;; # (Lead performer(s)/Soloist(s))
+      TP2*|TPE2*) : ;; # (Band/orchestra/accompaniment):
+      TP3*|TPE3*) : ;; # (Conductor/performer refinement)
+      COM*|COMM*) : ;; # (Comments)
+      TPA*|TPOS*) : ;; # (Part of a set)
       APIC*) : ;; # (Attached picture)
       PRIV*) : ;; # (Private frame):  (unimplemented)
       TPUB*) echo "comment[7]: label=${line#*: }" ;; # (Publisher)
       TCOM*) : ;; # (Composer)
-      COMM*) : ;; # (Comments)
-      *) : ;; # WTF? Unknown ID3 keyword.
+      *) : ;; # Unknown ID3 keyword.
     esac
   done
 }
@@ -138,11 +141,12 @@ else
 fi
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 9 external commands.
+# This script uses these 10 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
   column
+  expr
   fgrep
   getopt
   id3info
@@ -201,7 +205,7 @@ if [[ -r "${1}" ]] ; then
 
   # list the groups and prompt them for a group to use in this import
   if [[ -n "${group}" ]] ; then
-    if [[ "${group}" =~ 'list' ]] ; then
+    if [[ "${group}" = 'list' ]] ; then
       echo "Current list of GROUPs:"
       echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
       read group\?"Enter a GROUP to import into: "
@@ -220,7 +224,7 @@ if [[ -r "${1}" ]] ; then
   # import.  See also, below where we attempt to assign the "genre"
   # to a Scheduler Code.
   if [[ -n "${ourSchedCodes}" ]] ; then
-    if [[ "${ourSchedCodes}" =~ 'list' ]] ; then
+    if [[ "${ourSchedCodes}" = 'list' ]] ; then
       echo "Current list of Scheduler codes:"
       echo ${(F)rivendellSchedCodes} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
       read ourSchedCodes\?"Enter a comma-separated list of scheduler codes (no spaces): "
@@ -244,10 +248,10 @@ if [[ -r "${1}" ]] ; then
     ourSchedCodes="${initialSchedCodes}"
 
     # Store the file location of the source material for reference.
-    if [[ "${track}" =~ '^/.*' ]] ; then
+    if ${EXPR} "${track}" : '^/.*' > /dev/null ; then
       # Track is a full path, save it as is.
       location=${track#/*/*/}
-    elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
+    elif ${EXPR} "${track}" : '^[^/].*/.*' > /dev/null ; then
       # Track is a relative path, leave it alone.
       location=${track}
     else
@@ -274,10 +278,10 @@ if [[ -r "${1}" ]] ; then
 
     # Attempt to tease out the year from the DATE string; we assume
     # that the year is ALWAYS a four-digit string.
-    if [[ "${year}" =~ '\d{4}[-/ ]\d{2}[-/ ]\d{2}' ]] ; then
+    if ${EXPR} "${year}" : '[[:digit:]]\{4\}[-/ ][[:digit:]]\{2\}[-/ ][[:digit:]]\{2\}' > /dev/null ; then
       # YYYY-MM-DD format (separated with "/" or "-" or " ")
       year="${year%%[-/ ]*}"
-    elif [[ "${year}" =~ '\d{2}[-/ ]\d{2}[-/ ]\d{4}' ]] ; then
+    elif ${EXPR} "${year}" : '[["digit:]]\{2\}[-/ ][["digit:]]\{2\}[-/ ][["digit:]]\{4\}' > /dev/null ; then
       # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
       year="${year##*[-/ ]}"
     fi
@@ -300,6 +304,12 @@ if [[ -r "${1}" ]] ; then
       # Ignore the embedded 'genre' tags if they are not in the
       # list of Rivendell Scheduler Codes
       for g in ${genre} ; do
+
+	# Get the actual SCHED_CODE if the genre was a parenthesized number.
+	if ${EXPR} "${g}" : '^([[:digit:]][[:digit:]]*)' > /dev/null ; then
+	  g=$(doSQL "SELECT code FROM SCHED_CODES WHERE description LIKE '${g}%'")
+	fi
+
 	if validSchedCode "${rivendellSchedCodes}" "${g}" ; then
 	  # Add the embedded 'genre' to our list of
 	  # Scheduler Codes if it is not already there.
