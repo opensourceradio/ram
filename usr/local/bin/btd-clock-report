@@ -103,7 +103,7 @@ showClock() {
 
     # doSQL output is <TAB>-separated, make sure the whitespace in the
     # variable expansions below is a single <TAB>.
-    doSQL "SELECT event_name,start_time,length FROM ${clock}_CLK ORDER BY start_time ASC" | while read line ; do
+    doSQL "SELECT event_name,start_time,length FROM \`${clock}_CLK\` ORDER BY start_time ASC" | while read line ; do
       eventName=${line%%	*}
       eventDuration=${line##*	}
       eventStart=${${line#*	}%	*}
