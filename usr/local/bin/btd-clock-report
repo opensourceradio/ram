@@ -23,12 +23,12 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
-##########################################################################################
+##############################################################################
 ## Locally defined subroutines
-##########################################################################################
+##############################################################################
 
 # How to use this command.
 usage() {
@@ -86,7 +86,7 @@ validClock() {
   local definedClocks=${1} ; shift
   local requestedClock=${1} ; shift
 
-  [[ "${definedClocks}" =~ ".*${requestedClock}.*" ]]
+  ${EXPR} "${definedClocks}" : ".*${requestedClock}.*" > /dev/null
 }
 
 # Display all the events in one clock along with its title
@@ -97,7 +97,7 @@ showClock() {
 
   local returnValue=1 		# assume success
 
-  if [[ "${rivendellClockList}" =~ ".*${clock}.*" ]] ; then
+  if ${EXPR} "${rivendellClockList}" : ".*${clock}.*" > /dev/null ; then
 
     printf '# Events for Clock "%s"\n' "${clock//_/ }"
 
@@ -126,11 +126,12 @@ showClock() {
 }
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 4 external commands.
+# This script uses these 5 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
   column
+  expr
   fmt
   getopt
 )
