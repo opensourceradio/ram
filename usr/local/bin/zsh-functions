@@ -12,6 +12,13 @@
 
 zmodload zsh/datetime
 
+# This library complies with Semantic Versioning: http://semver.org/
+vLibRelease=0
+vLibMajor=0
+vLibMinor=1
+vLibPatch=2
+vLibHash='$Hash$'
+
 # Use the configured mailer to send email to one or more
 # addresses. This relies heavily on msmtp(1) and its configuration
 # file.
@@ -462,7 +469,7 @@ rdWebInvoke() {
   fi
 
   IFS="${oIFS}"
-    
+
   return ${returnValue}
 }
 
