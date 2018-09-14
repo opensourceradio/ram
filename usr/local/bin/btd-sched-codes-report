@@ -1,0 +1,179 @@
+#!/bin/env zsh
+
+##############################################################################
+##############################################################################
+##
+## sched-codes-report
+##
+## Report on SCHED_CODES usage in carts
+##
+##############################################################################
+##############################################################################
+
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+vRelease=0
+vMajor=0
+vMinor=1
+vPatch=1
+vHash='$Hash$'
+
+##############################################################################
+##############################################################################
+##
+## Start local function definitions
+##
+##############################################################################
+##############################################################################
+## Tell them how to use this script.
+usage() {
+  local myName=${1:t}
+
+  cat <<EndOfUsage
+${myName} [ --help (-h) ] [ --version (-v) ]
+                   [ --code (-c) <SCHED_CODE> ]"
+
+$(${FMT} <<<"${myName} reports on Scheduler Code usage in the Rivendell Library")
+
+$(${FMT} <<<"Use the --code (-c) <CODE> option to report on a specific Scheduler Code.")
+
+EndOfUsage
+}
+
+##############################################################################
+# function validSchedCode()
+# Check the passed code for validity
+# Returns true or false
+##############################################################################
+validSchedCode() {
+  local definedCodes=${1} ; shift
+  local requestedCode=${1} ; shift
+
+  for schedCode in $(echo ${definedCodes}) ; do
+  [[ "${requestedCode}" = ${schedCode} ]] && return 0
+  done
+
+  return 1
+}
+
+##############################################################################
+##############################################################################
+##
+## End local function definitions
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+##############################################################################
+##
+## Start script mainline
+##
+## Process options and get all the SCHED_CODES.
+##
+##############################################################################
+##############################################################################
+
+#################  BEGIN shell commands used in this script.  #################
+# This script uses these 3 external commands.
+# Look for them in their upper case, parameter expanded form.
+ourCommands=(
+  fmt
+  getopt
+  logger
+)
+# Find the executables we need; this uses a little old fashioned shell and
+# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
+# all upper case letters. We will use the command names in upper case as
+# variables by which to call the external commands used in this script.
+for C in ${ourCommands} ; do
+  for D in ${path} ; do
+  [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+  done
+  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+done
+##################  END shell commands used in this script.  ##################
+
+if [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
+  exit 7
+fi
+
+## Use getopt to parse the command line arguments.
+TEMP=$(${GETOPT} -o c:hv --long code:,help,version -n ${0:t} -- "${@}")
+if [ ${?} != 0 ] ; then echo "getopt(1) failed (${?}). Terminating..." >&2 ; exit 1 ; fi
+## Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+  -c|--code) schedCode=${2} ; shift 2 ;;
+  -h|--help) usage ${0} ; exit ;;
+  -v|--ver*) showVersion=1 ; shift ;;
+  --) shift ; break ;;
+  *) echo 'Unknown option: Internal error, I quit!' ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#$Hash: }%$}"
+  [[ -n "${vLibRelease}" ]] &&
+  echo "tLibrary version ${vLibRelease}.${vLibMajor}.${vLibMinor}${vLibPatch}-${${vLibHash#$Hash: }%$}"
+  exit 0
+fi
+
+
+# these depends on having ~/.my.cnf or /etc/rd.conf configured with
+# valid credentials for accessing the Rivendell database
+rivendellSchedCodes=( $(doSQL "SELECT code FROM SCHED_CODES") )
+
+printf "%12s %6s %s\n" " Sched Code" " Count" "  Code Description"
+
+# Loop over a) just the specified code, or b) all existing scheduler codes.
+for code in ${schedCode:-${rivendellSchedCodes}} ; do
+  codeCount=$(doSQL "SELECT COUNT(*) FROM CART WHERE sched_codes REGEXP '.*[[:space:]]?${code}[[:space:]].*'")
+  result=$(doSQL "SELECT code, '${codeCount}', description FROM SCHED_CODES WHERE code = '${code}'")
+  printf "%-12s %6d %s\n" ${result%%	*} ${${result%	*}#*	} ${result##*	}
+done
+
+exit
+
+##############################################################################
+##############################################################################
+##
+## End script mainline
+##
+##############################################################################
+##############################################################################
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
