@@ -1,6 +1,5 @@
 #!/bin/zsh
 
-setopt REMATCH_PCRE
 setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/terminfo
@@ -10,7 +9,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 # Tell them how to use this command.
@@ -64,7 +63,7 @@ validGroup() {
   local definedGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  ${EXPR} "${definedGroups}" : ".*${requestedGroup}.*" >/dev/null
+  "${definedGroups}" =~ ".*${requestedGroup}.*"
 }
 
 # Figure out the file type and extract the meta tags from it.
@@ -141,12 +140,11 @@ else
 fi
 
 #################  BEGIN shell commands used in this script.  #################
-# This script uses these 10 external commands.
+# This script uses these 9 external commands.
 # Look for them in their upper case, parameter expanded form.
 ourCommands=(
   cat
   column
-  expr
   fgrep
   getopt
   id3info
@@ -248,10 +246,10 @@ if [[ -r "${1}" ]] ; then
     ourSchedCodes="${initialSchedCodes}"
 
     # Store the file location of the source material for reference.
-    if ${EXPR} "${track}" : '^/.*' > /dev/null ; then
+    if [[ "${track}" =~ '^/.*' ]] ; then
       # Track is a full path, save it as is.
       location=${track#/*/*/}
-    elif ${EXPR} "${track}" : '^[^/].*/.*' > /dev/null ; then
+    elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
       # Track is a relative path, leave it alone.
       location=${track}
     else
@@ -278,10 +276,10 @@ if [[ -r "${1}" ]] ; then
 
     # Attempt to tease out the year from the DATE string; we assume
     # that the year is ALWAYS a four-digit string.
-    if ${EXPR} "${year}" : '[[:digit:]]\{4\}[-/ ][[:digit:]]\{2\}[-/ ][[:digit:]]\{2\}' > /dev/null ; then
+    if [[ "${year}" =~ '[[:digit:]]\{4\}[-/ ][[:digit:]]\{2\}[-/ ][[:digit:]]\{2\}' ]] ; then
       # YYYY-MM-DD format (separated with "/" or "-" or " ")
       year="${year%%[-/ ]*}"
-    elif ${EXPR} "${year}" : '[["digit:]]\{2\}[-/ ][["digit:]]\{2\}[-/ ][["digit:]]\{4\}' > /dev/null ; then
+    elif [[ "${year}" =~ '[["digit:]]\{2\}[-/ ][["digit:]]\{2\}[-/ ][["digit:]]\{4\}' ]] ; then
       # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
       year="${year##*[-/ ]}"
     fi
@@ -306,7 +304,7 @@ if [[ -r "${1}" ]] ; then
       for g in ${genre} ; do
 
 	# Get the actual SCHED_CODE if the genre was a parenthesized number.
-	if ${EXPR} "${g}" : '^([[:digit:]][[:digit:]]*)' > /dev/null ; then
+	if [[ "${g}" =~ '^([[:digit:]][[:digit:]]*)' ]] ; then
 	  g=$(doSQL "SELECT code FROM SCHED_CODES WHERE description LIKE '${g}%'")
 	fi
 
