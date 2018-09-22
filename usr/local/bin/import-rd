@@ -63,7 +63,7 @@ validGroup() {
   local definedGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  "${definedGroups}" =~ ".*${requestedGroup}.*"
+  [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
 }
 
 # Figure out the file type and extract the meta tags from it.
