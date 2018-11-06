@@ -39,7 +39,7 @@ This script will set Scheduler Code to the "genre" meta tag if the
 The script will attempt to extract the label name from the meta
 tags. You can explicitely set this with the --label option.
 
-Normalization level defaults to -4 dBFS.
+Normalization level defaults to -12 dBFS.
 
 EOF
 }
@@ -331,7 +331,7 @@ if [[ -r "${1}" ]] ; then
 	     --log-mode \
 	     --verbose \
 	     --fix-broken-formats \
-	     --normalization-level=${normalization:-"-4"} \
+	     --normalization-level=${normalization:-"-12"} \
 	     --set-string-artist=${artist} \
 	     --set-string-title=${title} \
 	     --set-string-album=${album} \
