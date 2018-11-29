@@ -1,0 +1,130 @@
+#!/bin/zsh
+# shellcheck disable=SC2086
+
+#
+# btd-cart-cleanup (e.g. Hard Knock Radio)
+# Clean up the Rivendell Cart containing unwanted cuts.
+
+zmodload zsh/datetime
+zmodload zsh/stat
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+# shellcheck disable=SC2016
+vHash='$Hash$'
+
+# Tell them how to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} << EOF
+${myName}: clean up multi-cut carts populated by a dropbox
+
+Summary: ${myName##*/} [ --help (-h) ] [ --version (-v) ] <pattern>
+
+Where <pattern> is a substring of a Rivendell dropbox PATH used to
+identify the dropbox.
+
+EOF
+}
+
+version() {
+    myName=${1}
+    echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash$}"
+}
+
+# shellcheck disable=SC1090
+if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  source ${ROOT:-/}usr/local/bin/zsh-functions
+else
+  echo "Cannot see /usr/local/bin/zsh-functions. I quit."
+  exit 1
+fi
+
+## Use getopt to parse the command line arguments.
+TEMP=$(${GETOPT} -o hv --long help,version -n ${0:t} -- "${@}")
+# shellcheck disable=SC2181
+if [ ${?} != 0 ] ; then echo "Internal getopt error. Terminating..." >&2 ; exit 1 ; fi
+## Note the quotes around "$TEMP": they are essential!
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+      -h|--help) usage ${0} ; exit ;;
+      -v|--ver*) showVersion=1 ; shift ;;
+      --) shift ; break ;;
+      *) echo "Internal getopt error: invalid option '${1}'" ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if (( showVersion )) ; then
+  version ${0##*/}
+  exit 0
+fi
+
+dropboxString=${1}
+if [[ -z "${dropboxString}" ]] ; then
+  logit ${0} 1 "Missing an identifying string to use to select the Rivendell dropbox. Cannot continue."
+  exit 2
+fi
+
+#
+# Delete the shortest cut in the cart if the duration between DELETE
+# events is greater than minimumFileDeleteInterval (default: 10
+# minutes) and less than maximumFileDeleteInterval (default: three
+# hours)
+#
+minFileDeleteInterval="${MIN_FILE_DELETE_INTERVAL:-600}"
+threeHours=$(( 3600 * 3 ))
+maxFileDeleteInterval="${MAX_FILE_DELETE_INTERVAL:-${threeHours}}"
+
+pathSpec=$(doSQL "SELECT path FROM DROPBOXES WHERE path LIKE '%${dropboxString}%'")
+dirName=${pathSpec%/*}
+cartNumber=$(doSQL "SELECT to_cart FROM DROPBOXES WHERE path LIKE '%${dropboxString}%'")
+if [[ -z "${cartNumber}" ]] || (( cartNumber == 0 )) ; then
+  logit ${0} 1 "Unable to find a CART number for a dropbox containing '${dropboxString}' in the PATH. Cannot continue."
+  exit 3
+fi
+
+while watchEvent=$(inotifywait --quiet --timefmt "%s" --format "%T" --event delete ${dirName}) ; do
+  eventTime="${watchEvent}"
+
+  if [[ -n "${lastEventTime}" ]] &&
+       (( (eventTime - lastEventTime) > minFileDeleteInterval )) &&
+       (( (eventTime - lastEventTime) < maxFileDeleteInterval )) ; then
+    btd-drop-cuts --shorter 120 ${cartNumber}
+  fi
+
+  lastEventTime=${eventTime}
+done
+
+# Should never exit.
+logit ${0} 1 "Unexpectedly exiting. Please restart this service."
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
