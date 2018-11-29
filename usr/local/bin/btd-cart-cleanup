@@ -11,7 +11,7 @@ zmodload zsh/stat
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=2
+vPatch=3
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -19,7 +19,7 @@ vHash='$Hash$'
 usage() {
   myName=${1}
 
-  ${CAT} << EOF
+  cat << EOF
 ${myName}: clean up multi-cut carts populated by a dropbox
 
 Summary: ${myName##*/} [ --help (-h) ] [ --version (-v) ] <pattern>
@@ -44,7 +44,7 @@ else
 fi
 
 ## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o hv --long help,version -n ${0:t} -- "${@}")
+TEMP=$(getopt -o hv --long help,version -n ${0:t} -- "${@}")
 # shellcheck disable=SC2181
 if [ ${?} != 0 ] ; then echo "Internal getopt error. Terminating..." >&2 ; exit 1 ; fi
 ## Note the quotes around "$TEMP": they are essential!
@@ -95,7 +95,7 @@ while watchEvent=$(inotifywait --quiet --timefmt "%s" --format "%T" --event dele
   if [[ -n "${lastEventTime}" ]] &&
        (( (eventTime - lastEventTime) > minFileDeleteInterval )) &&
        (( (eventTime - lastEventTime) < maxFileDeleteInterval )) ; then
-    btd-drop-cuts --shorter 120 ${cartNumber}
+    /usr/local/bin/btd-drop-cuts --shorter 120 ${cartNumber}
   fi
 
   lastEventTime=${eventTime}
