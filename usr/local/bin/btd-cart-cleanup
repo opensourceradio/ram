@@ -11,7 +11,7 @@ zmodload zsh/stat
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=3
+vPatch=4
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -80,6 +80,7 @@ fi
 minFileDeleteInterval="${MIN_FILE_DELETE_INTERVAL:-600}"
 threeHours=$(( 3600 * 3 ))
 maxFileDeleteInterval="${MAX_FILE_DELETE_INTERVAL:-${threeHours}}"
+lastEventTime=${EPOCHSECONDS}
 
 pathSpec=$(doSQL "SELECT path FROM DROPBOXES WHERE path LIKE '%${dropboxString}%'")
 dirName=${pathSpec%/*}
@@ -89,16 +90,14 @@ if [[ -z "${cartNumber}" ]] || (( cartNumber == 0 )) ; then
   exit 3
 fi
 
-while watchEvent=$(inotifywait --quiet --timefmt "%s" --format "%T" --event delete ${dirName}) ; do
-  eventTime="${watchEvent}"
+while eventTime=$(inotifywait --quiet --timefmt "%s" --format "%T" --event delete ${dirName}) ; do
 
-  if [[ -n "${lastEventTime}" ]] &&
-       (( (eventTime - lastEventTime) > minFileDeleteInterval )) &&
-       (( (eventTime - lastEventTime) < maxFileDeleteInterval )) ; then
-    /usr/local/bin/btd-drop-cuts --shorter 120 ${cartNumber}
+  if (( (eventTime - lastEventTime) < maxFileDeleteInterval )) ; then
+    /usr/local/bin/btd-drop-cuts --verbose --shorter 120 ${cartNumber}
   fi
 
   lastEventTime=${eventTime}
+
 done
 
 # Should never exit.
