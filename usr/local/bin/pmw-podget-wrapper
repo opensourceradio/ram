@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -70,7 +70,6 @@ updateRuntimeData() {
   local value=${2:?"Need a value for key '${key}' to set or update in ${DIR_LOG}/${PODGET_RUNTIME_DATA}"}
 
   local tmpfile=$(${MKTEMP})
-  local returnValue=1
 
   trap "${RM} -f ${tmpfile} ; exit ; " 0 1 2 3
 
@@ -84,15 +83,10 @@ updateRuntimeData() {
     # care if the key is present in the file).
     ${GREP} -v "^${key} " ${DIR_LOG}/${PODGET_RUNTIME_DATA} > ${tmpfile}
 
-    if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
-
-      returnValue=0
+    if ! ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
+      error "${myName}" "ERROR: Failed to DELETE key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'."
       trap - 0 1 2 3
-
-    else
-
-      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to delete key '${key}' from '${DIR_LOG}/${PODGET_RUNTIME_DATA}'. Aborting podget run."
-      returnValue=32
+      return 32
 
     fi
 
@@ -103,17 +97,19 @@ updateRuntimeData() {
 
     # There should be exactly one line of difference between the
     # edited file and the original file (.bak)
-    if (( $(${DIFF} -y --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak) == 1 )) ; then
+    local diffOutput="$(${DIFF} -y --suppress-common-lines ${DIR_LOG}/${PODGET_RUNTIME_DATA} ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak)"
+    local diffLineCount=$(echo "${diffOuput}" | wc -l)
 
-      ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
-      returnValue=0
+    ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
+
+    if (( diffLineCount != 1 )) ; then
+
+      echo "${diffOutput}" > ${tmpfile}
+      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}' (see attached). Aborting podget run." "${tmpfile}"
+      ${RM} -f ${tmpfile}
+
       trap - 0 1 2 3
-
-    else
-
-      sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}'. Aborting podget run."
-      ${RM} -f ${DIR_LOG}/${PODGET_RUNTIME_DATA}.bak
-      returnValue=34
+      return 34
 
     fi
 
@@ -125,20 +121,19 @@ updateRuntimeData() {
       ${CAT} ${DIR_LOG}/${PODGET_RUNTIME_DATA}
     ) | ${SORT} > ${tmpfile}
 
-    if ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
-
-      returnValue=0
-      trap - 0 1 2 3
-
-    else
+    if ! ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
 
       sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
-      returnValue=36
+
+      trap - 0 1 2 3
+      return 36
 
     fi
   fi
 
-  return ${returnValue}
+  trap - 0 1 2 3
+
+  return
 }
 
 # Housekeeping and other tasks to run before podget.
@@ -168,11 +163,13 @@ preRunProcess() {
 
 # Housekeeping and other tasks to run after podget. Tasks include:
 #
-# archive the contents of the "done" file (${LOG_COMPLETE}) for this
+# - archive the contents of the "done" file (${LOG_COMPLETE}) for this
 # run. We do this in order to be able to delete old entries that we no
 # longer want. The assumption is that old podcasts are deleted from
 # the feed server and we will not see them again. Without this
-# housekeeping, the ${LOG_COMPLETE} file grows without bound.
+# housekeeping, the ${LOG_COMPLETE} file grows without bound. We want
+# to keep 'done' files around for a while so we can see when a
+# specific podcast was downloaded.
 #
 postRunProcess() {
   local myName=${1} ; shift
@@ -182,9 +179,13 @@ postRunProcess() {
   local doneArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
   local archivePrefix=${LOG_COMPLETE}
   local returnValue=1
+  local tmpfile
 
   # This temporary file will be used several times in this process.
-  local tmpfile=$(${MKTEMP})
+  if ! tmpfile=$(${MKTEMP}) ; then
+    error "${myName}" "Unable to create temporary storage for podget post processing (${?}). I am done."
+    return 4
+  fi
 
   trap "${RM} -f ${tmpfile} ${doneArchive} ; trap - ; return ;" 0 1 2 3
 
@@ -198,7 +199,15 @@ postRunProcess() {
     # The filename is irrelevant, we simply need a unique name to hold
     # the names of files retrieved in this run of podget.
     checkSum=$(${SHA256SUM} ${tmpfile} | ${AWK} '{print $1}')
-    ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-${checkSum}
+    if [[ -n "${checkSum}" ]] ; then
+      if ! ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-${checkSum} ; then
+	warning "${myName}" "Unable to save '${tmpfile}' as completion file '${DIR_LOG}/archive/${archivePrefix}-${checkSum}' (${?})."
+	${RM} -f ${tmpfile}
+      fi
+    else
+      warning "${myName}" "Unable to calculate SHA256 checksum of '${tmpfile}' (${?})."
+      ${RM} -f ${tmpfile}
+    fi
 
   else
     ${RM} -f ${tmpfile}
@@ -471,11 +480,14 @@ else
   # "v" to increase the verbosity of podget.
   ${PODGET} ${VERBOSE:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
 
-  # Make a note of the completion time
-  updateRuntimeData ${myName} start-time DELETE
+  if ! updateRuntimeData ${myName} start-time DELETE ; then
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to clean up podget runtime data. Please look into this."
+  fi
 
   # Execute post-podget-run tasks.
-  postRunProcess ${myName} ${startTime} ${VERBOSE}
+  if ! postRunProcess ${myName} ${startTime} ${VERBOSE} ; then
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${?})."
+  fi
 
   # Check the various output and log files to make sure things went well.
   if [[ -s ${DIR_LOG}/${LOG_FAIL} ]] ; then
