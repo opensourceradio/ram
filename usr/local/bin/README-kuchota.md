@@ -33,9 +33,11 @@ Kuchota is an app that fills the RSS-feed-fetch void in Rivendell. Use Kuchota t
 
 ### Text GUI configuration
 
-* Place _kuchota.desktop_ in _/usr/share/applications_ and/or _$HOME/Desktop_
+* Place _kuchota.desktop_ in _/usr/share/applications_
+* As the "target" user, run:
+		XDG_UTILS_DEBUG_LEVEL=999 xdg-desktop-menu install --novendor /usr/share/applications/kuchota.desktop
 * Place _kuchota.svg_ in _/usr/share/icons/gnome/scalable/apps_
-	+ run __gtk-update-icon-cache /usr/share/icons/gnome__ or __gtk-update-icon-cache-3.0 /usr/share/icons/gnome__
+	+ run `gtk-update-icon-cache /usr/share/icons/gnome` or `gtk-update-icon-cache-3.0 /usr/share/icons/gnome`
 * _GNOME terminal_ create a "kuchota" profile:
 
 		dconf load /org/gnome/terminal/legacy/profiles:/$(uuidgen):/ << EOF
