@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 5;
+use constant vPATCH => 6;
 use constant vHASH => '$Hash$';
 
 package Feed;
@@ -22,13 +22,14 @@ my $feeds = {
     'RedDirtMusicRadio' => {
         'feedTitle'        => 'Red Dirt Music Radio',
         'feedDescription'  => 'Red Dirt Music Radio Segments',
+        'feedRSSfile'      => 'rdmr.xml',
         'remotePROTO'      => 'ftp',
         'remoteHOST'       => 'ftp.radioidl.com',
         'remoteUSER'       => 'rdmrcom',
         'remotePASS'       => 'R@dio2435',
         # Note that remoteDir must begin with a '/'.
         'remoteDIR'        => '/',
-        # This is the list of fields as returned by curl(1). The
+        # This is the list of fields as returned by ncftpls(1). The
         # digits are the indexes into the array returned by
         # split(). Note that filenames with spaces in them will cause
         # the split() array to contain more than 9 elements.
@@ -52,11 +53,12 @@ my $feeds = {
     'UnderCurrents' => {
         'feedTitle'        => 'UnderCurrents',
         'feedDescription'  => 'UnderCurrents 1-hour segments',
+        'feedRSSfile'      => 'uc.xml',
         'remotePROTO'      => 'ftp',
         'remoteHOST'       => 'ftp.nativeftp.org',
         'remoteUSER'       => 'undercurrents@nativeftp.org',
         'remotePASS'       => 'undercurrents@nativeftp.org',
-        'remoteDIR'        => '/UnderCurrents',
+        'remoteDIR'        => '/',
         'longListFormat'   => {
             'mode'     => 0,
             'links'    => 1,
@@ -99,8 +101,7 @@ sub feedURL( $$ ) {
     my $feedName = shift;
 
     my $url = $self->{feedList}->{$feedName}->{remotePROTO} . '://' .
-	$self->{feedList}->{$feedName}->{remoteHOST} .
-	$self->{feedList}->{$feedName}->{remoteDIR};
+	$self->{feedList}->{$feedName}->{remoteHOST};
 
     $url;
 }
@@ -194,19 +195,24 @@ sub getFileListingForFeed( $$ ) {
     my $feedUser = $self->feedUser( $feedName );
     my $feedPass = $self->feedPass( $feedName );
 
-    # Need the FTP CWD method and list options to make UnderCurrents
-    # listings work correctly. They also work for RDMR as of Thu Jul 6
-    # 20:05:14 CDT 2017.
-    my $curlCommand =
-	qq(curl --silent --ftp-method singlecwd --list --request LIST --user) . q( ) .
-	qq($feedUser:$feedPass) . q( ) .
-	qq("$feedURL");
+    my $listCommand = join(q( ), (
+			       qq(ncftpls),
+			       qq(-R),
+			       qq(-u),
+			       qq("$feedUser"),
+			       qq(-p),
+			       qq("$feedPass"),
+			       qq("$feedURL")
+			   ));
 
-    say STDERR $curlCommand if ( $self->{verbose} );
+    say STDERR $listCommand if ( $self->{verbose} );
 
-    @fileList = qx($curlCommand);
+    @fileList = qx($listCommand);
 
     chomp( @fileList );
+
+    # Eliminate blank lines from the listing output.
+    @fileList = grep(!/^$/, @fileList);
 
     \@fileList;
 }
@@ -249,6 +255,8 @@ sub createXML( $$$$ ) {
     my $feed = $feeds->feedName( $feedName );
 
     my $xml = undef;
+    my $subdir = undef;
+    my $fullURL = undef;
 
     # make the header
     $xml = <<END;
@@ -256,7 +264,7 @@ sub createXML( $$$$ ) {
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
  <channel>
   <title>$feed->{feedTitle}</title>
-  <link>http://grunch.org</link>
+  <link>http://grunch.org/rss/$feed->{feedRSSfile}</link>
   <description>$feed->{feedDescription}</description>
  </channel>
 END
@@ -264,8 +272,16 @@ END
 
     # make each entry
     foreach my $file ( @$files ) {
+	next if ( $file =~ /^d.*\s\.+$/ );
+	if ( $file =~ /^\.\/.*:$/ ) {
+	    ( $subdir = $file ) =~ s/^\.\/(.*):$/$1/;
+	    next;
+	}
         next unless ( $file =~ /\.mp3$/ );
-	my $fullURL = $feeds->feedURL( $feedName ) . q(/) . uri_escape( $feeds->getFilename( $feedName, $file ));
+	$fullURL = $feeds->feedURL( $feedName );
+	$fullURL .= q(/) . uri_escape($subdir) if ( defined($subdir) );
+	$fullURL .= q(/) . uri_escape( $feeds->getFilename( $feedName, $file ));
+
 	my $rawFileName = $feeds->getFilename( $feedName, $file );
 	my $length = $feeds->getSize( $feedName, $file );
 	my $pubDate = $feeds->getPubDate( $feedName, $file );
@@ -319,9 +335,7 @@ sub main() {
     } else {
 	$feed = $feeds->feedName( $feedName );
 	my $files = $feeds->getFileListingForFeed( $feedName );
-	say STDERR map {
-	    $feed->{remoteDIR} . $feeds->getFilename( $feedName, $_ ) . "\n"
-	} @$files if ( $verbose > 1 );
+	say STDERR join(qq(\n), @$files) if ( $verbose > 1 );
 
 	open my $feedFH, ">", $feeds->outputFile( $feedName ) ||
 	    die "Cannot open $feeds->outputFile( $feedName ) for writing ($?). Stopped";
