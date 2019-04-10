@@ -214,9 +214,10 @@ if [[ -r "${1}" ]] ; then
     read group\?"Enter a GROUP for this import: "
   fi
 
-  validGroup "${rivendellGroupList}" ${group} || { echo
-						   "${BOLD}${group} is not in the list. Please use a valid GROUP
-    name.${NORM}" 1>&2 ; exit 2 ; }
+  validGroup "${rivendellGroupList}" ${group} ||
+    {
+      echo "${BOLD}${group} is not in the list. Please use a valid GROUP name.${NORM}" 1>&2 ; exit 2 ;
+    }
 
   # List the codes and prompt the user for codes to use in this
   # import.  See also, below where we attempt to assign the "genre"
