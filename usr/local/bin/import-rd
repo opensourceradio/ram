@@ -9,10 +9,10 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
-DEFAULT_NORMALIZATION-${DEFAULT_NORMALIZATION:-"-4"}
+DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-4"}
 
 # Tell them how to use this command.
 usage() {
