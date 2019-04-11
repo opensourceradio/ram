@@ -9,8 +9,10 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=4
+vPatch=5
 vHash='$Hash$'
+
+DEFAULT_NORMALIZATION-${DEFAULT_NORMALIZATION:-"-4"}
 
 # Tell them how to use this command.
 usage() {
@@ -39,7 +41,7 @@ This script will set Scheduler Code to the "genre" meta tag if the
 The script will attempt to extract the label name from the meta
 tags. You can explicitely set this with the --label option.
 
-Normalization level defaults to -12 dBFS.
+Normalization level defaults to -4 dBFS.
 
 EOF
 }
@@ -275,15 +277,11 @@ if [[ -r "${1}" ]] ; then
     IFS="${tempIFS}"
     unset tempIFS
 
-    # Attempt to tease out the year from the DATE string; we assume
+    # Attempt to tease the year from the DATE string; we assume
     # that the year is ALWAYS a four-digit string.
-    if [[ "${year}" =~ '[[:digit:]]\{4\}[-/ ][[:digit:]]\{2\}[-/ ][[:digit:]]\{2\}' ]] ; then
-      # YYYY-MM-DD format (separated with "/" or "-" or " ")
-      year="${year%%[-/ ]*}"
-    elif [[ "${year}" =~ '[["digit:]]\{2\}[-/ ][["digit:]]\{2\}[-/ ][["digit:]]\{4\}' ]] ; then
-      # MM-DD-YYYY or DD-MM-YYYY format (separated with "/" or "-" or " ")
-      year="${year##*[-/ ]}"
-    fi
+    # This **should** work for both YYYY-MM-DD, MM-DD-YYYY, or
+    # DD-MM-YYYY formats (separated with "/" or "-" or " ")
+    year="${${year%[-/ ][0-9][0-9][-/ ][0-9][0-9]}#[0-9][0-9][-/ ][0-9][0-9][-/ ]}"
 
     # Prefer the embedded label (publisher), but use the one passed on
     # the command line if necessary (set above).
@@ -329,10 +327,13 @@ if [[ -r "${1}" ]] ; then
     fi
     
     ${DEBUG} ${RDIMPORT} \
-	     --log-mode \
 	     --verbose \
 	     --fix-broken-formats \
-	     --normalization-level=${normalization:-"-12"} \
+	     --normalization-level=${normalization:-"${DEFAULT_NORMALIZATION}"} \
+	     --autotrim-level=-30 \
+	     --segue-level=-1500 \
+	     --segue-length=2000 \
+	     --delete-cuts \
 	     --set-string-artist=${artist} \
 	     --set-string-title=${title} \
 	     --set-string-album=${album} \
