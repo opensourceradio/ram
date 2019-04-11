@@ -330,8 +330,8 @@ if [[ -r "${1}" ]] ; then
 	     --verbose \
 	     --fix-broken-formats \
 	     --normalization-level=${normalization:-"${DEFAULT_NORMALIZATION}"} \
-	     --autotrim-level=-30 \
-	     --segue-level=-1500 \
+	     --autotrim-level=-40 \
+	     --segue-level=-12 \
 	     --segue-length=2000 \
 	     --delete-cuts \
 	     --set-string-artist=${artist} \
