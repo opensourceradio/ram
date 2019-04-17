@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=1
-vLibPatch=2
+vLibPatch=3
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -35,6 +35,7 @@ sendNotification() {
   local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
   local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
+  local hostName=${HOSTNAME:-$(hostname -f)}
   local PRETEND=${PRETEND}
   local startTime=${EPOCHSECONDS}
   local returnValue=0
@@ -88,6 +89,8 @@ This is a multi-part message in MIME format.
 ------------${startTime}
 Content-Type: text/plain; charset=utf-8
 Content-Transfer-Encoding: 8bit
+
+Sent from ${hostName}.
 
 ${message}
 
