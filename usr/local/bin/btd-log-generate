@@ -88,13 +88,17 @@ if ((showVersion)) ; then
   exit 0
 fi
 
+exec 1> /var/tmp/${0:t}.out
+exec 2> /var/tmp/${0:t}.err
+
 if [[ -r /usr/local/bin/zsh-functions ]] ; then
     source /usr/local/bin/zsh-functions
 else
     ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
+    exit 3
 fi
 
-MAILTO="dklann@broadcasttool.com"
+MAILTO="dklann@grunch.org"
 
 # Gather all the services from Rivendell.
 services=( $(doSQL "SELECT name FROM SERVICES") )
