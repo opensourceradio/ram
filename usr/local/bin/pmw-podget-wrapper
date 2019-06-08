@@ -21,14 +21,14 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
 if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
   source ${ROOT:-/}usr/local/bin/zsh-functions
 else
-  exit $(error ${myName} "Could not fine support library '${ROOT:-/}usr/local/bin/zsh-functions'. Cannot continue.") ;
+  exit $(error ${myName} "Could not find support library '${ROOT:-/}usr/local/bin/zsh-functions'. Cannot continue.") ;
 fi
 
 ##############################################################################
@@ -196,12 +196,13 @@ postRunProcess() {
   # Save the diff output only if podget downloaded any new files.
   if [[ -s ${tmpfile} ]] ; then
 
-    # The filename is irrelevant, we simply need a unique name to hold
+    # Name the archive filename with a timestamp so we can easily see
+    # the date and time of this podget run. This archive file contains
     # the names of files retrieved in this run of podget.
     checkSum=$(${SHA256SUM} ${tmpfile} | ${AWK} '{print $1}')
     if [[ -n "${checkSum}" ]] ; then
-      if ! ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-${checkSum} ; then
-	warning "${myName}" "Unable to save '${tmpfile}' as completion file '${DIR_LOG}/archive/${archivePrefix}-${checkSum}' (${?})."
+      if ! ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-$(strftime "%Y%m%d:%H%M%S" ${startTime})-${checkSum} ; then
+	warning "${myName}" "Unable to save '${tmpfile}' as completion file '${DIR_LOG}/archive/${archivePrefix}-$(strftime "%Y%m%d:%H%M%S" ${startTime})-${checkSum}' (${?})."
 	${RM} -f ${tmpfile}
       fi
     else
