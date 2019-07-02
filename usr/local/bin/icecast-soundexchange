@@ -58,7 +58,7 @@ sub main () {
     pod2usage( -verbose => 2 ) if ( defined( $man ) && $man );
 
     if ( ! $startDate || ! $endDate ) {
-	print STDERR "Please specify a starting date and an ending date for this report.\n";
+	say STDERR "Please specify a starting date and an ending date for this report.";
     }
 
     $verbose = $debug if ( $debug );
@@ -82,7 +82,7 @@ sub main () {
     my $end = str2time( $endDate );
     $end += ONE_DAY;
 
-    print STDERR "Start date: ", $startDate, ": ", $start, ", End date: ", $endDate, ": ", $end, "\n" if ( $verbose );
+    say STDERR "Start date: ", $startDate, ": ", $start, ", End date: ", $endDate, ": ", $end if ( $verbose );
 
     # TODO: finish this (as of 2018-09-21)
     my $logLines = getLogFiles( $startDate, $endDate, $logDirectory, $verbose );
@@ -105,13 +105,13 @@ sub main () {
 	    $a[5] <=> $b[5]
 			  } @$logLines ) {
 	next unless ( $logLine =~ m#get\s+/($mountpointRE)\s+#i );
-	print STDERR $logLine if ( $debug > 1 );
+	say STDERR $logLine if ( $debug > 1 );
 
 	if ( $logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](0[056])00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i ) {
 	    my $ipAddress = $1;
 	    my ( $date, $hour, $minute, $second ) = split( /:/, $2);
 	    my $tzOffset = $3;
-	    my $mountPoint = $4;
+	    my $loggedMountPoint = $4;
 	    my $statusCode = $5;
 	    my $byteCount = $6;
 	    my $referer = $7;
@@ -119,7 +119,7 @@ sub main () {
 	    my $duration = $9;
 	    my ( $mday, $mon, $year ) = split( /\//, $date );
 
-	    print STDERR "ipAddress: $ipAddress + referer: $referer + client: $client\n" if ($debug);
+	    say STDERR "ipAddress: $ipAddress + referer: $referer + client: $client" if ($debug);
 
 	    # This time is actually the time the user disconnected
 	    # from the stream. We need to calculate the time at
@@ -131,12 +131,12 @@ sub main () {
 	    my $connectTime = gmtime( $time );
 	    next unless ( $connectTime >= $start && $connectTime <= $end );
 
-	    print STDERR
+	    say STDERR
 		$ipAddress, " ",
 		$connectTime->ymd, " ",
 		$connectTime->hms, " ",
-		$mountPoint, " ", $duration, " ", $statusCode,
-		" ->", $referer, "<- ->", $client, "<-\n"
+		$loggedMountPoint, " ", $duration, " ", $statusCode,
+		" ->", $referer, "<- ->", $client, "<-"
 		if ( $verbose > 2);
 
 	    my $entry = sprintf
@@ -144,7 +144,7 @@ sub main () {
 		$ipAddress,
 		$connectTime->ymd,
 		$connectTime->hms,
-		$mountPoint,
+		$loggedMountPoint,
 		$duration,
 		$statusCode,
 		$referer,
@@ -152,9 +152,9 @@ sub main () {
 		;
 
 	    # collect the entries per-mountpoint
-	    push( @$mountPoint, $entry );
+	    push( @$loggedMountPoint, $entry );
 	} else {
-	    print STDERR "Regex match failed for logLine:\n", $logLine;
+	    say STDERR "Regex match failed for logLine:\n\t", $logLine;
 	}
     }
 
@@ -164,13 +164,16 @@ sub main () {
 
 	# Stash the per-mountpoint files into the zip archive if so requested.
 	if ( $zipFile ) {
-	    my $zipString = join( "\n", @$mount );
+	    # Note the <Tab> characters in the string.
+	    my $zipString = join( "\r\n", ( "IPAddress	Date	Time	Stream	Duration	Status	Referrer", @$mount, '' ));
 
 	    my $stringMember = $zip->addString( $zipString, "$mount.txt" );
 	    $stringMember->desiredCompressionMethod( COMPRESSION_DEFLATED );
 	    say STDERR "Added $mount.txt to '$zipFile'." if ( $verbose );
 	} else {
 	    open( OUT, ">", "$outputDir/$mount.txt" ) || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
+	    # Again, note the <Tab> characters in the string.
+	    print OUT "IPAddress	Date	Time	Stream	Duration	Status	Referrer\r\n";
 	    foreach my $line ( @$mount ) {
 		print OUT $line, "\r\n";
 	    }
