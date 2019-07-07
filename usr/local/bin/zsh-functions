@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=1
-vLibPatch=3
+vLibPatch=4
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -31,14 +31,6 @@ sendNotification() {
   local type=${1:?"Need a notification type."} ; shift
   local message=${1:?"Need a message to send for the notification."} ; shift
   local messagefile=${1} # optional text filename to attach
-
-  local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
-  local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
-  local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
-  local hostName=${HOSTNAME:-$(hostname -f)}
-  local PRETEND=${PRETEND}
-  local startTime=${EPOCHSECONDS}
-  local returnValue=0
 
   #################  BEGIN shell commands used in this function.  #################
   # This function uses these 7 external commands.
@@ -60,12 +52,19 @@ sendNotification() {
   # variables by which to call the external commands used in this function.
   for C in ${ourCommands} ; do
     for D in ${path} ; do
-      [[ -x ${D}/${C} ]] && { eval ${(U)C}=${D}/${C} ; break }
+      [[ -x ${D}/${C} ]] && { eval local ${(U)C}=${D}/${C} ; break }
     done
     [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
   done
   ##################  END shell commands used in this function.  ##################
 
+  local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
+  local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
+  local MAILER_ARGS=${MAILER_ARGS:-"--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}"}
+  local hostName=$(${HOSTNAME:-$(hostname -f)})
+  local PRETEND=${PRETEND}
+  local startTime=${EPOCHSECONDS}
+  local returnValue=0
   local MAIL_FROM=$(${AWK} '/^user /{print $2}' ${MAILER_CONFIG})
 
   if ! notificationSent ${myName} ${type} ${startTime} ; then

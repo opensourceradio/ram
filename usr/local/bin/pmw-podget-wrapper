@@ -21,7 +21,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -482,12 +482,12 @@ else
   ${PODGET} ${VERBOSE:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
 
   if ! updateRuntimeData ${myName} start-time DELETE ; then
-    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to clean up podget runtime data. Please look into this."
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to clean up podget runtime data. Please look into this." /var/tmp/${0##*/}.err
   fi
 
   # Execute post-podget-run tasks.
   if ! postRunProcess ${myName} ${startTime} ${VERBOSE} ; then
-    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${?})."
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${?})." /var/tmp/${0##*/}.err
   fi
 
   # Check the various output and log files to make sure things went well.
