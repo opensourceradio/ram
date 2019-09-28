@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Generate logs several days in advance for Ocooch Mountain Radio.
+
+logsStartDate="$(date --date=tomorrow '+%F')"
+
+# How many days of logs to generate based on
+# the current day of the week.
+case "$(date '+%A')" in
+    Monday) dayCount=3
+    ;;
+    Thursday) dayCount=4
+    ;;
+    *) dayCount=0
+    ;;
+esac
+
+logsEndDate=$(date --date="today + ${dayCount} days" +%F)
+
+/usr/local/bin/btd-generate-log --start ${logsStartDate} --end ${logsEndDate}
+
+exit
