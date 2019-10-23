@@ -20,8 +20,8 @@ myName=${0##*/}
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=2
-vPatch=7
+vMinor=3
+vPatch=1
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -52,7 +52,7 @@ ${myName} [ --verbose (-v) ] [ --debug (-D) ] [ --version (-V) ]
 Description
 
 pmw-podget-wrapper is a ZSH sript that performs some sanity checking
-before launching podget, then performing cleanup and further sanity
+before launching podget, then performs cleanup and further sanity
 checking after the podget run completes.
 
 pmw-podget-wrapper sends email notification of unexpected events to
@@ -105,6 +105,7 @@ updateRuntimeData() {
     if (( diffLineCount != 1 )) ; then
 
       echo "${diffOutput}" > ${tmpfile}
+      warning ${myName} "INTERNAL_ERROR: Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}' (see attached). Aborting podget run."
       sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Unexpected change to '${DIR_LOG}/${PODGET_RUNTIME_DATA}' when trying to change key '${key}' to '${value}' (see attached). Aborting podget run." "${tmpfile}"
       ${RM} -f ${tmpfile}
 
@@ -122,7 +123,7 @@ updateRuntimeData() {
     ) | ${SORT} > ${tmpfile}
 
     if ! ${MV} ${tmpfile} ${DIR_LOG}/${PODGET_RUNTIME_DATA} ; then
-
+      warning ${myName} "INTERNAL_ERROR: Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
       sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to replace '${DIR_LOG}/${PODGET_RUNTIME_DATA}' with temporary file '${tmpfile}'. Aborting podget run."
 
       trap - 0 1 2 3
@@ -142,20 +143,19 @@ preRunProcess() {
   local startTime=${1} ; shift
   local VERBOSE=${1}
 
-  local doneArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
-  local returnValue=1
+  local doneTempArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
+  local returnValue=0
 
   # Copy the "done" file to the archive and add a timestamp to the
   # filename. This is a different archive process than the "error"
   # file because podget needs to remember which files it has already
   # downloaded in order to avoid retrieving the same file multiple
   # times. postRunProcess cleans up the old entries (FIFO).
-  if ${CP} -p ${DIR_LOG}/${LOG_COMPLETE} ${doneArchive} ; then
+  if ! ${CP} -p ${DIR_LOG}/${LOG_COMPLETE} ${doneTempArchive} ; then
     returnValue=${?}
-  else
-    warning ${myName} "Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneArchive}' (${?})."
+    warning ${myName} "Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneTempArchive}' (${returnValue})."
     sendNotification ${myName} "${PODGET_MAILTO}" PRE_PROCESS_ERROR \
-		     "Warning: Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneArchive}' (${?}). Podcast aging records may be off. Seek professional help if this condition persists."
+                     "Warning: Unable to copy '${DIR_LOG}/${LOG_COMPLETE}' to '${doneTempArchive}' (${returnValue}). Podcast aging records may be off. Seek professional help if this condition persists."
   fi
 
   return ${returnValue}
@@ -176,22 +176,21 @@ postRunProcess() {
   local startTime=${1} ; shift
   local VERBOSE=${1}
 
-  local doneArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
+  local doneTempArchive=${DIR_LOG}/archive/${LOG_COMPLETE}-${startTime}
   local archivePrefix=${LOG_COMPLETE}
-  local returnValue=1
+  local returnValue=0
   local tmpfile
 
   # This temporary file will be used several times in this process.
   if ! tmpfile=$(${MKTEMP}) ; then
-    error "${myName}" "Unable to create temporary storage for podget post processing (${?}). I am done."
-    return 4
+    return $(error "${myName}" "Unable to create temporary storage for podget post processing (${?}). I am done.")
   fi
 
-  trap "${RM} -f ${tmpfile} ${doneArchive} ; trap - ; return ;" 0 1 2 3
+  trap "${RM} -f ${tmpfile} ${doneTempArchive} ; trap - ; return ;" 0 1 2 3
 
   # Find new additions to the LOG_COMPLETE file and save just those
   # lines.
-  ${DIFF} ${doneArchive} ${DIR_LOG}/${LOG_COMPLETE} | ${AWK} '/^> /{print $2}' > ${tmpfile}
+  ${DIFF} ${doneTempArchive} ${DIR_LOG}/${LOG_COMPLETE} | ${AWK} '/^> /{print $2}' > ${tmpfile}
 
   # Save the diff output only if podget downloaded any new files.
   if [[ -s ${tmpfile} ]] ; then
@@ -202,8 +201,8 @@ postRunProcess() {
     checkSum=$(${SHA256SUM} ${tmpfile} | ${AWK} '{print $1}')
     if [[ -n "${checkSum}" ]] ; then
       if ! ${MV} ${tmpfile} ${DIR_LOG}/archive/${archivePrefix}-$(strftime "%Y%m%d:%H%M%S" ${startTime})-${checkSum} ; then
-	warning "${myName}" "Unable to save '${tmpfile}' as completion file '${DIR_LOG}/archive/${archivePrefix}-$(strftime "%Y%m%d:%H%M%S" ${startTime})-${checkSum}' (${?})."
-	${RM} -f ${tmpfile}
+        warning "${myName}" "Unable to save '${tmpfile}' as completion file '${DIR_LOG}/archive/${archivePrefix}-$(strftime "%Y%m%d:%H%M%S" ${startTime})-${checkSum}' (${?})."
+        ${RM} -f ${tmpfile}
       fi
     else
       warning "${myName}" "Unable to calculate SHA256 checksum of '${tmpfile}' (${?})."
@@ -212,50 +211,52 @@ postRunProcess() {
 
   else
     ${RM} -f ${tmpfile}
+    notice "${myName}" "No differences found in ${doneTempArchive}; no archive file aging necessary."
+  fi
+
+  if [[ -z "${PODGET_AGE_THRESHOLD}" ]] ; then
+    sendNotification ${myName} "${PODGET_MAILTO}" POST_PROCESS_ERROR \
+                     "Warning: Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file. Seek professional help if this condition persists."
+    return $(error ${myName} "Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file.")
   fi
 
   # Purge lines from LOG_COMPLETE that are older than
-  # PODGET_AGE_THRESHOLD.
-  if [[ -n "${PODGET_AGE_THRESHOLD}" ]] ; then
+  # PODGET_AGE_THRESHOLD (set in ${DIR_CONFIG}/${CONFIG_NOTIFY})
+  ${FIND} ${DIR_LOG}/archive -maxdepth 1 -name ${archivePrefix}-\* -mtime +${PODGET_AGE_THRESHOLD} -print | while read filename ; do
+    # Verify the checksum just for fun.
+    checksum=$(${SHA256SUM} ${filename} | ${AWK} '{print $1}')
+    # Changed the archive prefix in summer 2019 to include the date
+    # and time of the archive file; accomodate both forms of
+    # filename.
+    if ! [[ ${filename##*${archivePrefix}*-} == ${checksum} ]] ; then
+      warning ${myName} "Checksum '${checksum}' does not match file name ${filename:t}. Please find someone who knows what to do about this."
+      continue
+    fi
 
-    ${FIND} ${DIR_LOG}/archive -maxdepth 1 -name ${archivePrefix}-\* -mtime +${PODGET_AGE_THRESHOLD} -print | while read filename ; do
+    # This is the crux of the aging process: use the contents of
+    # the file ${filename} to search for and delete old entries
+    # in the podget ${LOG_COMPLETE} file.
+    if ! ${GREP} -v -f ${filename} ${DIR_LOG}/${LOG_COMPLETE} > ${tmpfile} ; then
+      warning ${myName} "Unable to find old entries from '${filename}' in '${DIR_LOG}/${LOG_COMPLETE}' (${GREP}: ${?}). Seek help if this condition persists."
+      ${RM} -f ${tmpfile}
+      continue
+    fi
 
-      # Verify the checksum just for fun.
-      checksum=$(${SHA256SUM} ${filename} | ${AWK} '{print $1}')
-      if [[ ${filename##*done-} == ${checksum} ]] ; then
+    if ! ${MV} ${tmpfile} ${DIR_LOG}/${LOG_COMPLETE} ; then
+      warning ${myName} "Unable to purge entries from '${DIR_LOG}/${LOG_COMPLETE}' (${MV} failed: ${?})."
+      ${RM} -f ${tmpfile}
+      continue
+    fi
 
-	# This is the crux of the aging process: use the contents of
-	# the file ${filename} to search for and delete old entries
-	# in the podget ${LOG_COMPLETE} file.
-	if ${GREP} -v -f ${filename} ${DIR_LOG}/${LOG_COMPLETE} > ${tmpfile} ; then
-	  if [[ -s ${tmpfile} ]] ; then
-	    if ${MV} ${tmpfile} ${DIR_LOG}/${LOG_COMPLETE} ; then
-	      notice ${myName} "Successfully purged $(${WC} -l ${filename}|${CUT} -d' ' -f1) row(s) from '${DIR_LOG}/${LOG_COMPLETE}'."
-	      ${RM} -f ${filename}
-	      returnValue=0
-	    else
-	      warning ${myName} "Unable to purge entries from '${DIR_LOG}/${LOG_COMPLETE}' (mv failed: ${?})."
-	      ${RM} -f ${tmpfile}
-	    fi
-	  fi
-	else
-	  warning ${myName} "Unable to find old entries from '${filename}' in '${DIR_LOG}/${LOG_COMPLETE}'. Seek help if this condition persists."
-	fi
-      else
-	warning ${myName} "Checksum '${checksum}' does not match file name ${filename:t}. Please find someone who knows what to do about this."
-      fi
-    done
+    notice ${myName} "Successfully purged $(${WC} -l ${filename}|${CUT} -d' ' -f1) row(s) from '${DIR_LOG}/${LOG_COMPLETE}'."
+    ${RM} -f ${filename}
 
-  else
-    warning ${myName} "Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file."
-    sendNotification ${myName} "${PODGET_MAILTO}" POST_PROCESS_ERROR \
-		     "Warning: Missing value for 'PODGET_AGE_THRESHOLD'. Without that value I cannot purge old entries from the podget 'done' file. Seek professional help if this condition persists."
-  fi
+  done
 
-  ${RM} -f ${doneArchive}
+  ${RM} -f ${doneTempArchive}
   trap - 0 1 2 3
 
-  return ${returnValue}
+  return
 }
 
 # Simple file archiver with removal of archived files older than a
@@ -430,30 +431,31 @@ if podgetPIDs=( $(${PIDOF} -x podget) ) ; then
     # If lastStart is not set it gets evaluated as zero.
     if (( ( startTime - lastStart ) > PODGET_REASONABLE_RUNTIME )) ; then
 
+      warning ${myName} "TIMEOUT: podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
       sendNotification ${myName} "${PODGET_MAILTO}" TIMEOUT "podget appears to be still running at $(strftime %T ${startTime}). Last start was at $(strftime %T ${lastStart})."
 
       for pid in ${podgetPIDs} ; do
 
-	# Try to be kind in killing the process
-	${KILL} -HUP ${pid}
-	${SLEEP} 3
-	if [[ -d /proc/${pid} ]] ; then
+        # Try to be kind in killing the process
+        ${KILL} -HUP ${pid}
+        ${SLEEP} 3
+        if [[ -d /proc/${pid} ]] ; then
 
-	  # Be a little more persistent.
-	  ${KILL} ${pid}
-	  ${SLEEP} 3
-	  if [[ -d /proc/${pid} ]] ; then
+          # Be a little more persistent.
+          ${KILL} ${pid}
+          ${SLEEP} 3
+          if [[ -d /proc/${pid} ]] ; then
 
-	    # The nuclear option -- just kill it.
-	    ${KILL} -9 ${pid}
-	    ${SLEEP} 3
-	    if [[ -d /proc/${pid} ]] ; then
+            # The nuclear option -- just kill it.
+            ${KILL} -9 ${pid}
+            ${SLEEP} 3
+            if [[ -d /proc/${pid} ]] ; then
 
-	      sendNotification ${myName} "${PODGET_MAILTO}" TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
-	      exit $(error ${myName} "Cannot terminate running podget. PID is ${pid}.")
-	    fi
-	  fi
-	fi
+              sendNotification ${myName} "${PODGET_MAILTO}" TERMINATE "Cannot terminate wayward instance of a running podget (PID=${pid}). Aborting."
+              exit $(error ${myName} "Cannot terminate running podget. PID is ${pid}.")
+            fi
+          fi
+        fi
       done
 
     else
@@ -482,12 +484,15 @@ else
   ${PODGET} ${VERBOSE:+-vv} --dir_config ${DIR_CONFIG} --config ${CONFIG_CORE}
 
   if ! updateRuntimeData ${myName} start-time DELETE ; then
+    warning ${myName} "INTERNAL_ERROR: Failed to clean up podget runtime data. Please look into this."
     sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to clean up podget runtime data. Please look into this." /var/tmp/${0##*/}.err
   fi
 
   # Execute post-podget-run tasks.
   if ! postRunProcess ${myName} ${startTime} ${VERBOSE} ; then
-    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${?})." /var/tmp/${0##*/}.err
+    returnValue=${?}
+    warning ${myName} "INTERNAL_ERROR: Failed to complete podget post-run tasks (${returnValue})."
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${returnValue})." /var/tmp/${0##*/}.err
   fi
 
   # Check the various output and log files to make sure things went well.
@@ -496,10 +501,8 @@ else
     # It seems there was a failure, investigate further. LOG_FAIL contains one URL per line.
     failures=( $(${CAT} ${DIR_LOG}/${LOG_FAIL}) )
     for failure in ${failures} ; do
-
-      sendNotification ${myName} "${PODGET_MAILTO}" DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things (see attached log file)." ${DIR_LOG}/${LOG_FAIL}
       warning ${myName} "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}."
-
+      sendNotification ${myName} "${PODGET_MAILTO}" DOWNLOAD "At $(strftime %T ${startTime}) podget failed to download the podcast at ${failure}. Please look into this and fix things (see attached log file)." ${DIR_LOG}/${LOG_FAIL}
     done
 
     # Archive the error log to prevent reporting the same errors.
