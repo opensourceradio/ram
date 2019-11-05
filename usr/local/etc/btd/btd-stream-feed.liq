@@ -3,7 +3,7 @@
 ## This script is intended to be launched by Rivendell.
 ## See rdadmin->Manage Hosts->[HOSTNAME]->Jack Settings->Jack Clients
 
-# Because Rivendell
+# Because ... Rivendell ... because ... JACK
 set( "init.allow_root", true )
 
 ## Log dir
@@ -25,18 +25,16 @@ feed = input.jack(
 )
 
 ##############################################################################
-## Settings used in the output stream
-## Note that we connect the source client on TCP port 8080, and the streaming
-## clients will connect on TCP port 8000.
-stlID   = "KCMU-LP Napa Radio Project"
-stlProt = argv( 1 )
-stlHost = argv( 2 )
-stlPort = int_of_string( argv( 3 ))
-stlMnt  = argv( 4 )
-stlUser = "source"
-stlPass = argv( 5 )
-stlDesc = "Napa Radio Project"
-stlURL  = "https://naparadio.org/"
+## Settings used in the output stream, passed on the command line.
+strID   = "str01"
+strProt = argv( 1 )
+strHost = argv( 2 )
+strPort = int_of_string( argv( 3 ))
+strMnt  = argv( 4 )
+strUser = "source"
+strPass = argv( 5 )
+strDesc = "Streaming Audio"
+strURL  = "http://example.com/"
 
 ## create a new clock that will handle all the stream outputs
 clock.assign_new (
@@ -46,21 +44,21 @@ clock.assign_new (
     # output the to the transmitter icecast stream server in MP3 format
     output.icecast (
       start = true,
-      id = stlID,
-      protocol = stlProt,
-      host = stlHost,
-      port = stlPort,
-      user = stlUser,
-      mount = stlMnt,
-      password = stlPass,
-      url = stlURL,
-      description = stlDesc,
+      id = strID,
+      protocol = strProt,
+      host = strHost,
+      port = strPort,
+      user = strUser,
+      mount = strMnt,
+      password = strPass,
+      url = strURL,
+      description = strDesc,
 
       # (unlabeled) format:
       # internal_quality: Lame algorithms internal quality. A value
       # between 0 and 9, 0 being highest quality and 9 the worst
       # (default: 2).
-      %mp3( samplerate = 48000, stereo = true, bitrate = 128, internal_quality = 1 ),
+      %mp3( samplerate = 44100, stereo = true, bitrate = 128, internal_quality = 1 ),
 
       # (unlabeled) source:
       # buffer is necessary when using the internal liquidsoap clock
