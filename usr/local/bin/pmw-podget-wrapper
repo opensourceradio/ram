@@ -489,10 +489,11 @@ else
   fi
 
   # Execute post-podget-run tasks.
-  if ! postRunProcess ${myName} ${startTime} ${VERBOSE} ; then
-    returnValue=${?}
-    warning ${myName} "INTERNAL_ERROR: Failed to complete podget post-run tasks (${returnValue})."
-    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "Failed to complete podget post-run tasks (${returnValue})." /var/tmp/${0##*/}.err
+  postRunMessage=$(postRunProcess ${myName} ${startTime} ${VERBOSE})
+  returnValue=${?}
+  if (( returnValue != 0 )) ; then
+    warning ${myName} "INTERNAL_ERROR: '${postRunMessage}': (${returnValue})."
+    sendNotification ${myName} "${PODGET_MAILTO}" INTERNAL_ERROR "${postRunMessage} (${returnValue})." /var/tmp/${0##*/}.err
   fi
 
   # Check the various output and log files to make sure things went well.

@@ -432,27 +432,6 @@ deleteFeed() {
 
 	${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
 
-	if cleanupFeed ${myName} ${group} ${feedName} ${verbose} ; then
-
-	  if deleteRDDropbox ${myName} ${DIR_LIBRARY}/${group}/${feedName} ${verbose} ; then
-
-	    echo "Purged dropbox for feed '${feedName}'."
-
-	  else
-
-	    warning "Unable to successfully delete the dropbox for feed '${feedName}'. Please consult with a professional."
-
-	  fi
-	  echo "Done."
-
-	else
-
-	  warning "Unable to successfully clean up the cruft lying about for feed '${feedName}' (cleanupFeed returned '${?}'). Please report this number to the authorities."
-
-	fi
-
-      else
-
 	warning "Could not properly disable the podcast feed '${feedName}'. Please fix the file '${DIR_CONFIG}/${CONFIG_SERVERLIST}' manually."
 
 	${RM} -f ${DIR_CONFIG}/${CONFIG_SERVERLIST}.bak
