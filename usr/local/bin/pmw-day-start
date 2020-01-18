@@ -30,9 +30,7 @@ exec 2> /var/tmp/${0##*/}.err
 
 zmodload zsh/datetime
 
-station=${1:?"On which STATION (host) should I load a log?"}
-shift
-# Second (optional) argument names a log to load in the Auxiliary Log 1 machine.
+# Optional argument names a log to load in the Auxiliary Log 1 machine.
 if [[ -n "${1}" ]] ; then
   auxLog="${1}"
   shift
@@ -44,6 +42,7 @@ RMLSEND=$(whence rmlsend) ; RMLSEND=${RMLSEND:-${ROOT:-/}usr/bin/rmlsend}
 
 # Get zsh functions necessary for this script.
 if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+  # shellcheck disable=SC1090
   source ${ROOT:-/}usr/local/bin/zsh-functions
 else
   ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot find /usr/local/bin/zsh-functions. Cannot continue."
@@ -62,20 +61,38 @@ tomorrow=$(( EPOCHSECONDS - secondsPastMidnight + oneDay ))
 # Get the log name templates from the SERVICES table.
 # These will be placed in an associative array indexed on the SERVICE name.
 typeset -A logNameTemplates
+# shellcheck disable=SC2190
+# shellcheck disable=SC2207
 logNameTemplates=( $(doSQL "SELECT name,name_template FROM SERVICES") )
 
 # We may be loading logs for more than one SERVICE.
 for service in ${(k)logNameTemplates} ; do
 
+  # Rivendell uses %s for "Service Name", strftime uses %s for
+  # "Seconds since the Epoch". "Manually" replace the %s with the
+  # Service Name in the Log Template before substituting the date
+  # stuff in the Log Template.
+  if [[ ${logNameTemplates[${service}]} =~ %s ]] ; then
+    ${logNameTemplates[${service}]} = ${logNameTemplates[${service}]//\%s/${service}}
+  fi
+
   # Older shell versions are not up to snuff with respect to strftime(3).
+  # shellcheck disable=SC2079
   if (( ZSH_VERSION < 5.6 )) ; then
-    nextLog=$(date --date=$(strftime "%F" ${tomorrow}) "+${logNameTemplates[${service}]}_LOG")
+    # shellcheck disable=SC2046
+    nextLog=$(date --date=$(strftime "%F" ${tomorrow}) "+${logNameTemplates[${service}]}")
   else
-    nextLog=$(strftime "${logNameTemplates[${service}]}_LOG" ${tomorrow})
+    nextLog=$(strftime "${logNameTemplates[${service}]}" ${tomorrow})
+  fi
+
+  # Rivendell versions prior to version 3 tacked "_LOG" to the end of
+  # the Log Name.
+  if (( $(rdDatabaseVersion) < 300 )) ; then
+    nextLog=${nextLog}_LOG
   fi
 
   # Verify that the log exists before running the macros
-  nextLogLookup=$(doSQL "select NAME from LOGS where NAME = '${nextLog}'")
+  nextLogLookup=$(doSQL "SELECT name FROM LOGS WHERE name = '${nextLog}'")
 
   if [[ -n "${nextLogLookup}" ]] ; then
 
