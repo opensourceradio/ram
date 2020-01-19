@@ -73,7 +73,7 @@ for service in ${(k)logNameTemplates} ; do
   # Service Name in the Log Template before substituting the date
   # stuff in the Log Template.
   if [[ ${logNameTemplates[${service}]} =~ %s ]] ; then
-    ${logNameTemplates[${service}]} = ${logNameTemplates[${service}]//\%s/${service}}
+    logNameTemplates[${service}]=${logNameTemplates[${service}]//\%s/${service}}
   fi
 
   # Older shell versions are not up to snuff with respect to strftime(3).
