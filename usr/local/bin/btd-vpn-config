@@ -1,0 +1,155 @@
+#!/bin/bash
+
+##############################################################################
+##
+## btd-vpn-config
+##
+## Install, configure, enable, and start OpenVPN service with a BTD
+## configuration. This currently works only on CentOS.
+##
+##############################################################################
+
+# This script complies with Semantic Versioning: http://semver.org/
+# shellcheck disable=SC2016
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+myName=${0##*/}
+
+usage() {
+  myName=${1} ; shift
+  cat <<EOF
+Usage: ${myName} [ --version (-V) ] [ --verbose (-v) ] [ --help (-h) ]
+                     <OpenVPN-Configuration-File>
+
+<OpenVPN-Configuration-File> is expected to be the path to a
+compressed tar(1) archive containing all the necessary configuration
+files and credentials to connect to the BT&D virtual private network.
+
+<OpenVPN-Configuration-File> should be an absolute path to the file.
+
+EOF
+}
+
+# Process command line options.
+# We use the same option names and values as podget.
+TEMP=$(getopt -o Vvh --long version,verbose,help -n "${myName}" -- "${@}")
+# shellcheck disable=SC2181
+if (( ${?} != 0 )) ; then echo "Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -h|--help*) usage "${myName}" ; exit ;;
+    -v|--verb*) VERBOSE=1 ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${0##*/}: getopt internal error!" >&2 ; exit 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+OPENVPN_CONFIGURATION=${1}
+
+if [[ -z "${OPENVPN_CONFIGURATION}" ]] ; then
+  echo "ERROR: Missing <OpenVPN-Configuration-File> directive." >&2
+  usage "${myName}"
+  exit 1
+fi
+
+(( VERBOSE )) && echo "Checking for OpenVPN configuration archive file..."
+
+if ! [[ -r ${OPENVPN_CONFIGURATION} ]] ; then
+  echo "ERROR: Cannot find '${OPENVPN_CONFIGURATION}'. Cannot continue." >&2
+  usage "${myName}"
+  exit 1
+fi
+
+(( VERBOSE )) && echo "Installing openvpn package (if it is not already installed)..." >&2
+
+# This will not fail if openvpn is already installed.
+if ! yum install -y openvpn ; then
+  logger -t "${myName}" -p local7.err -i --stderr "ERROR: Unable to install OpenVPN package (${?}). I quit."
+  exit 2
+fi
+
+(( VERBOSE )) && echo "Installing bzip2 package (if it is not already installed)..." >&2
+
+if ! [[ -x /bin/bunzip2 ]] ; then
+  yum install -y bzip2
+fi
+
+(( VERBOSE )) && echo "Extracting tar(1) archive contents..." >&2
+
+umask 0220
+
+# Extract the tarball containing the configuration files.
+if ! tar --extract --auto-compress --file "${OPENVPN_CONFIGURATION}" --directory=/ ; then
+  logger -t "${myName}" -p local7.err -i --stderr "ERROR: Unable to unpack '${OPENVPN_CONFIGURATION}'. I quit."
+  exit 3
+fi
+
+# Set ownership, permsissions, and SELinux context on the
+# configuration files.
+chown -R root:openvpn /etc/openvpn/*
+chmod -R ug+r,o-rwx /etc/openvpn/*
+[[ -x /sbin/restorecon ]] && restorecon -R -F /etc/openvpn
+
+# Enable the openvpn service for this configuration.
+configFilename=$(find /etc/openvpn -maxdepth 1 -iname \*.conf -print)
+instanceBasename=${configFilename%.conf}
+instanceName=${instanceBasename##*/}
+
+# Ensure proper user and group settings in the configuration file.
+if [[ -f /etc/centos-release ]] ; then
+  sed -i -e 's/nogroup/nobody/g' "${configFilename}"
+fi
+
+(( VERBOSE )) && echo "VPN instance name will be '${instanceName}'." >&2
+
+logger -t "${myName}" -p local7.info -i --stderr "INFO: Enabling OpenVPN service for '${instanceName}'."
+
+systemctl enable "openvpn@${instanceName}.service"
+if ! [[ -L /etc/systemd/system/multi-user.target.wants/openvpn@${instanceName}.service ]] ; then
+  logger -t "${myName}" -p local7.err -i --stderr "ERROR: Failed to enable OpenVPN service for '${instanceName}' (${?}). Seek professional help."
+  exit 4
+fi
+
+systemctl daemon-reload
+
+if ! systemctl start "openvpn@${instanceName}.service" ; then
+  logger -t "${myName}" -p local7.err -i --stderr "ERROR: Unable to start 'openvpn@${instanceName}.service' (${?}). Try something different."
+  exit 5
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
