@@ -1,4 +1,5 @@
-#!/bin/zsh
+#!/bin/bash
+# shellcheck disable=SC2162,SC2046
 
 ##############################################################################
 #
@@ -6,87 +7,244 @@
 # Wayne Merricks <waynemerricks@thevoiceasia.com>
 # with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
 #
-# Original script in BASH, converted to ZSH and added a bit of
-# robustness by <dklann@phantommachineworks.com>
-#
 # This is meant to be run interactively from a terminal or
 # non-interactively if log name and station name are passed as command
 # line parameters.
 #
 ##############################################################################
 
-zmodload zsh/datetime
+myName=${0##*/}
 
-# Get zsh functions necessary for this script
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=3
+vPatch=1
+# shellcheck disable=SC2016
+vHash='$Hash$'
 
-# Use them if they were passed in, otherwise we will prompt for them
-# at the right time.
+usage() {
+    cat <<EOF
+
+${myName}: Usage: ${myName} [ --immediately (-i) ]
+        [ --service <Service-Name> ]
+	[ --help (-h) ]
+        [ --version (-v) ]
+	[ <Log-Name> ]
+	[ <Station-Name> ]
+
+$(fmt <<<"${myName} loads the specified Log-Name into RDAirPlay on <Station-Name> and positions the next line number to the approximate time of day.")
+
+$(fmt <<<"${myName} prompts you interactively for the log name and the station name if you do not specify them on the command line.")
+
+$(fmt <<<"You may limit the list of logs displayed for selection by specifying the --service option. Note that it is perfectly legal to load logs from any Service on any running instance of RDAirPlay.")
+
+$(fmt <<<"By default ${myName} loads the log and sets the nearest log line to the current time to play next. You may interrupt playout by using the --immediately option. The currently playing track will be terminated and playout will continue with the freshly-loaded Log.")
+
+
+EOF
+}
+
+# Emulate the ZSH function by the same name. Default to YYYY-MM-DD
+# date since the current time in seconds.
+strftime() {
+    fmtString=${1:-%F}
+    epochSeconds=${2:-$(date +%s)}
+
+    date --date="@${epochSeconds}" "+${fmtString}"
+}
+
+# Convert milliseconds to HH:MM:SS with the hours and minutes zero-filled.
+ms2HMS() {
+    local milliseconds=${1:?"Need some milliseconds"}
+
+    (( Hours=milliseconds / 1000 / 60 / 60 ))
+    (( Minutes=milliseconds / 1000 / 60 % 60 ))
+    (( Seconds=milliseconds / 1000 % 60 ))
+
+    printf "%02d:%02d:%02d" ${Hours:-0} ${Minutes:-0} ${Seconds:-0}
+}
+
+# Simplify calls to the mysql command.
+doSQL() {
+    local statement="${1:?Need a database query to run.}"
+    local useMyCNF=0
+    local usableMyCNF=4
+    local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+
+  # Use the exported variables if we have been through this function
+  # already. This applies to each running instance of scripts that
+  # use this function. This helps prevent the need to look this
+  # stuff up every time this function is called.
+  if [[ -z "${_DB_HOST}" ]] ; then
+
+    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
+    # else get credentials from rd.conf if it exists, else from the
+    # environment, else use defaults here.
+    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
+    # to the Rivendell database.
+    if [[ -r ~/.my.cnf ]] && [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+      mapfile myCnfLines < ~/.my.cnf
+
+      # Need to check for each of these parameters in .my.cnf in
+      # order to be able to use it.
+      for parm in database host password user ; do
+	if [[ "${myCnfLines[*]}" =~ ${parm} ]] ; then
+	  (( useMyCNF++ ))
+	fi
+      done
+    else
+      # Horribly insecure, but this is the "Rivendell Way".
+      if [[ -r "${rdconfig}" ]] ; then
+	DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Hostname=/{print $2}')
+	DB_USER=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Loginname=/{print $2}')
+	DB_PASSWORD=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Password=/{print $2}')
+	DB_DATABASE=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Database=/{print $2}')
+      else
+	# Last ditch effort to set the MySQL access credentials.
+	# These are the "conventional" defaults that might otherwise
+	# exist in /etc/rd.conf (and friends).
+	DB_HOST=${RD_DB_HOST:-"localhost"}
+	DB_USER=${RD_DB_USER:-"rduser"}
+	DB_PASSWORD=${RD_DB_PASS:-"letmein"}
+	DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
+      fi
+    fi
+
+    _DB_HOST=${DB_HOST}
+    _DB_USER=${DB_USER}
+    _DB_PWD=${DB_PASSWORD}
+    _DB_DATABASE=${DB_DATABASE}
+    _USE_MYCNF=${useMyCNF}
+  fi
+
+  if (( _USE_MYCNF == usableMyCNF )) ; then
+    mysql -s -N -e "${statement}"
+  else
+    mysql -s -N -B -u "${_DB_USER}" -p"${_DB_PWD}" -h "${_DB_HOST}" "${_DB_DATABASE}" -e "${statement}"
+  fi
+}
+
+# Process command line options.
+if ! TEMP=$(getopt -o his:Vv --long help,immediate,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
+    echo "getopt(1) Error: Terminating..." >&2 ; exit 1
+fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+    case "${1}" in
+	-h|--help*) usage "${myName}" ; exit ;;
+	-i|--imme*) START_IMMEDIATELY=1 ; shift ;;
+	-s|--service) SERVICE=${2} ; shift 2 ;;
+	-v|--verb*) VERBOSE=1 ; shift ;;
+	-V|--vers*) showVersion=1 ; shift ;;
+	--) shift ; break ;;
+	*) echo "${0##*/}: getopt internal error!" >&2 ; return 1 ;;
+    esac
+done
+
+if (( showVersion )) ; then
+    justHash=${vHash#\$Hash* }
+    echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${justHash%$\}}"
+    exit 0
+fi
+
+dbVersion=$(doSQL "SELECT db FROM VERSION")
+
+# Use them if they were passed on the command line, otherwise we will
+# prompt for them at the right time.
 logName=${1}
 stationHostname=${2}
-tableSuffix=_LOG
 
-#Get the time now as milliseconds
-timeNow=${EPOCHSECONDS}
-H=$(( $(strftime "%H" ${timeNow}) * 3600000 ))
-M=$(( $(strftime "%M" ${timeNow}) * 60000 ))
-S=$(( $(strftime "%S" ${timeNow}) * 1000 ))
+# Rivendell versions lower than 3 (database version less than 300) use
+# dedicated Log tables.
+if (( dbVersion < 300 )) ; then
+    tableSuffix=_LOG
+else
+    tableSuffix=
+fi
+
+# Get the "current time" as milliseconds past midnight.
+timeNow=$(date +%s)
+H=$(( $(strftime "%H" "${timeNow}") * 3600000 ))
+M=$(( $(strftime "%M" "${timeNow}") * 60000 ))
+S=$(( $(strftime "%S" "${timeNow}") * 1000 ))
 millisecondsPastMidnight=$(( H + M + S ))
+unset H M S timeNow
 
 # Assume the user knows the exact name of the log if they passed it on
 # the command line.
 if [[ -z "${logName}" ]] ; then
     # Prompt the user for which log to load
-    typeset -a logs
-    logs=( $(doSQL "SELECT NAME FROM LOGS") )
+    # shellcheck disable=SC2016
+    read -a logs <<< $(doSQL "SELECT name FROM LOGS${SERVICE:+ WHERE service = '${SERVICE}'}")
     x=1; while : ; do
-	     for log in ${logs} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
-	     read choice\?"Please select a log by entering the number from above: "
+	     for log in ${logs[*]} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
+	     read -e -p "Please select a log by entering the number from above: " choice
 	     (( choice > 0 && choice < x )) && break
 	     x=1
 	 done
+    # BASH arrays are Zero-based.
+    (( choice -= 1 ))
     tableName=${logs[choice]}${tableSuffix}
     logName=${logs[choice]}
+    unset choice log logs
 else
     tableName=${logName}${tableSuffix}
 fi
 
-# Query DB and get the line number of the log to skip to
-CART=$(doSQL "SELECT ID FROM \`${tableName}\` WHERE START_TIME > 0 AND START_TIME <= ${millisecondsPastMidnight} ORDER BY COUNT DESC LIMIT 1;")
+# Get the line number nearest to (but earlier than) the current time
+# of day in the specified Log.
+if (( dbVersion < 300 )) ; then
+    read -a LOG_LINE <<<$(doSQL "SELECT id,cart_number,start_time FROM \`${tableName}\` WHERE start_time > 0 AND start_time <= ${millisecondsPastMidnight} ORDER BY count DESC LIMIT 1")
+else
+    read -a LOG_LINE <<<$(doSQL "SELECT line_id,cart_number,start_time FROM LOG_LINES WHERE start_time > 0 AND start_time <= ${millisecondsPastMidnight} ORDER BY count DESC LIMIT 1")
+fi
 
-if [[ -n "${CART}" ]] ; then
-    if [[ -z "${stationHostname}" ]] ; then
-	# Determine the host running RDairplay
-	# BUG ALERT! This assumes that hostnames in the Rivendell database
-	# match DNS names on the network.
-	typeset -a stations
-	stations=( $(doSQL "SELECT NAME FROM STATIONS") )
-	x=1; while : ; do
-		 for station in ${stations} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
-		 read choice\?"Please select host on which RDAirplay is running: "
-		 (( choice > 0 && choice < x )) && break
-		 x=1
-	     done
-	station=${stations[choice]}
-    else
-	station=${stationHostname}
-    fi
+if (( VERBOSE )) ; then
+    printf "Chose log line %05d (Cart %s) scheduled to start at %s.\n" "${LOG_LINE[0]}" "${LOG_LINE[1]}" $(ms2HMS "${LOG_LINE[2]}")
+fi
 
-    if ping -w 1 -c 1 -q ${station} > /dev/null 2>&1 ; then
-	# Switch the display to "Main Log", make Airplay load the log, and skip to the correct time
-	rmlsend --to-host=${station} --from-file=- <<EOF
+if [[ -z "${LOG_LINE[0]}" ]] ; then
+    echo "ERROR: Could not determine current location at which to position the log (${?})." >&2
+    exit 1
+fi
+
+if [[ -z "${stationHostname}" ]] ; then
+    # Determine the host running RDairplay
+    # BUG ALERT! This assumes that hostnames in the Rivendell database
+    # match DNS names on the network.
+    read -a stations <<< $(doSQL "SELECT name FROM STATIONS")
+    x=1; while : ; do
+	     for station in ${stations[*]} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
+	     read -e -p "Please select host on which RDAirplay is running: " choice
+	     (( choice > 0 && choice < x )) && break
+	     x=1
+	 done
+    # BASH arrays are Zero-based.
+    (( choice -= 1 ))
+    station=${stations[choice]}
+    unset choice
+else
+    station=${stationHostname}
+fi
+
+if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
+    echo "ERROR: Could not ping ${station}. Is this the correct host? Is DNS working on this LAN?" >&2
+    exit 1
+fi
+# Load the log, and skip to the correct time.
+# Detailed explanation:
+# PW 1!                       Set the RDAirPlay right-hand widget to display Log Machine 1 (Main Log).
+# LL 1 ${logName} -1!         Load Log ${logName} into Log Machine 1 and set the start line to -1 (nothing).
+# MN 1 ${LOG_LINE}!           Make ${LOG_LINE} in Log Machine 1 the next line to play.
+# ${START_IMMEDIATELY:+PN 1!} Play Next line (see previous step) in Log Machine 1 if --immediately was specified on the command line.
+# PM 2 1!                     Set the Play Mode to Automatic for all Log Machines.
+rmlsend --to-host="${station}" --from-file=- <<EOF
 PW 1!
 LL 1 ${logName} -1!
-MN 1 ${CART}!
-PN 1!
+MN 1 ${LOG_LINE}!
+${START_IMMEDIATELY:+PN 1!}
 PM 2!
 EOF
-
-    else
-	echo "ERROR: Could not ping ${station}. Is this the correct host? Is DNS working on this LAN?" >&2
-    fi
-else
-    echo "ERROR: Could not determine current cart at which to position the log (${?})." >&2
-fi
 
 exit
