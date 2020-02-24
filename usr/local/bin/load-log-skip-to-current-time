@@ -18,7 +18,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=1
+vPatch=2
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -26,7 +26,8 @@ usage() {
     cat <<EOF
 
 ${myName}: Usage: ${myName} [ --immediately (-i) ]
-        [ --service <Service-Name> ]
+        [ --service <Service-Name> (-s) ]
+	[ --dry-run (-d) ]
 	[ --help (-h) ]
         [ --version (-v) ]
 	[ <Log-Name> ]
@@ -40,6 +41,7 @@ $(fmt <<<"You may limit the list of logs displayed for selection by specifying t
 
 $(fmt <<<"By default ${myName} loads the log and sets the nearest log line to the current time to play next. You may interrupt playout by using the --immediately option. The currently playing track will be terminated and playout will continue with the freshly-loaded Log.")
 
+$(fmt <<<"Use the --dry-run (-d) option to show what ${myName} would do without actually doing it.")
 
 EOF
 }
@@ -125,13 +127,14 @@ doSQL() {
 }
 
 # Process command line options.
-if ! TEMP=$(getopt -o his:Vv --long help,immediate,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o dhis:Vv --long dry-run,help,immediate,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
     echo "getopt(1) Error: Terminating..." >&2 ; exit 1
 fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
 while : ; do
     case "${1}" in
+	-d|--dry*) DRY_RUN=1 ; shift ;;
 	-h|--help*) usage "${myName}" ; exit ;;
 	-i|--imme*) START_IMMEDIATELY=1 ; shift ;;
 	-s|--service) SERVICE=${2} ; shift 2 ;;
@@ -172,11 +175,12 @@ millisecondsPastMidnight=$(( H + M + S ))
 unset H M S timeNow
 
 # Assume the user knows the exact name of the log if they passed it on
-# the command line.
+# the command line. Otherwise list available logs and prompt them.
 if [[ -z "${logName}" ]] ; then
     # Prompt the user for which log to load
     # shellcheck disable=SC2016
     read -a logs <<< $(doSQL "SELECT name FROM LOGS${SERVICE:+ WHERE service = '${SERVICE}'}")
+
     x=1; while : ; do
 	     for log in ${logs[*]} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
 	     read -e -p "Please select a log by entering the number from above: " choice
@@ -228,21 +232,49 @@ else
     station=${stationHostname}
 fi
 
+# Try to ping the workstation by name, then by IP address.
 if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
-    echo "ERROR: Could not ping ${station}. Is this the correct host? Is DNS working on this LAN?" >&2
-    exit 1
+    stationIPAddress=$(doSQL "SELECT ipv4_address FROM STATIONS WHERE name='${station}'")
+    if ! ping -w 1 -c 1 -q "${stationIPAddress}" > /dev/null 2>&1 ; then
+	echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
+	exit 1
+    fi
 fi
+
+# Tell them what we would do, but do not actually do it.
+if (( DRY_RUN )) ; then
+    ((START_IMMEDIATELY)) && startImmediately="" || startImmediately="NOT "
+    # Disable quoting complaint because the whole string is already quoted, and the value is just a single number.
+    # shellcheck disable=SC2086
+    cat <<EndOfDryRun
+
+$(fmt <<<"Would have loaded Log '${logName}' on '${station}', skipped to log line ${LOG_LINE[0]} (scheduled time: $(ms2HMS ${LOG_LINE[2]})), and ${startImmediately}started the new log immediately.")
+
+The command would have been:
+
+rmlsend --to-host="${station}" --from-file=- <<EOF
+PW 1!
+LL 1 ${logName} -1!
+MN 1 ${LOG_LINE[0]}!
+${START_IMMEDIATELY:+PN 1!}
+PM 2!
+EOF
+
+EndOfDryRun
+    exit
+fi
+
 # Load the log, and skip to the correct time.
 # Detailed explanation:
 # PW 1!                       Set the RDAirPlay right-hand widget to display Log Machine 1 (Main Log).
 # LL 1 ${logName} -1!         Load Log ${logName} into Log Machine 1 and set the start line to -1 (nothing).
-# MN 1 ${LOG_LINE}!           Make ${LOG_LINE} in Log Machine 1 the next line to play.
+# MN 1 ${LOG_LINE[0]}!        Make ${LOG_LINE[0]} in Log Machine 1 the next line to play.
 # ${START_IMMEDIATELY:+PN 1!} Play Next line (see previous step) in Log Machine 1 if --immediately was specified on the command line.
 # PM 2 1!                     Set the Play Mode to Automatic for all Log Machines.
 rmlsend --to-host="${station}" --from-file=- <<EOF
 PW 1!
 LL 1 ${logName} -1!
-MN 1 ${LOG_LINE}!
+MN 1 ${LOG_LINE[0]}!
 ${START_IMMEDIATELY:+PN 1!}
 PM 2!
 EOF
