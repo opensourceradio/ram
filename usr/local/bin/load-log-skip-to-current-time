@@ -18,7 +18,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=3
+vPatch=4
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -219,19 +219,6 @@ else
     station=${stationHostname}
 fi
 
-# Try to ping the workstation by name, then by IP address.
-if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
-    stationIPAddress=$(doSQL "SELECT ipv4_address FROM STATIONS WHERE name='${station}'")
-    if [[ "${stationIPAddress}" =~ 127\..* ]] ; then
-        echo "ERROR: Could not ping host ${station}. Not attempting to use ${station}'s IP Address '${stationIPAddress}'. Is this the correct host?" >&2
-        exit 2
-    fi
-    if ! ping -w 1 -c 1 -q "${stationIPAddress}" > /dev/null 2>&1 ; then
-        echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
-        exit 1
-    fi
-fi
-
 # Tell them what we would do, but do not actually do it.
 if (( DRY_RUN )) ; then
     ((START_IMMEDIATELY)) && startImmediately="" || startImmediately="NOT "
@@ -253,6 +240,19 @@ EOF
 
 EndOfDryRun
     exit
+fi
+
+# Try to ping the workstation by name, then by IP address.
+if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
+    stationIPAddress=$(doSQL "SELECT ipv4_address FROM STATIONS WHERE name='${station}'")
+    if [[ "${stationIPAddress}" =~ 127\..* ]] ; then
+        echo "ERROR: Could not ping host ${station}. Not attempting to use ${station}'s IP Address '${stationIPAddress}'. Is this the correct host?" >&2
+        exit 2
+    fi
+    if ! ping -w 1 -c 1 -q "${stationIPAddress}" > /dev/null 2>&1 ; then
+        echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
+        exit 1
+    fi
 fi
 
 # Load the log, and skip to the correct time.
