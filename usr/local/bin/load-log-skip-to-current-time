@@ -18,7 +18,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=2
+vPatch=3
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -27,11 +27,11 @@ usage() {
 
 ${myName}: Usage: ${myName} [ --immediately (-i) ]
         [ --service <Service-Name> (-s) ]
-	[ --dry-run (-d) ]
-	[ --help (-h) ]
+        [ --dry-run (-d) ]
+        [ --help (-h) ]
         [ --version (-v) ]
-	[ <Log-Name> ]
-	[ <Station-Name> ]
+        [ <Log-Name> ]
+        [ <Station-Name> ]
 
 $(fmt <<<"${myName} loads the specified Log-Name into RDAirPlay on <Station-Name> and positions the next line number to the approximate time of day.")
 
@@ -73,57 +73,44 @@ doSQL() {
     local usableMyCNF=4
     local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
 
-  # Use the exported variables if we have been through this function
-  # already. This applies to each running instance of scripts that
-  # use this function. This helps prevent the need to look this
-  # stuff up every time this function is called.
-  if [[ -z "${_DB_HOST}" ]] ; then
-
     # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
     # else get credentials from rd.conf if it exists, else from the
     # environment, else use defaults here.
     # BUG ALERT: this assumes the credentials in .my.cnf are relevant
     # to the Rivendell database.
     if [[ -r ~/.my.cnf ]] && [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-      mapfile myCnfLines < ~/.my.cnf
+        mapfile myCnfLines < ~/.my.cnf
 
-      # Need to check for each of these parameters in .my.cnf in
-      # order to be able to use it.
-      for parm in database host password user ; do
-	if [[ "${myCnfLines[*]}" =~ ${parm} ]] ; then
-	  (( useMyCNF++ ))
-	fi
-      done
+        # Need to check for each of these parameters in .my.cnf in
+        # order to be able to use it.
+        for parm in database host password user ; do
+            if [[ "${myCnfLines[*]}" =~ ${parm} ]] ; then
+                (( useMyCNF++ ))
+            fi
+        done
     else
-      # Horribly insecure, but this is the "Rivendell Way".
-      if [[ -r "${rdconfig}" ]] ; then
-	DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Hostname=/{print $2}')
-	DB_USER=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Loginname=/{print $2}')
-	DB_PASSWORD=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Password=/{print $2}')
-	DB_DATABASE=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Database=/{print $2}')
-      else
-	# Last ditch effort to set the MySQL access credentials.
-	# These are the "conventional" defaults that might otherwise
-	# exist in /etc/rd.conf (and friends).
-	DB_HOST=${RD_DB_HOST:-"localhost"}
-	DB_USER=${RD_DB_USER:-"rduser"}
-	DB_PASSWORD=${RD_DB_PASS:-"letmein"}
-	DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
-      fi
+        # Horribly insecure, but this is the "Rivendell Way".
+        if [[ -r "${rdconfig}" ]] ; then
+            DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Hostname=/{print $2}')
+            DB_USER=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Loginname=/{print $2}')
+            DB_PASSWORD=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Password=/{print $2}')
+            DB_DATABASE=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Database=/{print $2}')
+        else
+            # Last ditch effort to set the MySQL access credentials.
+            # These are the "conventional" defaults that might otherwise
+            # exist in /etc/rd.conf (and friends).
+            DB_HOST=${RD_DB_HOST:-"localhost"}
+            DB_USER=${RD_DB_USER:-"rduser"}
+            DB_PASSWORD=${RD_DB_PASS:-"letmein"}
+            DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
+        fi
     fi
 
-    _DB_HOST=${DB_HOST}
-    _DB_USER=${DB_USER}
-    _DB_PWD=${DB_PASSWORD}
-    _DB_DATABASE=${DB_DATABASE}
-    _USE_MYCNF=${useMyCNF}
-  fi
-
-  if (( _USE_MYCNF == usableMyCNF )) ; then
-    mysql -s -N -e "${statement}"
-  else
-    mysql -s -N -B -u "${_DB_USER}" -p"${_DB_PWD}" -h "${_DB_HOST}" "${_DB_DATABASE}" -e "${statement}"
-  fi
+    if (( _USE_MYCNF == usableMyCNF )) ; then
+        mysql -s -N -e "${statement}"
+    else
+        mysql -s -N -B -u "${DB_USER}" -p"${DB_PASSWORD}" -h "${DB_HOST}" "${DB_DATABASE}" -e "${statement}"
+    fi
 }
 
 # Process command line options.
@@ -134,14 +121,14 @@ fi
 eval set -- "${TEMP}"
 while : ; do
     case "${1}" in
-	-d|--dry*) DRY_RUN=1 ; shift ;;
-	-h|--help*) usage "${myName}" ; exit ;;
-	-i|--imme*) START_IMMEDIATELY=1 ; shift ;;
-	-s|--service) SERVICE=${2} ; shift 2 ;;
-	-v|--verb*) VERBOSE=1 ; shift ;;
-	-V|--vers*) showVersion=1 ; shift ;;
-	--) shift ; break ;;
-	*) echo "${0##*/}: getopt internal error!" >&2 ; return 1 ;;
+        -d|--dry*) DRY_RUN=1 ; shift ;;
+        -h|--help*) usage "${myName}" ; exit ;;
+        -i|--imme*) START_IMMEDIATELY=1 ; shift ;;
+        -s|--service) SERVICE=${2} ; shift 2 ;;
+        -v|--verb*) VERBOSE=1 ; shift ;;
+        -V|--vers*) showVersion=1 ; shift ;;
+        --) shift ; break ;;
+        *) echo "${0##*/}: getopt internal error!" >&2 ; return 1 ;;
     esac
 done
 
@@ -182,11 +169,11 @@ if [[ -z "${logName}" ]] ; then
     read -a logs <<< $(doSQL "SELECT name FROM LOGS${SERVICE:+ WHERE service = '${SERVICE}'}")
 
     x=1; while : ; do
-	     for log in ${logs[*]} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
-	     read -e -p "Please select a log by entering the number from above: " choice
-	     (( choice > 0 && choice < x )) && break
-	     x=1
-	 done
+             for log in ${logs[*]} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
+             read -e -p "Please select a log by entering the number from above: " choice
+             (( choice > 0 && choice < x )) && break
+             x=1
+         done
     # BASH arrays are Zero-based.
     (( choice -= 1 ))
     tableName=${logs[choice]}${tableSuffix}
@@ -219,11 +206,11 @@ if [[ -z "${stationHostname}" ]] ; then
     # match DNS names on the network.
     read -a stations <<< $(doSQL "SELECT name FROM STATIONS")
     x=1; while : ; do
-	     for station in ${stations[*]} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
-	     read -e -p "Please select host on which RDAirplay is running: " choice
-	     (( choice > 0 && choice < x )) && break
-	     x=1
-	 done
+             for station in ${stations[*]} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
+             read -e -p "Please select host on which RDAirplay is running: " choice
+             (( choice > 0 && choice < x )) && break
+             x=1
+         done
     # BASH arrays are Zero-based.
     (( choice -= 1 ))
     station=${stations[choice]}
@@ -235,9 +222,13 @@ fi
 # Try to ping the workstation by name, then by IP address.
 if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
     stationIPAddress=$(doSQL "SELECT ipv4_address FROM STATIONS WHERE name='${station}'")
+    if [[ "${stationIPAddress}" =~ 127\..* ]] ; then
+        echo "ERROR: Could not ping host ${station}. Not attempting to use ${station}'s IP Address '${stationIPAddress}'. Is this the correct host?" >&2
+        exit 2
+    fi
     if ! ping -w 1 -c 1 -q "${stationIPAddress}" > /dev/null 2>&1 ; then
-	echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
-	exit 1
+        echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
+        exit 1
     fi
 fi
 
