@@ -207,7 +207,7 @@ if [[ -z "${stationHostname}" ]] ; then
     read -a stations <<< $(doSQL "SELECT name FROM STATIONS")
     x=1; while : ; do
              for station in ${stations[*]} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
-             read -e -p "Please select host on which RDAirplay is running: " choice
+             read -e -p "Please enter the number for the host on which RDAirplay is running: " choice
              (( choice > 0 && choice < x )) && break
              x=1
          done
