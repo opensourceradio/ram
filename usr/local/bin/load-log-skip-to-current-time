@@ -18,7 +18,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=4
+vPatch=5
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -32,10 +32,13 @@ ${myName}: Usage: ${myName} [ --immediately (-i) ]
         [ --version (-v) ]
         [ <Log-Name> ]
         [ <Station-Name> ]
+	[ <Log-Machine> ]
 
 $(fmt <<<"${myName} loads the specified Log-Name into RDAirPlay on <Station-Name> and positions the next line number to the approximate time of day.")
 
 $(fmt <<<"${myName} prompts you interactively for the log name and the station name if you do not specify them on the command line.")
+
+$(fmt <<<"You may specify a <Log-Machine> into which the log should be loaded. This enables using Virtual Log Machines in recent versions of Rivendell.")
 
 $(fmt <<<"You may limit the list of logs displayed for selection by specifying the --service option. Note that it is perfectly legal to load logs from any Service on any running instance of RDAirPlay.")
 
@@ -114,7 +117,7 @@ doSQL() {
 }
 
 # Process command line options.
-if ! TEMP=$(getopt -o dhis:Vv --long dry-run,help,immediate,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o dhis:Vv --long dry-run,help,immediately,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
     echo "getopt(1) Error: Terminating..." >&2 ; exit 1
 fi
 # Note the quotes around ${TEMP}: they are essential!
@@ -144,6 +147,7 @@ dbVersion=$(doSQL "SELECT db FROM VERSION")
 # prompt for them at the right time.
 logName=${1}
 stationHostname=${2}
+logMachine=${3:-1}
 
 # Rivendell versions lower than 3 (database version less than 300) use
 # dedicated Log tables.
@@ -257,17 +261,17 @@ fi
 
 # Load the log, and skip to the correct time.
 # Detailed explanation:
-# PW 1!                       Set the RDAirPlay right-hand widget to display Log Machine 1 (Main Log).
-# LL 1 ${logName} -1!         Load Log ${logName} into Log Machine 1 and set the start line to -1 (nothing).
-# MN 1 ${LOG_LINE[0]}!        Make ${LOG_LINE[0]} in Log Machine 1 the next line to play.
-# ${START_IMMEDIATELY:+PN 1!} Play Next line (see previous step) in Log Machine 1 if --immediately was specified on the command line.
-# PM 2 1!                     Set the Play Mode to Automatic for all Log Machines.
+# PW 1!                                   Set the RDAirPlay right-hand widget to display Log Machine 1 (Main Log).
+# LL ${logMachine} ${logName} -1!         Load Log ${logName} into Log Machine 1 and set the start line to -1 (nothing).
+# MN ${logMachine} ${LOG_LINE[0]}!        Make ${LOG_LINE[0]} in Log Machine 1 the next line to play.
+# ${START_IMMEDIATELY:+PN ${logMachine}!} Play Next line (see previous step) in Log Machine 1 if --immediately was specified on the command line.
+# PM 2 ${logMachine}!                     Set the Log Machine Play Mode to 'Automatic'.
 rmlsend --to-host="${station}" --from-file=- <<EOF
 PW 1!
-LL 1 ${logName} -1!
-MN 1 ${LOG_LINE[0]}!
-${START_IMMEDIATELY:+PN 1!}
-PM 2!
+LL ${logMachine} ${logName} -1!
+MN ${logMachine} ${LOG_LINE[0]}!
+${START_IMMEDIATELY:+PN ${logMachine}!}
+PM 2 ${logMachine}!
 EOF
 
 exit
