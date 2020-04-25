@@ -107,7 +107,10 @@ sub main () {
 	next unless ( $logLine =~ m#get\s+/($mountpointRE)\s+#i );
 	say STDERR $logLine if ( $debug > 1 );
 
-	if ( $logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](0[056])00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i ) {
+	# Bug Alert: the sub-expression "(\d{2})00" represents the
+	# timezone offset in the date/time field. It currently assumes
+	# an integral number of hours offset from GMT (UTC).
+	if ( $logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i ) {
 	    my $ipAddress = $1;
 	    my ( $date, $hour, $minute, $second ) = split( /:/, $2);
 	    my $tzOffset = $3;
