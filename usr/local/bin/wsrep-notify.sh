@@ -19,7 +19,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=1
-declare -r vPatch=1
+declare -r vPatch=2
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # shellcheck disable=SC2016
 declare -r vHash='$Hash$'
@@ -58,11 +58,6 @@ The --index parameter includes the index of this node in the node list.
 
 EOF
 }
-
-# Log STDOUT and STDERR of this script and all commands called by this
-# script to separate files.
-exec 1> "/var/tmp/${0##*/}.out"
-exec 2> "/var/tmp/${0##*/}.err"
 
 declare -r myName="${0##*/}"
 
@@ -128,6 +123,11 @@ fi
 	echo "Are we testing?"
 	exit
     }
+
+# Log STDOUT and STDERR of the rest of this script and the commands
+# called by this script to separate files.
+exec 1> "/var/tmp/${0##*/}.out"
+exec 2> "/var/tmp/${0##*/}.err"
 
 declare -xa members
 # Because quoting MEMBERS breaks its interpretation as a series of
