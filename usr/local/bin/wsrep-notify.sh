@@ -17,17 +17,17 @@
 # shellcheck disable=SC2155
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=1
-vPatch=0
+declare -r vMajor=0
+declare -r vMinor=1
+declare -r vPatch=1
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # shellcheck disable=SC2016
-vHash='$Hash$'
-vvHash="${vHash#\$Hash: }"
+declare -r vHash='$Hash$'
+declare -r vvHash="${vHash#\$Hash: }"
 
 # Tell them how to use this command.
 usage() {
-  myName=${1}
+  local -r myName=${1}
 
   ${CAT} << EOF
 ${myName}: Respond to a notification event from the MariaDB/MySQL Galera
@@ -64,6 +64,8 @@ EOF
 exec 1> "/var/tmp/${0##*/}.out"
 exec 2> "/var/tmp/${0##*/}.err"
 
+declare -r myName="${0##*/}"
+
 declare -r startTime=$(date +%s)
 declare -r MAILTO="${MAILTO:-dklann@broadcasttool.com}"
 declare -r MAILERCONF="${MAILERCONF:=/var/lib/mysql/conf.msmtp}"
@@ -72,6 +74,20 @@ declare -r messageID="$(uuidgen)-${startTime}@$(hostname)"
 # Save the output in this file which we will attach to the email
 # message (see the here-doc below).
 declare -r outputFile="${OUTPUT_FILE:-/var/tmp/wsrep-notify.out}"
+
+# The timestamp on this file is the time of last email sent.
+declare -r emailLastSentFile="${EMAIL_LAST_SENT_FILE:-/var/tmp/wsrep-email-sent}"
+
+# Grab the time of last modification of the output file and the
+# email-last-sent file. No worries if they do not exist.
+declare -r -i outputFileLastModified=$(stat --format="%Y" "${outputFile}" || echo '0')
+#declare -r -i emailLastSentTime="$(stat --format="%Y" "${emailLastSentFile}" || echo '0')"
+
+# Append to the output file if we have accessed it in the last ten
+# seconds (ie, during an "event").
+if [[ -f "${outputFile}" ]] && (( (startTime - outputFileLastModified) < 10 )) ; then
+    declare -r APPEND="-a"
+fi
 
 # These hold the values of the parameters passed from mysqld. We will
 # use them in a subshell, so we need export them.
@@ -90,21 +106,28 @@ do
     --memb*) MEMBERS="${2}" ; shift 2 ;;
     --prim*) PRIMARY="${2}" ; shift 2 ;;
     --stat*) STATUS="${2}" ; shift 2 ;;
-    --uuid) UUID="${2}" ; shift 2 ;;
-    --help) usage "${0}" ; exit ;;
+     --uuid) UUID="${2}" ; shift 2 ;;
+     --help) usage "${0}" ; exit ;;
     --vers*) showVersion=1 ; shift ;;
-    --) shift ; break ;;
-    *) echo "Internal getopt(1) error, cannot continue!" ; exit 1 ;;
+         --) shift ; break ;;
+          *) echo "Internal getopt(1) error, cannot continue!" ; exit 1 ;;
   esac
 done
 unset TEMP
 
-myName="${0##*/}"
+# Now that they are set, we do not want them to change.
+declare -r INDEX MEMBERS PRIMARY STATUS UUID
 
 if ((showVersion)) ; then
   echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${vvHash%$}"
   exit 0
 fi
+
+[[ -z "${MEMBERS}" ]] && [[ -z "${STATUS}" ]] && [[ -z "${UUID}" ]] &&
+    {
+	echo "Are we testing?"
+	exit
+    }
 
 declare -xa members
 # Because quoting MEMBERS breaks its interpretation as a series of
@@ -112,25 +135,33 @@ declare -xa members
 # shellcheck disable=SC2206
 members=( ${MEMBERS//,/ } )
 
-# TODO: get the length of the longest member string and use it for the MEMBERS field width.
+# Improve the look of the output using the length of the longest
+# "member" string for horizontal spacing.
+declare -i mLen=0
+for member in ${members[*]} ; do
+    (( ${#member} > mLen )) && mLen=${#member}
+done
+declare -r mLen
+
 (
     date --iso-8601=seconds --date="@${startTime}"
 
-    printf '%16s %60s %7s %10s %36s\n'   "INDEX"    "MEMBERS"       "PRIMARY"    "STATUS"    "UUID"
-    printf '%16s %60s %7s %10s %36s\n' "${INDEX}" "${members[0]}" "${PRIMARY}" "${STATUS}" "${UUID}"
+    printf "%16s %${mLen}s %7s %10s %36s\n"   "INDEX"    "MEMBERS"       "PRIMARY"    "STATUS"    "UUID"
+    printf "%16s %${mLen}s %7s %10s %36s\n" "${INDEX}" "${members[0]}" "${PRIMARY}" "${STATUS}" "${UUID}"
     unset "members[0]"
     for member in ${members[*]} ; do
 	[[ -z "${member}" ]] && continue
-	printf '+%76s\n' "${member}"
+	printf "+%$((mLen + 16))s\n" "${member}"
     done
-) | tee "${outputFile}"
+) | tee "${APPEND}" "${outputFile}"
 
-# Send the contents of outputFile to the recipients listed in MAILTO
-# (above). The sed(1) expression in the "To:" line cleans up the
-# separators in MAILTO. Since we are using mail.grunch.org (see
-# /var/lib/mysql/conf.msmtp) we need to set envelope "From:" different
-# that the msmtp "From:".
-msmtp --file "${MAILERCONF}" --read-recipients --from=dklann@grunch.org <<ENDOFMAIL
+if [[ "${STATUS}" =~ [Ss]ynced ]] &&  [[ "${PRIMARY}" =~ [Yy]es ]] ; then
+    # Send the contents of outputFile to the recipients listed in MAILTO
+    # (above). The sed(1) expression in the "To:" line cleans up the
+    # separators in MAILTO. Since we are using mail.grunch.org (see
+    # ${MAILERCONF}) we need to set envelope "From:" different
+    # than the msmtp "From:".
+    msmtp --file "${MAILERCONF}" --read-recipients --from=dklann@grunch.org <<ENDOFMAIL
 To: $(echo "${MAILTO}" | sed -r -e 's/( |[ ,][ ,])/,/')
 From: mysql@$(hostname)
 Reply-To: No-Reply@$(hostname)
@@ -160,5 +191,9 @@ Content-Disposition: attachment;
 $(cat < "${outputFile}" | base64)
 ------------${startTime}--
 ENDOFMAIL
+
+    touch "${emailLastSentFile}"
+    rm "${outputFile}"
+fi
 
 exit
