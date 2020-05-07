@@ -19,7 +19,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=1
-declare -r vPatch=2
+declare -r vPatch=3
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # shellcheck disable=SC2016
 declare -r vHash='$Hash$'
@@ -65,18 +65,6 @@ declare -r startTime=$(date +%s)
 declare -r MAILTO="${MAILTO:-dklann@broadcasttool.com}"
 declare -r MAILERCONF="${MAILERCONF:=/var/lib/mysql/conf.msmtp}"
 declare -r messageID="$(uuidgen)-${startTime}@$(hostname)"
-
-# Save the output in this file which we will attach to the email
-# message (see the here-doc below).
-declare -r outputFile="${OUTPUT_FILE:-/var/tmp/wsrep-notify.out}"
-
-# The timestamp on this file is the time of last email sent.
-declare -r emailLastSentFile="${EMAIL_LAST_SENT_FILE:-/var/tmp/wsrep-email-sent}"
-
-# Grab the time of last modification of the output file and the
-# email-last-sent file. No worries if they do not exist.
-declare -r -i outputFileLastModified=$(stat --format="%Y" "${outputFile}" || echo '0')
-#declare -r -i emailLastSentTime="$(stat --format="%Y" "${emailLastSentFile}" || echo '0')"
 
 # Append to the output file if we have accessed it in the last ten
 # seconds (ie, during an "event").
@@ -128,6 +116,18 @@ fi
 # called by this script to separate files.
 exec 1> "/var/tmp/${0##*/}.out"
 exec 2> "/var/tmp/${0##*/}.err"
+
+# Save the output in this file which we will attach to the email
+# message (see the here-doc below).
+declare -r outputFile="${OUTPUT_FILE:-/var/tmp/wsrep-notify.out}"
+
+# The timestamp on this file is the time of last email sent.
+declare -r emailLastSentFile="${EMAIL_LAST_SENT_FILE:-/var/tmp/wsrep-email-sent}"
+
+# Grab the time of last modification of the output file and the
+# email-last-sent file. No worries if they do not exist.
+declare -r -i outputFileLastModified=$(stat --format="%Y" "${outputFile}" 2>/dev/null || echo '0')
+#declare -r -i emailLastSentTime="$(stat --format="%Y" "${emailLastSentFile}" || echo '0')"
 
 declare -xa members
 # Because quoting MEMBERS breaks its interpretation as a series of
