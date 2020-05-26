@@ -63,14 +63,8 @@ declare -r myName="${0##*/}"
 
 declare -r startTime=$(date +%s)
 declare -r MAILTO="${MAILTO:-dklann@broadcasttool.com}"
-declare -r MAILERCONF="${MAILERCONF:=/var/lib/mysql/conf.msmtp}"
+declare -r MAILERCONF="${MAILERCONF:-/var/lib/mysql/conf.msmtp}"
 declare -r messageID="$(uuidgen)-${startTime}@$(hostname)"
-
-# Append to the output file if we have accessed it in the last ten
-# seconds (ie, during an "event").
-if [[ -f "${outputFile}" ]] && (( (startTime - outputFileLastModified) < 10 )) ; then
-    declare -r APPEND="-a"
-fi
 
 # These hold the values of the parameters passed from mysqld. We will
 # use them in a subshell, so we need export them.
@@ -121,13 +115,25 @@ exec 2> "/var/tmp/${0##*/}.err"
 # message (see the here-doc below).
 declare -r outputFile="${OUTPUT_FILE:-/var/tmp/wsrep-notify.out}"
 
-# The timestamp on this file is the time of last email sent.
-declare -r emailLastSentFile="${EMAIL_LAST_SENT_FILE:-/var/tmp/wsrep-email-sent}"
+# Archive the output file if it was last accessed more than five
+# minutes ago (ie, during an "event").
+if [[ -f "${outputFile}" ]] ; then
+    # Grab the time of last modification of the output file. No worries if
+    # it does not exist. We use this to decide whether we want
+    # to archive the output file.
+    declare -r -i outputFileLastModified=$(stat --format="%Y" "${outputFile}" 2>/dev/null || echo '0')
 
-# Grab the time of last modification of the output file and the
-# email-last-sent file. No worries if they do not exist.
-declare -r -i outputFileLastModified=$(stat --format="%Y" "${outputFile}" 2>/dev/null || echo '0')
-#declare -r -i emailLastSentTime="$(stat --format="%Y" "${emailLastSentFile}" || echo '0')"
+    if (( (startTime - outputFileLastModified) > 300 )) ; then
+        # shellcheck disable=SC2086,SC2046
+        mv "${outputFile}" /var/tmp/"${outputFile%.out}"-$(date --date=@${outputFileLastModified} '+%F-%H%M%S').out
+    fi
+fi
+
+# Send a notification if under these conditions: meaning that we seem
+# to have recovered from the "event".
+if [[ "${STATUS}" =~ [Ss]ynced ]] &&  [[ "${PRIMARY}" =~ [Yy]es ]] ; then
+    declare -r -i SEND_EMAIL=1
+fi
 
 declare -xa members
 # Because quoting MEMBERS breaks its interpretation as a series of
@@ -135,38 +141,30 @@ declare -xa members
 # shellcheck disable=SC2206
 members=( ${MEMBERS//,/ } )
 
-# Improve the look of the output using the length of the longest
-# "member" string for horizontal spacing.
-declare -i mLen=0
-for member in ${members[*]} ; do
-    (( ${#member} > mLen )) && mLen=${#member}
-done
-declare -r mLen
-
 (
     date --iso-8601=seconds --date="@${startTime}"
 
-    printf "%16s %${mLen}s %7s %10s %36s\n"   "INDEX"    "MEMBERS"       "PRIMARY"    "STATUS"    "UUID"
-    printf "%16s %${mLen}s %7s %10s %36s\n" "${INDEX}" "${members[0]}" "${PRIMARY}" "${STATUS}" "${UUID}"
+    printf "%16s %7s %10s %36s %-s\n"   "INDEX"    "PRIMARY"    "STATUS"    "UUID"   "MEMBERS"
+    printf "%16s %7s %10s %36s %-s\n" "${INDEX}" "${PRIMARY}" "${STATUS}" "${UUID}" "${members[0]}"
     unset "members[0]"
     for member in ${members[*]} ; do
 	[[ -z "${member}" ]] && continue
-	printf "+%$((mLen + 16))s\n" "${member}"
+	printf "+%$((16+7+10+36+4))s\n" "${member}"
     done
-) | tee "${APPEND}" "${outputFile}"
+) >> "${outputFile}"
 
-if [[ "${STATUS}" =~ [Ss]ynced ]] &&  [[ "${PRIMARY}" =~ [Yy]es ]] ; then
-    # Send the contents of outputFile to the recipients listed in MAILTO
-    # (above). The sed(1) expression in the "To:" line cleans up the
-    # separators in MAILTO. Since we are using mail.grunch.org (see
-    # ${MAILERCONF}) we need to set envelope "From:" different
-    # than the msmtp "From:".
+# Send the contents of outputFile to the recipients listed in MAILTO
+# (above). The sed(1) expression in the "To:" line cleans up the
+# separators in MAILTO. Since we are using mail.grunch.org (see
+# ${MAILERCONF}) we need to set envelope "From:" different
+# than the msmtp "From:".
+if (( SEND_EMAIL )) ; then
     msmtp --file "${MAILERCONF}" --read-recipients --from=dklann@grunch.org <<ENDOFMAIL
 To: $(echo "${MAILTO}" | sed -r -e 's/( |[ ,][ ,])/,/')
 From: mysql@$(hostname)
 Reply-To: No-Reply@$(hostname)
 Subject: WSREP Event
-Date: $(date --rfc-822 --date="@${startTime}")
+Date: $(date --rfc-2822 --date="@${startTime}")
 Message-ID: <${messageID}>
 X-Script-Name: ${0##*/}
 MIME-Version: 1.0
@@ -178,8 +176,8 @@ This is a multi-part message in MIME format.
 Content-Type: text/plain; charset=utf-8
 Content-Transfer-Encoding: quoted-printable
 
-$(hostname -f) experienced an event that caused a wsrep-notify-cmd. See the
-attachment.
+$(hostname -f) experienced one or more events that caused a
+wsrep-notify-cmd. See the attachment.
 
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
@@ -192,8 +190,6 @@ $(cat < "${outputFile}" | base64)
 ------------${startTime}--
 ENDOFMAIL
 
-    touch "${emailLastSentFile}"
-    rm "${outputFile}"
 fi
 
 exit
