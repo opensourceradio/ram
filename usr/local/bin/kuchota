@@ -23,8 +23,8 @@ colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=2
-vPatch=15
+vMinor=3
+vPatch=0
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -66,6 +66,11 @@ addOrReplaceFeed() {
   local backupServerlist=${ROOT:-/}var/tmp/${CONFIG_SERVERLIST##*/}
   local replaceFeed=0 addNewFeed=1
   local ok
+
+  if ! okDatabaseStructure GROUPS:name "${verbose}" ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
 
   trap 'trap - ; return ;' 0 1 2 3
 
@@ -854,10 +859,8 @@ addRDDropbox() {
   local returnValue=1
   local desiredNumber dropboxCartNumber
 
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
-
+  if ! okDatabaseStructure DROPBOXES:id+path+to_cart+group_name "${verbose}" ; then
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually or seek professional help in updating this script ('${0}.")
-
   fi
 
   ##########################################################################################
@@ -995,10 +998,9 @@ showRDDropboxes() {
   local query="select d.ID,d.STATION_NAME,d.PATH,d.GROUP_NAME,d.TO_CART,d.DELETE_CUTS,c.TITLE from DROPBOXES d left join CART c on (d.TO_CART = c.NUMBER) where d.PATH like '${DIR_LIBRARY}/%' order by d.PATH"
   local id stationName boxpath group cart dropcuts title
 
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
 
+  if ! okDatabaseStructure DROPBOXES:id+station_name+path+group_name+to_cart+delete_cuts,CART:number+title "${verbose}" ; then
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to create a dropbox manually.")
-
   fi
 
   trap 'trap - 0 1 2 3 ; return ;' 0 1 2 3
@@ -1055,10 +1057,8 @@ deleteRDDropbox() {
 
   local returnValue=0
 
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
-
+  if ! okDatabaseStructure DROPBOXES:id+path+to_cart "${verbose}" ; then
     return $(error "This version of ${myName} is not compatible with Rivendell database version '$(rdDatabaseVersion)'. You need to delete the dropbox manually.")
-
   fi
 
   query="select ID,PATH,TO_CART from DROPBOXES where PATH like '${pathPrefix}%'"
@@ -1200,6 +1200,11 @@ createDropbox() {
   local returnValue=0
   local deleteCuts stationName dropboxID
   local -a query
+
+  if ! okDatabaseStructure DROPBOXES:station_name+group_name+path+normalization_level+autotrim_level+to_cart+delete_cuts+fix_broken_formats+log_path "${verbose}" ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
 
   ## DELETE_CUTS is set to "N" in the database only if they press 'y'
   ## in response to this prompt.

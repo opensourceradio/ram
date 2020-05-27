@@ -21,8 +21,8 @@ colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=1
-vPatch=3
+vMinor=3
+vPatch=0
 vHash='$Hash$'
 
 ##############################################################################
@@ -31,13 +31,13 @@ vHash='$Hash$'
 
 # How to use this command.
 usage() {
-  local myName=${1}
+  local myName="${1}"
 
-  ${CAT} << EOF
+  "${CAT}" << EOF
 $(${FMT} <<<"${myName}: display events for the named Rivendell Clock (or all Clocks) on STDOUT (aka, the terminal)")
 
 Summary
-${myName##*/} [ --version (-V) ] --all || <Clock_Name> || "list"
+"${myName##*/}" [ --version (-V) ] --all || <Clock_Name> || "list"
 
 Description
 $(${FMT} <<<"${myName} formats and dumps the contents of the named Clock. Use the word 'list' to see a list of Clock names.")
@@ -52,9 +52,9 @@ EOF
 
 # Throw an error and return an unsuccessful return code.
 error() {
-  local message=${1}
+  local message="${1}"
 
-  ${FMT} >&2 <<EOF
+  "${FMT}" >&2 <<EOF
 
 ${RED}ERROR:${NORM} ${message}
 
@@ -63,92 +63,81 @@ EOF
   return 254
 }
 
-# Convert milliseconds to HH:MM:SS with the hours and minutes zero-filled.
-ms2HMS() {
-  local milliseconds=${1:?"Need some milliseconds"}
-  typeset -Z 2 Hours Minutes Seconds
-
-  (( Hours=milliseconds / 1000 / 60 / 60 ))
-  (( Hours == 0 )) && unset Hours
-  (( Minutes=milliseconds / 1000 / 60 ))
-  (( Minutes == 0 )) && unset Minutes
-  (( Seconds=milliseconds / 1000 % 60 ))
-
-  if (( Minutes > 59 )) { (( Hours++ )) ; (( Minutes -= 60 )) ; }
-
-  print ${Hours:+${Hours}:}${Minutes:+${Minutes}:}${Seconds}
-}
-
 # Check to be sure it is a valid Clock. Returns true or false based on
 # the regex match test
 validClock() {
-  local definedClocks=${1} ; shift
-  local requestedClock=${1} ; shift
+  local definedClocks="${1}" ; shift
+  local requestedClock="${1}" ; shift
 
-  [[ "${definedClocks}" =~ ".*${requestedClock}.*" ]]
+  [[ "${definedClocks}" =~ .*${requestedClock}.* ]]
 }
 
-# Display all the events in one clock along with its title
+# Display all the events in one clock along with its title.
 showClock() {
-  local rivendellClockList="${1}" ; shift
-  local clock="${1}" ; shift
-  local VERBOSE=${1}
+  local short_name="${1}" ; shift
+  local full_name="${1}" ; shift
+  local VERBOSE="${1}"
 
-  local returnValue=1 		# assume success
+  local returnValue=0 		# assume success
+  local query lQuery cQuery
+  local evNameWidth
+  local eventCount
+  local clkName="${full_name// /_}_CLK"
 
-  if [[ "${rivendellClockList}" =~ ".*${clock}.*" ]] ; then
-
-    printf '# Events for Clock "%s"\n' "${clock//_/ }"
-
-    # doSQL output is <TAB>-separated, make sure the whitespace in the
-    # variable expansions below is a single <TAB>.
-    doSQL "SELECT event_name,start_time,length FROM \`${clock}_CLK\` ORDER BY start_time ASC" | while read line ; do
-      eventName=${line%%	*}
-      eventDuration=${line##*	}
-      eventStart=${${line#*	}%	*}
-      eventEnd=$((eventStart + eventDuration))
-      printf '\t* %30s at %5s for %5s (ending at %5s)\n' \
-	     "'${eventName//_/ }'" \
-	     $(ms2HMS ${eventStart}) \
-	     $(ms2HMS ${eventDuration}) \
-	     $(ms2HMS ${eventEnd})
-    done
-
-  else
-
-    echo "${BOLD}${clock} is not a valid Clock name. Please use a valid Clock name.${NORM}" 1>&2
-    returnValue=2
-
+  # The pre-version-300 clocks structure
+  if okDatabaseStructure "${clkName}:event_name+start_time+length" "${VERBOSE}" ; then
+    query="SELECT event_name,start_time,length FROM \`${clkName}\` ORDER BY start_time ASC"
+    cQuery="SELECT COUNT(*) FROM \`${clkName}\`"
+    lQuery="SELECT LENGTH(event_name) FROM \`${clkName}\` ORDER BY LENGTH(event_name) DESC LIMIT 1"
+  # The post-version-300 clocks structure
+  elif okDatabaseStructure CLOCK_LINES:clock_name+event_name+start_time+length "${VERBOSE}" ; then
+    query="SELECT event_name,start_time,length FROM CLOCK_LINES WHERE clock_name='${full_name}' ORDER BY start_time ASC"
+    cQuery="SELECT COUNT(*) FROM CLOCK_LINES WHERE clock_name='${full_name}'"
+    lQuery="SELECT LENGTH(event_name) FROM CLOCK_LINES WHERE clock_name='${full_name}' ORDER BY LENGTH(event_name) DESC LIMIT 1"
   fi
 
-  return ${returnValue}
+  evNameWidth="$(doSQL ${lQuery})"
+  eventCount="$(doSQL ${cQuery})"
+  printf '%3d Events for Clock "%s"\n' "${eventCount}" "${full_name//_/ }"
+
+  # doSQL output is <TAB>-separated, make sure the whitespace in the
+  # variable expansions below is a single <TAB>.
+  doSQL "${query}" | while read line ; do
+    eventName="${line%%	*}"
+    eventDuration="${line##*	}"
+    eventStart="${${line#*	}%	*}"
+    eventEnd=$((eventStart + eventDuration))
+    printf "\t* %${evNameWidth}s at %5s for %5s (ending at %5s)\n" \
+	   "${eventName//_/ }" \
+	   $(ms2HMS "${eventStart}") \
+	   $(ms2HMS "${eventDuration}") \
+	   $(ms2HMS "${eventEnd}")
+  done
+
+  return "${returnValue}"
 }
 
-#################  BEGIN shell commands used in this script.  #################
-# This script uses these 5 external commands.
+################### BEGIN shell commands used in this script. ###################
+# This script uses these 4 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  cat
-  column
-  expr
-  fmt
-  getopt
-)
+typeset -a our_commands
+our_commands=( cat column fmt getopt )
 # Find the executables we need; this uses a little old fashioned shell and
 # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
 # all upper case letters. We will use the command names in upper case as
 # variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+for C in ${our_commands} ; do
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$${(U)C//-/_}) ]] || { print "Cannot find ${C}! Done."; return 1 }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands
+#################### END shell commands used in this script. ####################
 
 # Get zsh functions necessary for this script.
-if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
-  source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r "${ROOT:-/}usr/local/bin/zsh-functions" ]] ; then
+  source "${ROOT:-/}usr/local/bin/zsh-functions"
 else
   exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your astrologist!")
 fi
@@ -158,7 +147,7 @@ NORM="${reset_color}"
 
 # use getopt to parse the command line args
 TEMP=$(${GETOPT} -o ahvV --long all,html,verbose,version -n ${0:t} -- "${@}")
-if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
+if [ "${?}" != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
 while :
@@ -179,33 +168,48 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-rivendellClockList=( $(doSQL "show tables like '%CLK'" | sed -e 's/_CLK//' | sort) )
+# Figure out which schema we are using for Clocks and Events.
+typeset -A rivendellClockList
+if okDatabaseStructure CLOCKS:name+short_name ; then
+  # IFS must be just <Tab> and Newline.
+  oIFS="${IFS}"
+  IFS="	
+"
+  rivendellClockList=( $(doSQL "SELECT short_name,name FROM CLOCKS") )
+  IFS="${oIFS}"
+else
+  # Don't really know what else to do here...
+  printf "Unknown database schema version (%03d). I give up." $(doSQL "SELECT db FROM VERSION")
+fi
 
 if (( SHOW_ALL )) ; then  
 
   # Display all the Clocks.
-  for clock in ${rivendellClockList} ; do
+  for clock in ${(ko)rivendellClockList} ; do
 
-    showClock "${rivendellClockList}" ${clock} ${VERBOSE}
+    showClock "${clock}" "${rivendellClockList[${clock}]}" "${VERBOSE}"
     echo
 
   done
 
 elif [[ -n "${1}" ]] ; then
 
-  if [[ ${(L)1} = 'list' ]] ; then
+  if [[ "${(L)1}" = 'list' ]] ; then
     echo "Current list of CLOCKs:"
-    echo ${(F)rivendellClockList} | ${COLUMN} -x -c ${COLUMNS}
+    # (F) joins array elements with newline separator.
+    echo "${(F)rivendellClockList}" | "${COLUMN}" -x -c "${COLUMNS}"
     read clock\?"Enter a Clock to list: "
   else
     clock="${1}"
   fi
 
-  showClock "${rivendellClockList}" ${clock} ${VERBOSE}
+  if validClock "${rivendellClockList}" "${clock}" ; then
+    showClock "${clock}" "${VERBOSE}"
+  fi
 
 else
 
-  usage ${0:t}
+  usage "${0:t}"
 
 fi
     

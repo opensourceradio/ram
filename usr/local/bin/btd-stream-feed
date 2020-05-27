@@ -40,7 +40,7 @@ done
 ##
 ## the liquidsoap script to use for this instance of the stream
 ##
-streamScript=${1:-${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/pmw/btd-stream-feed.liq}}
+streamScript=${1:-${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/btd/btd-stream-feed.liq}}
 
 ##
 ## the stream URL should be of the form

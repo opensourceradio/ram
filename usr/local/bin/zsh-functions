@@ -15,8 +15,8 @@ zmodload zsh/datetime
 # This library complies with Semantic Versioning: http://semver.org/
 vLibRelease=0
 vLibMajor=0
-vLibMinor=1
-vLibPatch=4
+vLibMinor=2
+vLibPatch=0
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -343,10 +343,7 @@ rdGetStationName() {
   local HOSTNAME=$(whence hostname) ; HOSTNAME=${HOSTNAME:-${ROOT:-/}bin/hostname}
   local myHostname=$(${HOSTNAME} -s)
 
-  # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=259
-
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
+  if ! okDatabaseStructure STATIONS:name+ipv4_address ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -386,10 +383,7 @@ rdGetStationName() {
 rdGetWebServer() {
   local returnValue=1
 
-  # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=259
-
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
+  if ! okDatabaseStructure STATIONS:name+http_station ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -647,10 +641,7 @@ rdMaxCartNumberForGroup() {
   local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
   local verbose=${1}
 
-  # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=259
-
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
+  if ! okDatabaseStructure GROUPS:name+default_high_cart "${verbose}" ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -669,10 +660,7 @@ rdGetNextCartNumber() {
   local defaultLowCart defaultHighCart nextAvailable nextCartNum useThisCartNumber
   local lastHigh=0
 
-  # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=259
-
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
+  if ! okDatabaseStructure GROUPS:name+default_low_cart+default_high_cart,CART:number "${verbose}" ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -765,10 +753,7 @@ rdCreateEmptyCart() {
   local newCartNumber
   local returnValue=0
 
-  # This function is compatible with Rivendell database verson:
-  local rdDBVersionCompatible=259
-
-  if (( $(rdDatabaseVersion) > rdDBVersionCompatible )) ; then
+  if ! okDatabaseStructure CART:number+type+group_name+title+cut_quantity "${verbose}" ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
     return 128
   fi
@@ -837,6 +822,11 @@ rdDropboxStatus() {
   local -a rdimportIDs
   local dropboxID dropboxPath rdcatchdRestartNeeded=0 returnValue=0
   local count=0 totalCount=0
+
+  if ! okDatabaseStructure DROPBOXES:id+station_name+path "${verbose}" ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
 
   # We are looking for dropboxes on *this* host.
   dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)' order by ID") )
@@ -922,6 +912,13 @@ rdDropboxStatus() {
 
 }
 
+# Return a DROPBOX numeric ID from a path.
+# Parameters:
+# - the name of the caller
+# - a string representing a path prefix
+# - a boolean (0 or 1) indicating interactive
+# Returns: true (0) if the database structure is OK, else false
+# (non-zero)
 rdGetDropboxIDFromPath() {
   local myName=${1} ; shift
   local pathPrefix=${1} ; shift
@@ -931,6 +928,11 @@ rdGetDropboxIDFromPath() {
   local returnValue=1
   local query="select ID from DROPBOXES where PATH like '${pathPrefix}%'"
   local -a id
+
+  if ! okDatabaseStructure DROPBOXES:id+path "${verbose}" ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
 
   # The query *should* return exactly one dropbox ID; deal with it
   # gracefully if it returns more than one.
@@ -949,6 +951,55 @@ rdGetDropboxIDFromPath() {
   return ${returnValue}
 }
 
+# Determine whether the database structure matches our expectation.
+# Parameters:
+# - comma-separated list of table:column+column... tuples
+# - (optional) verbose boolean
+# Returns: true (0) if the database structure is OK, else false
+# (non-zero)
+okDatabaseStructure() {
+  local tablesAndColumns=${1} ; shift
+  local verbose=${1}
+
+  local -a columns
+  local schema
+
+  # Split the comma-separated list of
+  # table:colum+column+column... into this ZSH associative array.
+  local -A tables
+  tables=( $(echo ${${tablesAndColumns//,/ }//:/ }) )
+
+  # Check for the existence of each of these columns in these tables.
+  for table in $(echo ${(k)tables}) ; do
+    columns=( $(echo ${tables[${table}]//\+/ }) )
+
+    if ! schema=$(doSQL "SHOW CREATE TABLE \`${table}\`\\G" 2>/dev/null) ; then
+      return 1
+    fi
+
+    for column in $(echo ${tables[${table}]//+/ }) ; do
+      [[  "${schema}" =~ [[:space:]]+\`${(U)column}\`[[:space:]]+ ]] || return
+    done
+  done
+
+  return
+}
+
+# Convert milliseconds to [HH:]MM:SS.
+ms2HMS() {
+  local milliseconds="${1:?Need some milliseconds}"
+  typeset -Z 2 Hours Minutes Seconds
+
+  (( Hours=milliseconds / 1000 / 60 / 60 % 24 ))
+  (( Hours == 0 )) && unset Hours
+  (( Minutes=milliseconds / 1000 / 60 % 60 ))
+  (( Seconds=milliseconds / 1000 % 60 ))
+
+  print "${Hours:+${Hours}:}${Minutes:+${Minutes}:}${Seconds}"
+}
+
+# Log a message to either syslog (non-interactive) or STDOUT
+# (interactive).
 logit() {
   local caller=${1} ; shift
   local interactive=${1} ; shift

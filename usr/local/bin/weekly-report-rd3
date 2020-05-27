@@ -18,7 +18,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -320,10 +320,10 @@ if [[ -n "${schedCodes}" ]] ; then
     echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" 1>&2
     exit 3
   }
-  typeset -A scA
+  typeset -a scA
   scA=( $(echo ${schedCodes//,/ }) )
   schedCodesJoinClause="LEFT JOIN CART_SCHED_CODES AS csch ON (elr.cart_number = csch.cart_number)"
-  schedCodesAndClause="AND csch.sched_code IN (" $(echo "'"${(j:',':)scA}"'") ")"
+  schedCodesAndClause="AND csch.sched_code IN ($(echo "'"${(j:',':)scA}"'"))"
   SCHEDCODES=1
 
   typeset -a schedcodes
@@ -333,11 +333,11 @@ fi
 selectCountStatement="SELECT
   COUNT(*)
   FROM ELR_LINES AS elr
+  LEFT JOIN CART AS c on (elr.cart_number = c.number)
+  ${schedCodesJoinClause}
   WHERE elr.cart_number IN
-  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}'
-   ${schedCodesAndClause})
-  AND
-  elr.service_name = '${service}'
+  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
+  AND elr.service_name = '${service}'
   AND
   elr.event_datetime > '${reportStartDate}'
   AND
@@ -377,13 +377,14 @@ fwPub=$(maxLength publisher)
 # Find all matching events in ELR_LINES.
 selectStatement="SELECT
   elr.event_datetime, elr.title, c.number, elr.length/1000
-    $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
-    $(((SCHEDCODES)) && echo ',c.sched_codes')
+  $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
+  $(((SCHEDCODES)) && echo ', csch.sched_code')
   FROM ELR_LINES AS elr
   LEFT JOIN CART AS c on (elr.cart_number = c.number)
   ${schedCodesJoinClause}
   WHERE elr.cart_number IN
   (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
+  AND elr.service_name = '${service}'
   AND
   elr.event_datetime > '${reportStartDate}'
   AND
