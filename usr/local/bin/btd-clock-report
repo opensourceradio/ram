@@ -154,7 +154,7 @@ while :
 do
   case "${1}" in
     -a|--all) SHOW_ALL=1 ; shift ;;
-    -h|--html) HTML_OUTPUT=1 ; exit ;;
+    -h|--help) usage ${0:t} ; exit ;;
     -V|--version) showVersion=1 ; shift ;;
     -v|--verbose) VERBOSE=1 ; shift ;;
     --) shift ; break ;;
@@ -179,7 +179,7 @@ if okDatabaseStructure CLOCKS:name+short_name ; then
   IFS="${oIFS}"
 else
   # Don't really know what else to do here...
-  printf "Unknown database schema version (%03d). I give up." $(doSQL "SELECT db FROM VERSION")
+  printf "Unknown database schema version (%03d). I give up." $(rdDatabaseVersion)
 fi
 
 if (( SHOW_ALL )) ; then  
