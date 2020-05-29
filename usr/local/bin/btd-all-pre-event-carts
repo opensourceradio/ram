@@ -1,0 +1,26 @@
+#!/bin/zsh
+tmpfile=$(mktemp)
+trap "rm -f ${tmpfile}; exit" 0
+exec 1> ${tmpfile}
+sed -n -e '1,/^exit$/p' ${0}
+eval $(sed -e '/^### END PRESERVE ###$/,$d' ${0})
+echo '### END PRESERVE ###'
+echo 'pre_fill_carts = {'
+if pre_tables=$(mysql --batch -N -e "show tables like '%_PRE'") && [[ -n "${pre_tables}" ]] ; then
+  echo "${pre_tables}" | sort | while read pre ; do
+    mysql --batch -N -e "SELECT count,cart_number FROM ${pre}" | while read count cart ; do
+      echo "    '${${pre%_PRE}//_/ }':{${count}:${cart}},"
+    done
+  done
+else
+  mysql --batch -N -e "SELECT count,cart_number,event_name FROM EVENT_LINES WHERE type=0 ORDER BY event_name" | while read count cart event_name ; do
+    echo "    '${event_name}':{${count}:${cart}},"
+  done
+fi
+echo '}'
+
+mv ${tmpfile} ${0}
+chmod +x ${0}
+
+exit
+### END PRESERVE ###
