@@ -61,11 +61,6 @@ EOF
 
 declare -r myName="${0##*/}"
 
-declare -r startTime=$(date +%s)
-declare -r MAILTO="${MAILTO:-dklann@broadcasttool.com}"
-declare -r MAILERCONF="${MAILERCONF:-/var/lib/mysql/conf.msmtp}"
-declare -r messageID="$(uuidgen)-${startTime}@$(hostname)"
-
 # These hold the values of the parameters passed from mysqld. We will
 # use them in a subshell, so we need export them.
 declare -x INDEX MEMBERS PRIMARY STATUS UUID
@@ -108,15 +103,21 @@ fi
 
 # Log STDOUT and STDERR of the rest of this script and the commands
 # called by this script to separate files.
-exec 1> "/var/tmp/${0##*/}.out"
-exec 2> "/var/tmp/${0##*/}.err"
+exec 1>> "/var/tmp/${0##*/}.out"
+exec 2>> "/var/tmp/${0##*/}.err"
+
+declare -r startTime=$(date +%s)
+declare -r MAILTO="${MAILTO:-dklann@broadcasttool.com}"
+declare -r MAILERCONF="${MAILERCONF:-/var/lib/mysql/conf.msmtp}"
+declare -r messageID="$(uuidgen)-${startTime}@$(hostname)"
 
 # Save the output in this file which we will attach to the email
 # message (see the here-doc below).
 declare -r outputFile="${OUTPUT_FILE:-/var/tmp/wsrep-notify.out}"
 
-# Archive the output file if it was last accessed more than five
-# minutes ago (ie, during an "event").
+# Archive the output file if its "modification time" (%Y) was more
+# than five minutes ago, meaning that we are most likely in a new
+# "event" and more messages will follow in fairly quick succession.
 if [[ -f "${outputFile}" ]] ; then
     # Grab the time of last modification of the output file. No worries if
     # it does not exist. We use this to decide whether we want
@@ -125,7 +126,7 @@ if [[ -f "${outputFile}" ]] ; then
 
     if (( (startTime - outputFileLastModified) > 300 )) ; then
         # shellcheck disable=SC2086,SC2046
-        mv "${outputFile}" /var/tmp/"${outputFile%.out}"-$(date --date=@${outputFileLastModified} '+%F-%H%M%S').out
+        mv "${outputFile}" "${outputFile%.out}"-$(date --date=@${outputFileLastModified} '+%F-%H%M%S').out
     fi
 fi
 
@@ -149,7 +150,7 @@ members=( ${MEMBERS//,/ } )
     unset "members[0]"
     for member in ${members[*]} ; do
 	[[ -z "${member}" ]] && continue
-	printf "+%$((16+7+10+36+4))s\n" "${member}"
+	printf "%$((16+7+10+36+4))s%-s\n" ' ' "${member}"
     done
 ) >> "${outputFile}"
 
