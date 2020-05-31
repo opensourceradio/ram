@@ -341,7 +341,7 @@ if [[ -r "${1}" ]] ; then
 	     --set-string-description="Track ${tracknum}" \
 	     --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
 	     --set-string-user-defined="source=${location}" \
-	     $(echo ${ourSchedCodes//,/ --add-scheduler-code=}) \
+	     $(echo ${${ourSchedCodes/,,/,}//,/ --add-scheduler-code=}) \
 	     ${group} ${track}
   done
 
