@@ -52,28 +52,29 @@ ${myName:t}: Generate a weekly report for a Rivendell Group and a
 Rivendell Service for the week ending "yesterday" (or the specified
 date). This version works only with Rivendell version 3.X.
 
-Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS]]
-                       [ --end-date (-e) <YYYY-MM-DD> [HH:MM:SS]]
+Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
+                       [ --end-date (-e) <YYYY-MM-DD> [HH:MM:SS] ]
                        [ --csv (-c) ]
                        [ --schedcodes <Code>[,<Code>,...] (or "list") ]
                        [ --pro-data (-p) ]
-                       --group (-g) <Group Name> (or "list")
-                       --service (-s) <Service Name> (or "list")
+                       [ --group (-g) <Group Name> (or "list") ]
+                       [ --all ]
+                       [ --service (-s) <Service Name> (or "list") ]
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
 
-The --group (-g) parameter is required.
+You will be prompted for a Group if you do not provide one using the
+--group (-g) parameter, or the --all option.
 
 The --service (-s) parameter is required unless only one Service is
 configured. In that case the sole Service is chosen for you.
 
 Adding the --schedcodes option causes ${myName:t} to include Carts
-that have any of the Scheduler Codes "<Code>,..." assigned (specify
-multiple Codes separated with commas). You may use the word "list" to
-list all Codes, and choose from the available Scheduler Codes. This
-option also causes the output to include all Rivendell Scheduler Codes
-for each Cart.
+that have any of the Scheduler Codes "<Code>,..." assigned (separate
+multiple Codes by commas). You may use the word "list" to list and
+choose from the available Scheduler Codes. This option also causes the
+output to include all Rivendell Scheduler Codes for each Cart.
 
 The --pro-data (-p) option tells ${myName:t} to include performance
 rights organization (PRO) data (such as artist, album, and record
@@ -233,14 +234,13 @@ rivendellSchedCodeList=( $(doSQL "SELECT code from SCHED_CODES" | ${TR} '\012' '
 typeset -A cartCount
 whereClauseOp='='
 
-
 if (( PROdata )) ; then
   typeset -a artist album label publisher
 fi
 
 # Default start date is midnight seven days ago.
 if [[ -z "${startDate}" ]] ; then
-  reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 *7 ) )))
+  reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 * 7 ) )))
 else
   # Be flexible in the start date they pass to us.
   if [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$' ]] ; then

@@ -18,7 +18,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 #################  BEGIN shell commands used in this script.  #################
@@ -52,18 +52,20 @@ ${myName:t}: Generate a weekly report for a Rivendell Group and a
 Rivendell Service for the week ending "yesterday" (or the specified
 date).
 
-Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> ]
-                       [ --end-date (-e) <YYYY-MM-DD> ]
+Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
+                       [ --end-date (-e) <YYYY-MM-DD> [HH:MM:SS] ]
                        [ --csv (-c) ]
                        [ --schedcodes <Code>[,<Code>,...] (or "list") ]
                        [ --pro-data (-p) ]
-                       --group (-g) <Group Name> (or "list")
-                       --service (-s) <Service Name> (or "list")
+                       [ --group (-g) <Group Name> (or "list") ]
+                       [ --all ]
+                       [ --service (-s) <Service Name> (or "list") ]
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
 
-The --group (-g) parameter is required.
+You will be prompted for a Group if you do not provide one using the
+--group (-g) parameter, or the --all option.
 
 The --service (-s) parameter is required unless only one Service is
 configured. In that case the sole Service is chosen for you.
@@ -218,10 +220,15 @@ whereClauseOp='='
 
 # Default start date is midnight seven days ago.
 if [[ -z "${startDate}" ]] ; then
-  reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 *7 ) )))
+  reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 * 7 ) )))
 else
-  if [[ "${startDate}" =~ '[23][0-9]{3}-[01][0-9]-[0-3][0-9]' ]] ; then
+  # Be flexible in the start date they pass to us.
+  if [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$' ]] ; then
     reportStartDate="${startDate} 00:00:00"
+  elif [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]$' ]] ; then
+    reportStartDate="${startDate}:00"
+  elif [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]:[0-9][0-9]$' ]] ; then
+    reportStartDate="${startDate}"
   else
     echo "Start date '${startDate}' is invalid."
     usage ${0:t}
