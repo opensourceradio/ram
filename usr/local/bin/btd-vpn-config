@@ -5,7 +5,7 @@
 ## btd-vpn-config
 ##
 ## Install, configure, enable, and start OpenVPN service with a BTD
-## configuration. This currently works only on CentOS.
+## configuration. This currently works only on "recent" CentOS and Debian.
 ##
 ##############################################################################
 
@@ -13,10 +13,12 @@
 # shellcheck disable=SC2016
 vMajor=0
 vMinor=1
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 myName=${0##*/}
+
+OS_DISTRO=None
 
 usage() {
   myName=${1} ; shift
@@ -63,6 +65,23 @@ if [[ -z "${OPENVPN_CONFIGURATION}" ]] ; then
   exit 1
 fi
 
+(( VERBOSE )) && echo -e "Checking Linux distro... \c"
+
+if [[ -r /etc/centos-release ]] ; then
+  OS_DISTRO=CentOS
+elif [[ -r /etc/debian_version ]] ; then
+  OS_DISTRO=Debian
+fi
+
+RELEASE_DETAILS="$(cat ${OS_DISTRO})"
+(( VERBOSE )) && echo "appears to be ${OS_DISTRO} ('${RELEASE_DETAILS}')."
+
+case _${OS_DISTRO} in
+  _CentOS) PACKAGE_MANAGER=yum ;;
+  _Debian) PACKAGE_MANAGER=apt-get ;;
+  _*) PACKAGE_MANAGER= ;;
+esac
+
 (( VERBOSE )) && echo "Checking for OpenVPN configuration archive file..."
 
 if ! [[ -r ${OPENVPN_CONFIGURATION} ]] ; then
@@ -74,7 +93,7 @@ fi
 (( VERBOSE )) && echo "Installing openvpn package (if it is not already installed)..." >&2
 
 # This will not fail if openvpn is already installed.
-if ! yum install -y openvpn ; then
+if ! ${PACKAGE_MANAGER} install -y openvpn ; then
   logger -t "${myName}" -p local7.err -i --stderr "ERROR: Unable to install OpenVPN package (${?}). I quit."
   exit 2
 fi
@@ -82,7 +101,7 @@ fi
 (( VERBOSE )) && echo "Installing bzip2 package (if it is not already installed)..." >&2
 
 if ! [[ -x /bin/bunzip2 ]] ; then
-  yum install -y bzip2
+  ${PACKAGE_MANAGER} install -y bzip2
 fi
 
 (( VERBOSE )) && echo "Extracting tar(1) archive contents..." >&2
@@ -97,11 +116,12 @@ fi
 
 # Set ownership, permsissions, and SELinux context on the
 # configuration files.
-chown -R root:openvpn /etc/openvpn/*
-chmod -R ug+r,o-rwx /etc/openvpn/*
+chown -R root:openvpn /etc/openvpn
+chmod -R ug+r,o-rwx /etc/openvpn
 [[ -x /sbin/restorecon ]] && restorecon -R -F /etc/openvpn
 
-# Enable the openvpn service for this configuration.
+# Enable the openvpn service for this configuration. This *should*
+# find only one file.
 configFilename=$(find /etc/openvpn -maxdepth 1 -iname \*.conf -print)
 instanceBasename=${configFilename%.conf}
 instanceName=${instanceBasename##*/}
