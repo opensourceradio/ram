@@ -9,7 +9,7 @@ use Data::Dumper;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 6;
+use constant vPATCH => 7;
 use constant vHASH => '$Hash$';
 
 package Feed;
@@ -27,8 +27,9 @@ my $feeds = {
         'remoteHOST'       => 'ftp.radioidl.com',
         'remoteUSER'       => 'rdmrcom',
         'remotePASS'       => 'R@dio2435',
-        # Note that remoteDir must begin with a '/'.
+        # Note that remoteDIR must begin with (but not end with) a '/'.
         'remoteDIR'        => '/',
+	'recurse'          => 0,
         # This is the list of fields as returned by ncftpls(1). The
         # digits are the indexes into the array returned by
         # split(). Note that filenames with spaces in them will cause
@@ -58,7 +59,8 @@ my $feeds = {
         'remoteHOST'       => 'ftp.nativeftp.org',
         'remoteUSER'       => 'undercurrents@nativeftp.org',
         'remotePASS'       => 'undercurrents@nativeftp.org',
-        'remoteDIR'        => '/',
+        'remoteDIR'        => '/UnderCurrents',
+	'recurse'          => 0,
         'longListFormat'   => {
             'mode'     => 0,
             'links'    => 1,
@@ -72,6 +74,30 @@ my $feeds = {
         },
         'minimumFileCount' => 20,
         'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc.xml',
+    },
+    'UnderCurrentsSegmented' => {
+        'feedTitle'        => 'UnderCurrents Segments',
+        'feedDescription'  => 'UnderCurrents 1/2-hour segments',
+        'feedRSSfile'      => 'uc-s.xml',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.nativeftp.org',
+        'remoteUSER'       => 'undercurrents@nativeftp.org',
+        'remotePASS'       => 'undercurrents@nativeftp.org',
+        'remoteDIR'        => '/UnderCurrents/MP2%20Segmented',
+	'recurse'          => 1,
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        'minimumFileCount' => 20,
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc-s.xml',
     },
 };
 
@@ -101,7 +127,8 @@ sub feedURL( $$ ) {
     my $feedName = shift;
 
     my $url = $self->{feedList}->{$feedName}->{remotePROTO} . '://' .
-	$self->{feedList}->{$feedName}->{remoteHOST};
+	$self->{feedList}->{$feedName}->{remoteHOST} .
+	$self->{feedList}->{$feedName}->{remoteDIR};
 
     $url;
 }
@@ -120,6 +147,13 @@ sub feedPass( $$ ) {
     my $feedName = shift;
 
     $self->{feedList}->{$feedName}->{remotePASS};
+}
+
+sub recurse( $$ ) {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName}->{recurse};
 }
 
 # Return the output filename for the feedName.
@@ -187,6 +221,7 @@ sub getFileListingForFeed( $$ ) {
     my $feedName = shift;
 
     my @fileList = ();
+    my $recurse = "";
 
     # Directory listings (at least for UnderCurrents) need a trailing
     # "/" in order to list the contents of the directory rather than
@@ -195,9 +230,12 @@ sub getFileListingForFeed( $$ ) {
     my $feedUser = $self->feedUser( $feedName );
     my $feedPass = $self->feedPass( $feedName );
 
+    $recurse = qq(-R) if $self->recurse( $feedName );
+
     my $listCommand = join(q( ), (
 			       qq(ncftpls),
-			       qq(-R),
+			       qq($recurse),
+			       qq(-l),
 			       qq(-u),
 			       qq("$feedUser"),
 			       qq(-p),
@@ -277,7 +315,7 @@ END
 	    ( $subdir = $file ) =~ s/^\.\/(.*):$/$1/;
 	    next;
 	}
-        next unless ( $file =~ /\.mp3$/ );
+        next unless ( $file =~ /\.mp[23]$/ );
 	$fullURL = $feeds->feedURL( $feedName );
 	$fullURL .= q(/) . uri_escape($subdir) if ( defined($subdir) );
 	$fullURL .= q(/) . uri_escape( $feeds->getFilename( $feedName, $file ));
