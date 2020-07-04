@@ -15,7 +15,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 # Do not overwrite existing log by default (see options below).
@@ -78,7 +78,7 @@ eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-    -d|--day*) DAYS=${2} ; shift ;;
+    -d|--day*) DAYS=${2} ; shift 2 ;;
     -f|--forc*) FORCE=1 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
     -v|--vers*) showVersion=1 ; shift ;;
