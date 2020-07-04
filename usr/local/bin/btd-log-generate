@@ -15,7 +15,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 # Do not overwrite existing log by default (see options below).
@@ -28,10 +28,13 @@ usage() {
   local myName=${1:t}
 
   cat <<EOF
-${myName} [ --force (-f) ] [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+${myName} [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+                 [ --force (-f) ] [ --service <name> ]
                  [ --help (-h) ] [ --version (-v) ]
 
 $(${FMT} <<<"${myName} uses rdlogmanager(1) to generate Logs for all SERVICES. With no optional arguments, ${myName} generates Logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${myName} generates Logs for all SERVICES for Saturday, Sunday and Monday.")
+
+$(${FMT} <<<"Without the optional '--service' parameter, ${myName} generates logs for all Rivendell Services. Specify a single service with the '--service <NAME>' option.")
 
 $(${FMT} <<<"By default, ${myName} does not overwrite existing Logs. You may force overwriting existing Logs by calling ${myName} with the '--force' ('-f') option.")
 
@@ -71,7 +74,7 @@ done
 ##################  END shell commands used in this script.  ##################
 
 ## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o d:e:fhs:v --long days:,force,help,version,start:,end: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o d:e:fhs:v --long days:,force,help,version,service:,start:,end: -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 ## Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -82,6 +85,7 @@ do
     -f|--forc*) FORCE=1 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
     -v|--vers*) showVersion=1 ; shift ;;
+    --service) SERVICE=${2} ; shift 2 ;;
     -s|--start) START_DATE=${2} ; shift 2 ;;
     -e|--end) END_DATE=${2} ; shift 2 ;;
     --) shift ; break ;;
@@ -110,9 +114,14 @@ fi
 MAILTO=${MAILTO:-"dklann@grunch.org"}
 oneDay=$(( 60 * 60 * 24))
 
-# Gather all the services from Rivendell.
+# Gather all the Services from Rivendell unless
+# they asked for a specific Service
 typeset -a services
-services=( $(doSQL "SELECT name FROM SERVICES") )
+if [[ -n "${SERVICE}" ]] ; then
+    services=( "${SERVICE}" )
+else
+    services=( $(doSQL "SELECT name FROM SERVICES") )
+fi
 
 outputFile=$(${MKTEMP})
 
