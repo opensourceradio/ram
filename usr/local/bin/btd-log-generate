@@ -3,7 +3,7 @@
 ##############################################################################
 ##############################################################################
 ##
-## Generate logs for all Rivendell services.
+## Generate Logs for all Rivendell services.
 ##
 ## See also: rdlogmanager --help
 ##
@@ -15,24 +15,29 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 # Do not overwrite existing log by default (see options below).
 unset FORCE
 
+# Default number of days for which to generate Logs.
+DAYS=1
+
 usage() {
   local myName=${1:t}
 
   cat <<EOF
-${myName} [ --force (-f) ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+${myName} [ --force (-f) ] [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
                  [ --help (-h) ] [ --version (-v) ]
 
-$(${FMT} <<<"${myName} uses rdlogmanager(1) to generate logs for all SERVICES. With no optional arguments, ${myName} generates logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${myName} generates logs for all SERVICES for Saturday, Sunday and Monday.")
+$(${FMT} <<<"${myName} uses rdlogmanager(1) to generate Logs for all SERVICES. With no optional arguments, ${myName} generates Logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${myName} generates Logs for all SERVICES for Saturday, Sunday and Monday.")
 
-$(${FMT} <<<"By default, ${myName} does not overwrite existing logs. You may force overwriting existing logs by calling ${myName} with the '--force' ('-f') option.")
+$(${FMT} <<<"By default, ${myName} does not overwrite existing Logs. You may force overwriting existing Logs by calling ${myName} with the '--force' ('-f') option.")
 
-$(${FMT} <<<"You may specify a range of days for which rdlogmanager(1) should generate logs by calling ${myName} with the '--start' and '--end' options and specifying the date in YYYY-MM-DD format. Specifying '--end' without '--start' assumes 'tomorrow' as the starting day. Specifying '--start' without '--end' means 'generate a log just for that day'. Specifying neither '--start' nor '--end' causes ${myName} to generate logs for 'tomorrow' (see above).")
+$(${FMT} <<<"You may specify a range of days for which rdlogmanager(1) should generate Logs by calling ${myName} with the '--start' and '--end' options and specifying the date in YYYY-MM-DD format. Specifying '--end' without '--start' assumes 'tomorrow' as the starting day. Specifying '--start' without '--end' means 'generate a Log just for that day'. Specifying neither '--start' nor '--end' causes ${myName} to generate Logs for 'tomorrow' (see above).")
+
+$(${FMT} <<<"Alternatively, you may instruct ${myName} to generate a specific number of days of Logs with the --days <D> option. The starting day in this case is 'tomorrow'.")
 
 $(${FMT} <<<"${myName} saves the output of rdlogmanager(1) in the Desktop folder of the invoking user, and also emails the output to the addresses listed in the MAILTO shell variable.")
 
@@ -66,13 +71,14 @@ done
 ##################  END shell commands used in this script.  ##################
 
 ## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o fhvs:e: --long force,help,version,start:,end: -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o d:e:fhs:v --long days:,force,help,version,start:,end: -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 ## Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
+    -d|--day*) DAYS=${2} ; shift ;;
     -f|--forc*) FORCE=1 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
     -v|--vers*) showVersion=1 ; shift ;;
@@ -143,9 +149,14 @@ else
     endDateSeconds=${startDateSeconds}
 fi
 
+# Same thing if number of days was specified on the command line.
+if ((DAYS > 1)) ; then
+    endDateSeconds=$((startDateSeconds + (oneDay * DAYS)))
+fi
+
 # For each day offset and for each service found:
-# Generate a log (-g) for tomorrow or the specific (set of) day(s).
-#   do not overwrite existing log unless we are called with --force (-P)
+# Generate a Log (-g) for tomorrow or the specific (set of) day(s).
+#   do not overwrite existing Log unless we are called with --force (-P)
 #   service: (e.g.: "Production") (-s)
 #   merge traffic (-t)
 #   merge music (-m)
@@ -157,7 +168,7 @@ for (( dayOffset = startDayOffset + 1; dayOffset <= ( endDayOffset + 1 ); dayOff
     for service in ${services} ; do
         ${RDLOGMANAGER} ${${FORCE:-'-P'}:+} -s ${service} -g -t -m -d ${dayOffset} 2>&1
 
-        # Also create logs for Sunday and Monday if ${today} is
+        # Also create Logs for Sunday and Monday if ${today} is
         # 'Friday' and we do not have an End Date.
         if [[ ${today} == Friday ]] && [[ -z "${END_DATE}" ]] ; then
             ${RDLOGMANAGER} ${${FORCE:-'-P'}:+} -s ${service} -g -t -m -d 1 2>&1
