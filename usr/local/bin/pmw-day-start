@@ -7,38 +7,127 @@
 ## rivendell-dev by Wayne Merricks <waynemerricks@thevoiceasia.com>
 ## with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
 ##
-## BUT ALERT: This script assumes that tomorrows log has already been prepared!
+## BUT ALERT: This script assumes that tomorrows Log has already been prepared!
 ##
-## This script does not start the next log, it simply loads tomorrows
-## log and makes (what should be) the Legal ID the next cart to
-## play. This is to work around the seemingly broken setting at
-## rdadmin -> Manage Services -> "Insert CHAIN TO at log end". You
-## should most likely DISABLE that setting when using this script and
-## the associated RML Macro.
+## This script does not start the next Log, it simply loads tomorrows
+## Log and makes the first Cart in the new Log the next Cart to
+## play. This is to work around the seemingly broken setting in
+## rdadmin -> Manage Services -> "Insert CHAIN TO at log end" (also
+## seemingly in older version of Rivendell). You should DISABLE that
+## setting when using this script and the associated RML Macro.
 ##
 ## This is meant to be run non-interactively from either a cron job,
 ## or from another job scheduler such as rdcatch(1) at several seconds
 ## before midnight.
 ##
-## This script should run ON the host running RDAirPlay!
+## This script MUST run ON the host running RDAirPlay!
 ##
 ##############################################################################
 
-# Log STDOUT and STDERR to separate files.
+zmodload zsh/datetime
+
+myName=${0##*/}
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=2
+vPatch=4
+vHash='$Hash$'
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat getopt hostname logger rmlsend )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer) and replacing it  with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands} ; do
+  for D in ${path} ; do
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break }
+  done
+  [[ -x $(eval print \$${(U)C//-/_}) ]] || { print "Cannot find ${C}! Done."; return 1 }
+done
+unset our_commands
+############## END external shell commands used in this script. ##############
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+# How to use this command.
+usage() {
+  local myName=${1}
+
+  ${CAT} <<EOF
+${myName}:
+
+Summary
+
+${myName} [ --service (-s) <Service Name> ] [ <Aux Log Name> ]
+              [ --help (-h) ] [ --version (-V) ] [ --verbose (-v) ]
+
+Description
+
+${myName} is a ZSH sript that performs some sanity checking then
+loads "tomorrow's" Log in the currently running instance of RDAirplay on
+the current workstation.
+
+${myName} searches for "tomorrow's" Log in RDAirplay's default Service (as
+configured in RDAdmin->Manage Hosts->RDAirplay) for this workstation, but
+you may override that with the --service <Name> option. The Service named
+'Production' is used if no default Service is set.
+
+You may also direct ${myName} to load a single additional Log in the Aux
+Log 1 Log Machine. Simply include the name of the Log as the last parameter
+on the command line.
+
+Specifying the --verbose option causes ${myName} to enable the ZSH "XTRACE"
+and "SOURCE_TRACE" options.
+
+EOF
+}
+
+##############################################################################
+## Process command line options.
+##############################################################################
+TEMP=$(${GETOPT} -o hs:vV --long help,service:,verbose,version, -n "${0:t}" -- "${@}")
+if (( ${?} != 0 )) ; then echo "Error parsing command line options (${?}). Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -h|--help*) usage ${myName} ; exit ;;
+    -s|--serv*) SERVICE_NAME="${2}" ; shift 2 ;;
+    -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${0##*/}: ${GETOPT} internal error!" >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+# Redirect STDOUT and STDERR to separate files.
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
-zmodload zsh/datetime
+# Enable ZSH XTRACE and SOURCE_TRACE options if --verbose. All output
+# will go to ${0}.err (see above).
+((VERBOSE)) && setopt xtrace source_trace
 
-# Optional argument names a log to load in the Auxiliary Log 1 machine.
+# Optional argument names a Log to load in the Aux Log 1 Machine.
 if [[ -n "${1}" ]] ; then
   auxLog="${1}"
   shift
 fi
-
-## Locate the commands we need in this script.
-LOGGER=$(whence logger) ; LOGGER=${LOGGER:-${ROOT:-/}usr/bin/logger}
-RMLSEND=$(whence rmlsend) ; RMLSEND=${RMLSEND:-${ROOT:-/}usr/bin/rmlsend}
 
 # Get zsh functions necessary for this script.
 if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
@@ -49,7 +138,7 @@ else
   exit 3
 fi
 
-# Calculate the the name of tomorrows log based on the current time.
+# Calculate the the name of tomorrow's Log based on the current time.
 timeNow=${EPOCHSECONDS}
 oneDay=$(( 60 * 60 * 24 ))
 hours=$(( $(strftime "%H" ${timeNow}) * 60 * 60 ))
@@ -58,31 +147,38 @@ seconds=$(strftime "%S" ${timeNow})
 secondsPastMidnight=$(( hours + minutes + seconds ))
 tomorrow=$(( EPOCHSECONDS - secondsPastMidnight + oneDay ))
 
-# Get the log name templates from the SERVICES table.
-# These will be placed in an associative array indexed on the SERVICE name.
-typeset -A logNameTemplates
+# Retrieve the default Serivce name for this workstation. Use the name
+# Production if no default Service is set.
+defaultService=$(doSQL "SELECT default_service FROM RDAIRPLAY WHERE station='$(${HOSTNAME} -s)'")
+SERVICE_NAME="${SERVICE_NAME:-${defaultService:-Production}}"
+
+[[ -n "${SERVICE_NAME}" ]] && serviceNameConstraint=""
+# Get the Log name template for this Service from the SERVICES table.
+# This will be placed in an associative array indexed on the SERVICE name.
+typeset -A logNameTemplate
 # shellcheck disable=SC2190
 # shellcheck disable=SC2207
-logNameTemplates=( $(doSQL "SELECT name,name_template FROM SERVICES") )
+logNameTemplate=( $(doSQL "SELECT name,name_template FROM SERVICES WHERE name = '${SERVICE_NAME}'") )
 
-# We may be loading logs for more than one SERVICE.
-for service in ${(k)logNameTemplates} ; do
+# There will really be a single key-value pair in this array, but this
+# is an easy way to get at it.
+for service in ${(k)logNameTemplate} ; do
 
   # Rivendell uses %s for "Service Name", strftime uses %s for
   # "Seconds since the Epoch". "Manually" replace the %s with the
   # Service Name in the Log Template before substituting the date
   # stuff in the Log Template.
-  if [[ ${logNameTemplates[${service}]} =~ %s ]] ; then
-    logNameTemplates[${service}]=${logNameTemplates[${service}]//\%s/${service}}
+  if [[ ${logNameTemplate[${service}]} =~ %s ]] ; then
+    logNameTemplate[${service}]=${logNameTemplate[${service}]//\%s/${service}}
   fi
 
   # Older shell versions are not up to snuff with respect to strftime(3).
   # shellcheck disable=SC2079
-  if (( ZSH_VERSION < 5.6 )) ; then
+  if (( ${ZSH_VERSION[1,3]} < 5.6 )) ; then
     # shellcheck disable=SC2046
-    nextLog=$(date --date=$(strftime "%F" ${tomorrow}) "+${logNameTemplates[${service}]}")
+    nextLog=$(date --date=$(strftime "%F" ${tomorrow}) "+${logNameTemplate[${service}]}")
   else
-    nextLog=$(strftime "${logNameTemplates[${service}]}" ${tomorrow})
+    nextLog=$(strftime "${logNameTemplate[${service}]}" ${tomorrow})
   fi
 
   # Rivendell versions prior to version 3 tacked "_LOG" to the end of
@@ -91,16 +187,16 @@ for service in ${(k)logNameTemplates} ; do
     nextLog=${nextLog}_LOG
   fi
 
-  # Verify that the log exists before running the macros
+  # Verify that the Log exists before running the Macros
   nextLogLookup=$(doSQL "SELECT name FROM LOGS WHERE name = '${nextLog}'")
 
   if [[ -n "${nextLogLookup}" ]] ; then
 
     # What this here-doc does:
     # PW 1: Select Widget, "Main Log"
-    # LL 1: Load Log, RDAirPlay load tomorrows log, but do not start it (-1)
-    # auxLog: if the shell variable auxLog is set, load the named log in Auxiliary Log 1 (log machine 2)
-    # MN 1: Make Next, the first cart in the log (line ID 0, should be a "Start Immediately", or "Make Next")
+    # LL 1: Load Log, RDAirPlay load tomorrows Log, but do not start it (-1)
+    # auxLog: if the shell variable auxLog is set, load the named Log in Auxiliary Log 1 (log machine 2)
+    # MN 1: Make Next, the first cart in the Log (line ID 0, should be a "Start Immediately", or "Make Next")
     # auxLog: if the shell variable auxLog is set, Make Next the first cart in Auxiliary Log 1 (line ID 0)
     # PM 2: Set Mode, RDAirPlay mode "Auto"
     if rmlsendOutput=$(${RMLSEND} --from-file=- 2>&1) <<EOF
@@ -113,21 +209,13 @@ PM 2!
 EOF
 
     then
-
-      ${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's log '${nextLog}'. rmlsend says: '${rmlsendOutput}'"
-
+      ${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: '${rmlsendOutput}'}"
     else
-
-      ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: rmlsend may not have loaded tomorrow's log '${nextLog}'. rmlsend says: '${rmlsendOutput}'"
-
+      ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: rmlsend may not have loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: '${rmlsendOutput}'}"
     fi
-
   else
-
-    ${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "WARNING: the log '${nextLog}' is not in the Rivendell database. Did you generate the log?"
-
+    ${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "WARNING: the Log '${nextLog}' is not in the Rivendell database. Did you generate the Log?"
   fi
-
 done
 
 exit
