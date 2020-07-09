@@ -100,6 +100,11 @@ class ArtistList():
         for a in self.artists:
             self.artists[a] += 1
 
+        # After incrementing all artists' 'scheduled_ago' counts,
+        # reset *this* artist's count because we are just now
+        # scheduling it.
+        self.artists[artist] = 1
+
     def record_artists_schedule_age(self):
         '''Save all artists and their "scheduled_ago" values in the database.
 
