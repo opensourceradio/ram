@@ -1,5 +1,4 @@
-'''A set of classes and functions for btd_sched.py (and others?).
-'''
+"""A set of classes and functions for btd_sched.py (and others?)."""
 
 import sys
 import time
@@ -10,22 +9,20 @@ from iteration_utilities import deepflatten
 from rivendell_lib import RDDatabase
 
 def my_print(*p_args, **p_kwargs):
-    '''My print function that always goes to STDERR.
-
-    '''
+    """My print function that always goes to STDERR."""
     print(*p_args, **p_kwargs, file=sys.stderr)
 
 class Event():
-    '''An Event is an atomic element containing rules for scheduling Carts.
-    '''
+    """An Event is an atomic element containing rules for scheduling Carts."""
+
     def __init__(self, service_name, event_name):
-        '''Instantiate an Event with the associated fields.
+        """Instantiate an Event with the associated fields.
 
         :param service_name: The name of (typically) the Rivendell
         Reference Service.
         :param event_name: The name of a Rivendell Event to retrieve.
 
-        '''
+        """
         self.attributes = {}
         self.service_name = service_name
         self.event_name = event_name
@@ -49,30 +46,25 @@ class Event():
         db.close()
 
     def list_attributes(self):
-        '''Return the list of Event attributes.
-        '''
+        """Return the list of Event attributes."""
         return list(dict.fromkeys(self.attributes))
 
     def get_query(self):
-        '''Return a string containing the formatted query for an Event.
-
-        '''
+        """Return a string containing the formatted query for an Event."""
         return self.query % self.query_args
 
 class Hour():
-    '''An Hour is a list of Events each with a start time and a duration
-    (length).
+    """An Hour is a list of Events each with a start time and a duration."""
 
-    '''
     def __init__(self, service_name, hour):
-        '''Instantiate an Hour, getting all the hour's Events.
+        """Instantiate an Hour, getting all the hour's Events.
 
         :param service_name: The name of (typically) the Rivendell
         Reference Service.
         :param hour: A "Rivendell hour of the week" to retrieve (from
         0 [Midnight Monday] to 167 [11pm Sunday]).
 
-        '''
+        """
         self.service_name = service_name
         self.hour = hour
         self.events = []
@@ -92,14 +84,16 @@ class Hour():
             })
 
     def values(self, attribute):
-        '''Return a list of unique values and their counts for the given
-        Events attribute in this Hour. See the constructor for the
-        list of attributes for each Event.
+        """Return a list of unique values and their counts.
+
+        The list is for the given Events attribute in this Hour.
+
+        See the constructor for the list of attributes for each Event.
 
         :param attribute: An Event attribute (see Event()) for which
         to retrieve values.
 
-        '''
+        """
         values = {}
         # If the first one has this attribute, they will all have it.
         if not attribute in self.events[0]['event'].attributes:
@@ -118,17 +112,14 @@ class Hour():
         return values
 
     def get_query(self):
-        '''Return a string containing the formatted query with query_args for
-        an Hour.
-
-        '''
+        """Return a string containing the formatted query with query_args for an Hour."""
         return self.query % self.query_args
 
 class Day():
-    '''A Day is a list of 24 Hours.
-    '''
+    """A Day is a list of 24 Hours."""
+
     def __init__(self, service_name, clock_date):
-        '''Instantiate a Day, getting all 24 Hours.
+        """Instantiate a Day, getting all 24 Hours.
 
         :param service_name: The name of (typically) the Rivendell
         Reference Service.
@@ -138,7 +129,7 @@ class Day():
         starting hour of the week (from 0 [Midnight Monday] to 167
         [11pm Sunday]).
 
-        '''
+        """
         self.hours = []
         self.service_name = service_name
         self.clock_date = clock_date
@@ -159,11 +150,12 @@ class Day():
             })
 
     def values(self, attribute):
-        '''Return a sorted list of unique values for the given Event attribute
-        for the Day. Technique from
+        """Return a sorted list of unique values for the given Event attribute for the Day.
+
+        Technique from
         https://stackoverflow.com/questions/952914/how-to-make-a-flat-list-out-of-list-of-lists
 
-        '''
+        """
         values = {}
         values_by_hour = [[self.hours[h]['clock'].events[e]['event'].attributes[attribute]
                            for e, _ in enumerate(self.hours[h]['clock'].events)]
@@ -176,17 +168,14 @@ class Day():
         return values
 
     def get_query(self):
-        '''Return a string containing the formatted query with query_args for
-        a Day.
-
-        '''
+        """Return a string containing the formatted query with query_args for a Day."""
         return self.query % self.query_args
 
 class Batch():
-    '''A Batch is a collection of Days in a scheduling session.
-    '''
+    """A Batch is a collection of Days in a scheduling session."""
+
     def __init__(self, service_name, start_date, day_count=1):
-        '''Instantiate a Batch getting all the Days, Hours and Events.
+        """Instantiate a Batch getting all the Days, Hours and Events.
 
         :param service_name: The name of (typically) the Rivendell
         Reference Service.
@@ -198,7 +187,7 @@ class Batch():
         Batch('service-name',
         'yyyy-mm-dd').days[daynum].hours[hournum]['clock'].events[eventnum]['event'].event_name
 
-        '''
+        """
         self.days = []
         self.service_name = service_name
         self.start_date = start_date
@@ -209,15 +198,19 @@ class Batch():
                      for count in range(day_count)]
 
     def values(self, attribute):
-        '''Return a dict of occurances indexed by "attribute" for the given Event attribute
-        for the entire Batch. See above for the details.
+        """Return the values for an entire Batch.
+
+        This returns a dict of occurances indexed by "attribute"
+        for the given Event attribute for an entire Batch.
+
+        See above for the details.
 
         :param attribute: An Event attribute to summarize.
 
         :returns: A dict indexed by attribute values, the dict values
         being the number of occurances of that attribute value.
 
-        '''
+        """
         values = {}
         values_by_day_by_hour = [[[self.days[d].hours[h]['clock'].events[e]['event'].attributes[attribute]
                                    for e, _ in enumerate(self.days[d].hours[h]['clock'].events)]
@@ -231,30 +224,35 @@ class Batch():
         return values
 
     def refresh(self):
-        '''Reload the entire configuration using the original instantiation
-        values. This might be used in a long-running process during
+        """Reload the entire configuration.
+
+        The reload uses the original instantiation values.
+
+        This might be used in a long-running process during
         which the database may have changed.
 
-        '''
+        """
         self.days = [Day(self.service_name,
                          (datetime.strptime(self.start_date, '%Y-%m-%d') +
                           timedelta(days=count)).strftime("%F"))
                      for count in range(self.day_count)]
 
 class OutputFile():
-    '''A class encapsulating an output file, including name generation,
-    path manipulation, and reading and writing the output file.
+    """An output file.
 
-    '''
+    Including name generation, path manipulation, and reading
+    and writing the output file.
+
+    """
+
     def __init__(self, service_name, import_date, debug):
-        '''Construct the object and set the directory name for the file.
+        """Construct the object and set the directory name for the file.
 
         :param service_name: The (case-insensitive) Implementation Service name.
         :param import_date: the date (in YYYY-MM-DD format) for the output file.
         :param debug: Debug mode (boolean)
 
-        '''
-
+        """
         self.service_name = service_name
         self.import_date = import_date
         self.debug = debug
@@ -267,22 +265,20 @@ class OutputFile():
         self.mus_path = Path(rows[0]['mus_path'])
 
     def get_query(self):
-        '''Return a string containing the formatted query with query_args for
-        a Day.
+        """Return a string containing the formatted query with query_args for a Day.
 
         :returns: The query with the '%s' directive(s) expanded.
 
-        '''
+        """
         return self.query % self.query_args
 
     def make_directory(self):
-        '''Create the directory hierarchy if it does not exist.
+        """Create the directory hierarchy if it does not exist.
 
         :returns: True or False depending on the success or failure of
         creating the directory
 
-        '''
-
+        """
         if not self.mus_path.parent.is_dir():
             try:
                 if self.debug:
@@ -297,12 +293,11 @@ class OutputFile():
         return True
 
     def make_name(self):
-        '''Normalize the import date specified in the constructor.
+        """Normalize the import date specified in the constructor.
 
         :returns: A string representing the import date. Also resets self.import_date.
 
-        '''
-
+        """
         date1_regexp = re.compile(r'(?P<year>\d{4}).?(?P<month>\d{1,2}).?(?P<day>\d{1,2})')
         match = date1_regexp.search(self.import_date)
         if match is None:
@@ -339,13 +334,12 @@ class OutputFile():
         return self.import_date
 
     def make_pathname(self):
-        '''Create a Path object pointing to the full path of the output file.
+        """Create a Path object pointing to the full path of the output file.
 
         :returns: a Path object containing the full path of the
         file. Also saved with the object as self.fullpath.
 
-        '''
-
+        """
         # Try to avoid breakage if they use Rivendell-specific
         # ("non-strftime(3)") placeholders in the Import Path setting
         # in Rivendell.SERVICES.mus_path.

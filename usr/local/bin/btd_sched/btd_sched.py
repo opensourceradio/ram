@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-'''btd_sched.py: schedule music for Rivendell.
+"""btd_sched.py: schedule music for Rivendell.
 
 This scheduler is intimately tied to Rivendell. It uses a "Reference"
 Service (Grid, Clocks, and Events) and an "Implementation" Service
@@ -49,7 +49,7 @@ TODO: "exceptions": Figure out a way to account for Carts that are
 scheduled outside of this scheduler (e.g., Pre- and Post-import
 Carts).
 
-'''
+"""
 
 import sys
 import re
@@ -57,18 +57,19 @@ import time
 import argparse
 import pprint
 import schedlib
-from artists import ArtistList
+from artist import Artists
 
 DEFAULT_REFERENCE_SERVICE = 'Production'
 ONE_HOUR_MS = (60 * 60 * 1000)
 ONE_DAY_MS = (24 * 60 * 60 * 1000)
 TOMORROW_FIRST_HOUR = (int(time.strftime("%u")) % 7 * 24)
 DEFAULT_ARTIST_SEPARATION = 200
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 
 def get_event_sched_codes(timing):
+    """Get Events and their Scheduler Codes.
 
-    '''Get a count of Events and a list of Scheduler Codes used by Events
+    Get a count of Events and a list of Scheduler Codes used by Events
     in the Clocks for the chosen days. Returns a dict of dicts of
     lists with the outer dict indexed by Group and each containing
     dicts indexed by Scheduler Codes of (empty) lists. We use these
@@ -81,8 +82,7 @@ def get_event_sched_codes(timing):
     Scheduler Codes for each Group used in Events in this session, the
     total number of Events for this session.
 
-    '''
-
+    """
     group_list = re.split(r',\s*', ARGS.groups.lower())
     db = schedlib.RDDatabase(None)
 
@@ -154,7 +154,9 @@ def get_event_sched_codes(timing):
     return events_sched_codes, event_count
 
 def calculate_pool_size(batch, event_count):
-    '''Calculate the size of the "pool" (in "tracks") that we need for
+    """Calculate the pool size for this session.
+
+    Calculate the size of the "pool" (in "tracks") that we need for
     this session. The "pool" is a group of potential "tracks" (a
     simplified view of a CART) retrieved from the Rivendell Database
     with the SELECT statement found in fill_active_pool().
@@ -172,14 +174,16 @@ def calculate_pool_size(batch, event_count):
     :param event_count: The total number of Events in this session
     :returns: An integer representing the the pool size
 
-    '''
+    """
     VERBOSE_PRINT("calculate_pool_size: Most Primary Scheduler Codes: {m}, Events: {e}"
                   .format(m=max(batch.values('schedcode1').values()), e=event_count))
 
     return max(batch.values('schedcode1').values()) + max(batch.values('schedcode2').values())
 
 def fill_active_pool(event_sched_codes_by_group):
-    '''Generate a dict (aka "pool") containing up to
+    """Fill the "active pool" with tracks.
+
+    Generate a dict (aka "pool") containing up to
     "GLOBAL_STATS['pool_size']" "tracks". The "tracks" in the "pool"
     are candidates that may be used (subject to the "rules" used in
     the Rivendell Database and in this app) to populate the Music Data
@@ -194,8 +198,7 @@ def fill_active_pool(event_sched_codes_by_group):
 
     :returns: A list of candidate tracks for this session.
 
-    '''
-
+    """
     group_list = list(event_sched_codes_by_group)
 
     # A dict of dicts of lists of tracks.
@@ -233,7 +236,9 @@ def fill_active_pool(event_sched_codes_by_group):
     return active_pool
 
 def get_track_from_pool(active_pool, group, schedcode, used_pool, artist_list):
-    '''Get a track from the active pool, putting that track in the
+    """Intelligently get a track from the active pool.
+
+    Get a track from the active pool, putting that track in the
     used pool. The "used" pool will be consulted if we run out of
     tracks in the pool (but this should *not* happen in real life).
 
@@ -246,8 +251,7 @@ def get_track_from_pool(active_pool, group, schedcode, used_pool, artist_list):
     :returns: A data structure containing the details of this track
     (see the SELECT query in fill_active_pool() for details).
 
-    '''
-
+    """
     if active_pool[group][schedcode]:
         for index, track in enumerate(active_pool[group][schedcode]):
             DEBUG_PRINT("get_track_from_pool: index: {i}, track: {c}"
@@ -255,7 +259,7 @@ def get_track_from_pool(active_pool, group, schedcode, used_pool, artist_list):
             # Take this track out of the pool if it is OK to schedule
             # this artist and if the track length is "sane".
             if artist_list.ok_to_schedule(track['artist']):
-                # Why are there even any Cuts in the Library with Zero
+                # Why are there ANY Cuts in the Library with Zero
                 # length?
                 if track['length'] <= 0:
                     print("get_track_from_pool: WARNING: Invalid Length. Removing from active_pool: selected: '{s}'"
@@ -290,12 +294,14 @@ def get_track_from_pool(active_pool, group, schedcode, used_pool, artist_list):
 
     if track is not None:
         used_pool[group][schedcode].append(track)
-        artist_list.increment(track['artist'])
+        artist_list.bump(track['artist'])
 
     return track
 
 def generate_import_lines(active_pool, used_pool, artist_list, timing, batch):
-    '''Generate a list of "Import Lines" to be saved in a Music Data Import
+    """Create a list of tracks for further processing.
+
+    Generate a list of "Import Lines" to be saved in a Music Data Import
     file.
 
     :param active_pool: the list of candidate tracks for this session
@@ -305,8 +311,7 @@ def generate_import_lines(active_pool, used_pool, artist_list, timing, batch):
     :param batch: an instance of Batch()
     :returns: a list of tracks with timing suitable for saving to a Music Data Import file.
 
-    '''
-
+    """
     group_list = list(active_pool)
     date_list = [batch.days[i].clock_date for i in range(len(batch.days))]
     import_list = {d: [] for d in date_list}
@@ -426,7 +431,9 @@ def generate_import_lines(active_pool, used_pool, artist_list, timing, batch):
     return import_list
 
 def save_import_list(import_list):
-    '''Save the import list to one or more Music Data Import files. Files
+    """Save the import list.
+
+    Save the import list to one or more Music Data Import files. Files
     are created using the specified path template in the Music Data
     Import "Import Path" setting for the Implementation Service.
 
@@ -438,7 +445,7 @@ def save_import_list(import_list):
     :param import_list: A list of tracks and timing values.
     :returns: Nothing
 
-    '''
+    """
     DEBUG_PRINT("save_import_list: NEW BATCH")
 
     for import_date in import_list:
@@ -451,8 +458,8 @@ def save_import_list(import_list):
 
             for track in import_list[import_date]:
 
-                VERBOSE_PRINT("save_import_list: Date: {d}, Hour: {h}."
-                              .format(d=import_date, h=track['hour']))
+                VERY_VERBOSE_PRINT("save_import_list: Date: {d}, Hour: {h}."
+                                   .format(d=import_date, h=track['hour']))
 
                 # The spacing in this print statement must match the values
                 # set in RDAdmin->Manage Services->[IMPLEMENTATION SERVICE]
@@ -463,11 +470,11 @@ def save_import_list(import_list):
                                                                                        track=track['cart_number'],
                                                                                        title=track['title'][:34],
                                                                                        length=ms2HMS(track['length']))
-                VERBOSE_PRINT(output_line)
+                VERBOSE_PRINT(output_line, end='')
                 output_file.write(output_line)
 
 def get_first_hour_from_date(start_date):
-    '''Get the first hour of a day of the week for a scheduling session.
+    """Get the first hour of a day of the week for a scheduling session.
 
     :param start_date: the start date for this session as 'YYYY-MM-DD'
     :returns: The first week-hour (Zero-based) for the given starting date.
@@ -481,8 +488,7 @@ def get_first_hour_from_date(start_date):
     Sat: 120
     Sun: 144
 
-    '''
-
+    """
     if not start_date:
         return TOMORROW_FIRST_HOUR
 
@@ -500,7 +506,7 @@ def get_first_hour_from_date(start_date):
     return (int(time.strftime("%u", start_time)) - 1) * 24
 
 def get_last_hour_from_date(start_date, days=1):
-    '''Get the last hour in a scheduling session.
+    """Get the last hour in a scheduling session.
 
     :param start_date: The start date for this session as 'YYYY-MM-DD'
     :param days: The number of days to pick tracks for this session.
@@ -516,8 +522,7 @@ def get_last_hour_from_date(start_date, days=1):
     Sat: 143
     Sun: 167
 
-    '''
-
+    """
     if start_date:
         first_hour = get_first_hour_from_date(start_date)
     else:
@@ -526,14 +531,14 @@ def get_last_hour_from_date(start_date, days=1):
     return (first_hour + ((days - 1) * 24) + 23) % 168
 
 def ms2HMS(ms):
-    '''Convert "ms" milliseconds into a string containing the two-digit
-    hour, minutes, and seconds.
+    """Convert "ms" milliseconds into a human-readable string.
+
+    The string contains the two-digit hours, minutes, and seconds.
 
     :param ms: milliseconds
     :returns: A string formatted as 'HH:MM:SS' (zero-filled)
 
-    '''
-
+    """
     hours = int(ms / 1000 / 60 / 60 % 24)
     minutes = int(ms / 1000 / 60 % 60)
     seconds = int(ms / 1000 % 60)
@@ -542,12 +547,15 @@ def ms2HMS(ms):
     return hms
 
 def main():
-    '''Prepare a data import file for merging with a Log using Rivendell's
+    """Keep the main thing the main thing.
+
+    Prepare a data import file for merging with a Log using Rivendell's
     RDLogManager.
 
-    '''
-    # Seed the "scheduled_ago" list from storage.
-    artist_list = ArtistList(ARGS.artist_separation, ARGS.verbose > 2)
+    """
+    # Seed the list of artists and their when they were last scheduled
+    # from storage.
+    artist_list = Artists('sqlite', '//usr/local/etc/btd/artist_age.db', ARGS.artist_separation)
 
     # Use the counter in Batch() to get the number of each Scheduler
     # Code for this session.
@@ -566,7 +574,9 @@ def main():
     used_pool = {g: {c: [] for c in event_sched_codes_by_group[g]} for g in list(active_pool)}
 
     import_list = generate_import_lines(active_pool, used_pool, artist_list, timing, batch)
-    artist_list.record_artists_schedule_age()
+
+    # Save all changes to the artist age data. Is this actually needed? Prolly.
+    artist_list.session.commit()
 
     save_import_list(import_list)
 
@@ -583,14 +593,6 @@ if __name__ == '__main__':
     PARSER.add_argument('implementation_service',
                         help="The name of the Rivendell Service containing one or more Clocks containing one or more Events that specify 'IMPORT: From Music'",
                         action='store')
-    PARSER.add_argument('-V', '--version',
-                        help='Display this app version string.',
-                        action='version',
-                        version='%(prog)s: ' + __version__)
-    PARSER.add_argument('-v', '--verbose',
-                        help='Be chatty about progress. Use up to 3 times for more chattiness.',
-                        default=0,
-                        action='count')
     PARSER.add_argument('-a', '--artist-separation',
                         type=int,
                         help='Specify the number of tracks before and artist can be scheduled again.',
@@ -601,12 +603,12 @@ if __name__ == '__main__':
                         help='Specify the number of days to schedule tracks (default is one day).',
                         default=1,
                         action='store')
-    PARSER.add_argument('-o', '--output-dir',
-                        help='Name the output directory for the import data file. This overrides the Music Data Import Path set in RDAdmin.',
-                        action='store')
     PARSER.add_argument('-g', '--groups',
                         help='Specify a comma-separated list of Rivendell Groups to schedule.',
                         default='music',
+                        action='store')
+    PARSER.add_argument('-o', '--output-dir',
+                        help='Name the output directory for the import data file. This overrides the Music Data Import Path set in RDAdmin.',
                         action='store')
     PARSER.add_argument('-r', '--reference-service',
                         help='Specify a Rivendell Service name to use as "reference" for Clocks and Events.',
@@ -620,6 +622,14 @@ if __name__ == '__main__':
                         help='Output global statistics at the end of the scheduling session.',
                         default=False,
                         action='store_true')
+    PARSER.add_argument('-V', '--version',
+                        help='Display this app version string.',
+                        action='version',
+                        version='%(prog)s: ' + __version__)
+    PARSER.add_argument('-v', '--verbose',
+                        help='Be chatty about progress. Use up to 3 times for more chattiness.',
+                        default=0,
+                        action='count')
 
     ARGS = PARSER.parse_args()
 
