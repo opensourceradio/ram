@@ -65,7 +65,7 @@ validGroup() {
   local definedGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  [[ "${definedGroups}" =~ ".*${requestedGroup}.*" ]]
+  [[ "${definedGroups}" =~ .*${requestedGroup}.* ]]
 }
 
 # Figure out the file type and extract the meta tags from it.
@@ -249,10 +249,10 @@ if [[ -r "${1}" ]] ; then
     ourSchedCodes="${initialSchedCodes}"
 
     # Store the file location of the source material for reference.
-    if [[ "${track}" =~ '^/.*' ]] ; then
+    if [[ "${track}" =~ ^/.* ]] ; then
       # Track is a full path, save it as is.
       location=${track#/*/*/}
-    elif [[ "${track}" =~ '^[^/].*/.*' ]] ; then
+    elif [[ "${track}" =~ ^[^/].*/.* ]] ; then
       # Track is a relative path, leave it alone.
       location=${track}
     else
@@ -303,7 +303,7 @@ if [[ -r "${1}" ]] ; then
       for g in ${genre} ; do
 
 	# Get the actual SCHED_CODE if the genre was a parenthesized number.
-	if [[ "${g}" =~ '^([[:digit:]][[:digit:]]*)' ]] ; then
+	if [[ "${g}" =~ ^([[:digit:]][[:digit:]]*) ]] ; then
 	  g=$(doSQL "SELECT code FROM SCHED_CODES WHERE description LIKE '${g}%'")
 	fi
 
