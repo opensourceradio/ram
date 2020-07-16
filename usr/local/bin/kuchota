@@ -153,11 +153,11 @@ addOrReplaceFeed() {
   ## Get the "category" for this podcast. Use a Rivendell GROUP for the category name.
   ##########################################################################################
   # See zsh-functions for the definition of doSQL.
-  rivendellGroupList=$(doSQL "select NAME from GROUPS order by NAME")
+  rivendellGroupList=$(doSQL "select NAME from GROUPS where DEFAULT_CART_TYPE=1 order by NAME")
 
   # List the groups and prompt them for a group to use if they asked for
   # a list or if they did not name a group.
-  if [[ -z "${group}" ]] || [[ "${group}" =~ 'list' ]] ; then
+  if [[ -z "${group}" ]] || [[ "${group}" =~ list ]] ; then
 
     echo "\nCurrent list of GROUPs:"
     ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) <<< ${rivendellGroupList}
@@ -418,7 +418,7 @@ deleteFeed() {
     (( verbose )) && warning "${myName} (verbose): deleting '${feedName}' from '${group}'."
 
     read deleteOrDisable\?"Do you want to disable (d) or delete (D) '${feedName}'? "
-    until [[ "${deleteOrDisable}" =~ '[Dd]' ]] ; do
+    until [[ "${deleteOrDisable}" =~ [Dd] ]] ; do
       echo
       read deleteOrDisable\?"Please type a lower case 'd' for 'disable' or an upper case 'D' for 'delete' and press <Enter>"
     done
@@ -545,7 +545,7 @@ showFeeds() {
       ${GREP} -v '^ *$' |
       ${SORT} --ignore-case --key=3,3 --key=2,2 |
       while read url group title rest ; do
-	if [[ ${url} =~ '#DISABLED#.*' ]] ; then
+	if [[ ${url} =~ ^#DISABLED#.* ]] ; then
 	  rdDropBoxPath="${RED}DISABLED:${NORM} RD dropbox: ${DIR_LIBRARY}/${group}/${title}/*.mp3"
 	  title="${RED}DISABLED:${NORM} ${title}"
 	  url="${RED}DISABLED:${NORM} ${url/\#DISABLED#/}"
@@ -766,12 +766,12 @@ Valid hours are 0 - 23 and '*' (every hour).
 
 EOF
 
-  until [[ "${ok}" =~ '[Yy]' ]] ; do
+  until [[ "${ok}" =~ [Yy] ]] ; do
 
     oHour=${hour}
     read hour\?"Type the hour(s) you want ${myName} to check for new podcasts (enter '*' for every hour): ${hour:+[${hour}] }"
     [[ -z "${hour}" ]] && hour=${oHour}
-    until [[ "${hour}" =~ '^(\*|[[:digit:],]+)$' ]] ; do
+    until [[ "${hour}" =~ ^(\*|[[:digit:],]+)$ ]] ; do
 
       echo "You need to enter either an asterisk ('*'), or some combination of hour numbers and commas."
       read hour\?"Type the hour(s) you want ${myName} to check for new podcasts (enter '*' for every hour): "
@@ -788,7 +788,7 @@ EOF
     read minute\?"Enter the minute(s) of the hour(s) ('${hour}') you want to check for podcasts: ${minute:+[${minute}] }"
     [[ -z "${minute}" ]] && minute=${oMinute}
     # Note: we explicitely DO NOT permit 'every minute' here.
-    until [[ "${minute}" =~ '^[[:digit:],]+$' ]] ; do
+    until [[ "${minute}" =~ ^[[:digit:],]+$ ]] ; do
 
       echo "You need to enter combination of minute numbers and commas."
       read minute\?"Type the minute(s) of the hour(s) ('${hour}') you want to check for podcasts: "
@@ -934,12 +934,13 @@ addRDDropbox() {
 
 	  echo
 	  if read -q answer\?"OK, last chance: Do you want to assign an existing CART number to each episode of '${feedName}'? [y,N] (don't press <Enter>) " ; then
-	    until [[ "${feedGroup}" = "${dropboxCartGroup:-unset}" ]] ; do
+	    dropboxCartGroup="UnsEt"
+	    until [[ "${feedGroup}" = "${dropboxCartGroup}" ]] ; do
 	      until [[ -n "${cartTitle}" ]] ; do
 		echo
 		read desiredNumber\?"Enter an existing CART number from group '${feedGroup}' to assign to this podcast feed: "
-		until [[ ${desiredNumber//[.,]/} =~ '^[[:digit:]]{1,6}$' ]] ; do
-		  read desiredNumber\?"Sorry, the CART number must consist of a number between 1 and 999,999.
+		until [[ ${desiredNumber//[.,]/} =~ ^[[:digit:]]{1,6}$ ]] ; do
+		  read desiredNumber\?"Sorry, the CART number must be a number between 1 and 999999.
 Enter an existing CART number to assign to this podcast feed: "
 		done
 
@@ -1462,15 +1463,15 @@ while : ; do
       echo "Please enter a number between 0 and $(( count - 1 ))."
       read ok\?"Press <Enter> to continue. "
 
-    elif [[ ${choice} =~ '^[0Qq]$' ]] ; then
+    elif [[ ${choice} =~ ^[0Qq]$ ]] ; then
       printf '\033]0;%s\007' ''
       exit
 
-    elif [[ "${choice}" =~ '[[:space:]]*[[:alpha:]]+' ]] ; then
+    elif [[ "${choice}" =~ [[:space:]]*[[:alpha:]]+ ]] ; then
       echo "'${choice}' is not an option. Please enter a number between 0 and $(( count - 1 ))."
       read ok\?"Press <Enter> to continue. "
 
-    elif [[ "${choice}" =~ '[[:space:]]*[[:alnum:]]+[[:space:]]+' ]] ; then
+    elif [[ "${choice}" =~ [[:space:]]*[[:alnum:]]+[[:space:]]+ ]] ; then
       echo "'${choice}' is not an option (watch your spaces). Please enter a number between 0 and $(( count - 1 ))."
       read ok\?"Press <Enter> to continue. "
 
