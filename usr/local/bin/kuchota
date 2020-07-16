@@ -24,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
