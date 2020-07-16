@@ -12,7 +12,7 @@ vMinor=1
 vPatch=7
 vHash='$Hash$'
 
-DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-12"}
+DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-13"}
 
 # Tell them how to use this command.
 usage() {
@@ -52,7 +52,7 @@ validSchedCode() {
   local definedCodes=${1} ; shift
   local requestedCode=${1} ; shift
 
-  for schedCode in $(echo ${definedCodes}) ; do
+  for schedCode in $(echo ${definedCodes//,/ }) ; do
     [[ "${requestedCode}" = ${schedCode} ]] && return 0
   done
 
@@ -176,7 +176,8 @@ NORM="${reset_color}"
 rivendellSchedCodes=( $(doSQL "select CODE from SCHED_CODES") )
 rivendellGroupList=( $(doSQL "select NAME from GROUPS") )
 
-# use getopt to parse the command line args
+# Insert a comma before the first Scheduler Code to facilitate later
+# processing.
 TEMP=$(${GETOPT} -o hc:g:l:n:vV --long help,codes:,group:,label:,normalization:,verbose,version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
@@ -184,7 +185,7 @@ eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-    -c|--code*) ourSchedCodes=${2} ; shift 2 ;;
+    -c|--code*) ourSchedCodes=,${2} ; shift 2 ;;
     -g|--grou*) group=${2} ; shift 2 ;;
     -l|--labe*) label=${2} ; shift 2 ;;
     -n|--norm*) normalization=${2} ; shift 2 ;;
