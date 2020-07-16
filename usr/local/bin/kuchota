@@ -934,7 +934,7 @@ addRDDropbox() {
 
 	  echo
 	  if read -q answer\?"OK, last chance: Do you want to assign an existing CART number to each episode of '${feedName}'? [y,N] (don't press <Enter>) " ; then
-	    dropboxCartGroup="UnsEt"
+	    unset dropboxCartGroup cartTitle
 	    until [[ "${feedGroup}" = "${dropboxCartGroup}" ]] ; do
 	      until [[ -n "${cartTitle}" ]] ; do
 		echo
