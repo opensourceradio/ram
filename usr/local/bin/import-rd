@@ -9,10 +9,10 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
-DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-4"}
+DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-12"}
 
 # Tell them how to use this command.
 usage() {
@@ -177,7 +177,7 @@ rivendellSchedCodes=( $(doSQL "select CODE from SCHED_CODES") )
 rivendellGroupList=( $(doSQL "select NAME from GROUPS") )
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o hc:g:l:n:V --long help,codes:,group:,label:,normalization:,version -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o hc:g:l:n:vV --long help,codes:,group:,label:,normalization:,verbose,version -n ${0:t} -- "${@}")
 if [ ${?} != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -188,6 +188,7 @@ do
     -g|--grou*) group=${2} ; shift 2 ;;
     -l|--labe*) label=${2} ; shift 2 ;;
     -n|--norm*) normalization=${2} ; shift 2 ;;
+    -v|--verb*) VERBOSE=1 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -291,12 +292,11 @@ if [[ -r "${1}" ]] ; then
       label="$(echo ${(apj';')trackLabel})"
     fi
 
-    # If there are one or more embedded genres, see if any are in
-    # our chosen list of scheduler codes, or if we already have
-    # the 'genre' in our scheduler code list.  We need to put a
-    # comma at the beginning of the string in order for the
-    # parameter expansion below (in the rdimport invocation) to
-    # work properly.
+    # If there are one or more embedded genres, see if any are in our
+    # chosen list of scheduler codes, or if we already have the
+    # 'genre' in our scheduler code list. We need to put a comma at
+    # the beginning of the string in order for the parameter expansion
+    # below (in the rdimport invocation) to work properly.
     if [[ -n "${genre}" ]] ; then
       # Ignore the embedded 'genre' tags if they are not in the
       # list of Rivendell Scheduler Codes
@@ -326,23 +326,25 @@ if [[ -r "${1}" ]] ; then
       ourSchedCodes=${ourSchedCodes:+",${ourSchedCodes}"}
     fi
     
-    ${DEBUG} ${RDIMPORT} \
-	     --verbose \
-	     --fix-broken-formats \
-	     --normalization-level=${normalization:-"${DEFAULT_NORMALIZATION}"} \
-	     --autotrim-level=-40 \
-	     --segue-level=-12 \
-	     --segue-length=2000 \
-	     --delete-cuts \
-	     --set-string-artist=${artist} \
-	     --set-string-title=${title} \
-	     --set-string-album=${album} \
-	     --set-string-year=${year} \
-	     --set-string-description="Track ${tracknum}" \
-	     --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
-	     --set-string-user-defined="source=${location}" \
-	     $(echo ${${ourSchedCodes/,,/,}//,/ --add-scheduler-code=}) \
-	     ${group} ${track}
+    # Removed this for now, seems to confuse Rivendell specifying both
+    # segue-level and segue-length.
+    #	     --segue-length=2000 \
+    ${RDIMPORT} \
+      ${VERBOSE:+--verbose} \
+      --fix-broken-formats \
+      --normalization-level=${normalization:-"${DEFAULT_NORMALIZATION}"} \
+      --autotrim-level=-40 \
+      --segue-level=-15 \
+      --delete-cuts \
+      --set-string-artist=${artist} \
+      --set-string-title=${title} \
+      --set-string-album=${album} \
+      --set-string-year=${year} \
+      --set-string-description="Track ${tracknum}" \
+      --set-string-publisher=${label:-"UNKNOWN PUBLISHER"} \
+      --set-string-user-defined="source=${location}" \
+      $(echo ${${ourSchedCodes/,,/,}//,/ --add-scheduler-code=}) \
+      ${group} ${track}
   done
 
 else
