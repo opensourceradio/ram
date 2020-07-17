@@ -110,11 +110,11 @@ sub new {
     bless( { feedList => $feeds, %parms }, $class );
 }
 
-sub DESTROY( $ ) {
+sub DESTROY {
     my $self = shift;
 }
 
-sub feedName( $$ ) {
+sub feedName {
     my $self = shift;
     my $feedName = shift;
 
@@ -122,7 +122,7 @@ sub feedName( $$ ) {
 }
 
 # Return the URL for the feeName.
-sub feedURL( $$ ) {
+sub feedURL {
     my $self = shift;
     my $feedName = shift;
 
@@ -134,7 +134,7 @@ sub feedURL( $$ ) {
 }
 
 # Return the username for the feeName.
-sub feedUser( $$ ) {
+sub feedUser {
     my $self = shift;
     my $feedName = shift;
 
@@ -142,14 +142,14 @@ sub feedUser( $$ ) {
 }
 
 # Return the password for the feeName.
-sub feedPass( $$ ) {
+sub feedPass {
     my $self = shift;
     my $feedName = shift;
 
     $self->{feedList}->{$feedName}->{remotePASS};
 }
 
-sub recurse( $$ ) {
+sub recurse {
     my $self = shift;
     my $feedName = shift;
 
@@ -157,7 +157,7 @@ sub recurse( $$ ) {
 }
 
 # Return the output filename for the feedName.
-sub outputFile( $$ ) {
+sub outputFile {
     my $self = shift;
     my $feedName = shift;
 
@@ -165,7 +165,7 @@ sub outputFile( $$ ) {
 }
 
 # Return the file name from a single entry in a long listing.
-sub getFilename( $$$ ) {
+sub getFilename {
     my $self = shift;
     my $feedName = shift;
     my $fileListing = shift;
@@ -186,7 +186,7 @@ sub getFilename( $$$ ) {
     }
 }
 
-sub getPubDate( $$$ ) {
+sub getPubDate {
     my $self = shift;
     my $feedName = shift;
     my $fileListing = shift;
@@ -198,7 +198,7 @@ sub getPubDate( $$$ ) {
 	@fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{hhmm}];
 }
 
-sub getSize( $$$ ) {
+sub getSize {
     my $self = shift;
     my $feedName = shift;
     my $fileListing = shift;
@@ -207,7 +207,7 @@ sub getSize( $$$ ) {
     $fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{size}];
 }
 
-sub listFeeds( $ ) {
+sub listFeeds {
     my $self = shift;
 
     # @feeds is a Package-scope array
@@ -216,7 +216,7 @@ sub listFeeds( $ ) {
     }
 }
 
-sub getFileListingForFeed( $$ ) {
+sub getFileListingForFeed {
     my $self = shift;
     my $feedName = shift;
 
@@ -265,14 +265,15 @@ use Pod::Usage;
 
 use Time::localtime qw(localtime);
 
-sub createXML( $$$$ );
-sub main();
+sub showVersion;
+sub createXML;
+sub main;
 
 main;
 
 1;
 
-sub showVersion( $ ) {
+sub showVersion {
     my $verbose = shift;
 
     my $hash = undef;
@@ -284,7 +285,7 @@ sub showVersion( $ ) {
     exit;
 }
 
-sub createXML( $$$$ ) {
+sub createXML {
     my $feeds = shift;
     my $feedName = shift;
     my $files = shift;
@@ -343,7 +344,7 @@ END
     $xml;
 }
 
-sub main() {
+sub main {
     my( $list, $verbose, $man, $help ) = ( undef, 0, undef, undef );
     my $version = undef;
     my( $now ) = localtime();
