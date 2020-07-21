@@ -24,7 +24,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -1353,8 +1353,6 @@ RED="${fg_bold[red]}"
 YELLOW="${fg_bold[yellow]}"
 BOLD="${bold_color}"
 NORM="${reset_color}"
-# This script is compatible with Rivendell database verson:
-rdDBVersionCompatible=259
 # Hard code this for now.
 fileExt=mp3
 
