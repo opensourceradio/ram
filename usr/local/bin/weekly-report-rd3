@@ -18,7 +18,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 VERBOSE=0
@@ -363,7 +363,7 @@ selectCountStatement="SELECT
 eventCount=$(doSQL "${selectCountStatement}")
 
 # The report title.
-reportTitleText="${service}: ${eventCount} ${group} Events from ${reportStartDate% *} to ${reportEndDate% *}"
+reportTitleText="${service}: ${eventCount} ${group/%/all} Events between ${reportStartDate% *} and ${reportEndDate% *}"
 (( CSV )) || print "${reportTitleText}\n"
 
 # The report header with optional column headings, based on invocation
@@ -392,7 +392,7 @@ fwLabel=$(maxLength label)
 fwPub=$(maxLength publisher)
 
 # Find all matching events in ELR_LINES.
-if okDatabaseStructure ELR_LINES:event_datetime+artist+album+title+length,CART:number,CART_SCHED_CODES:sched_code ; then
+if okDatabaseStructure ELR_LINES:event_datetime+artist+album+title+length,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
   selectStatement="SELECT
     elr.event_datetime, elr.title, c.number, elr.length/1000
     $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
