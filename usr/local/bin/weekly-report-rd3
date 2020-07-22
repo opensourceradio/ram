@@ -18,8 +18,10 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
+
+VERBOSE=0
 
 #################  BEGIN shell commands used in this script.  #################
 # This script uses these 5 external commands.
@@ -60,6 +62,7 @@ Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
                        [ --group (-g) <Group Name> (or "list") ]
                        [ --all ]
                        [ --service (-s) <Service Name> (or "list") ]
+		       [ --version (-V) ] [ --verbose (-v) ]
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
@@ -84,8 +87,13 @@ The "Len" field is represented as MM:SS when --csv is not specified,
 and is represented as number of seconds (including the fractional
 part) when --csv is specified.
 
-${myName:t} generates Performance Totals (for each Cart) for the period
-at the end of the report unless --csv is specified.
+${myName:t} generates Performance Totals (for each Cart) for the
+period at the end of the report unless --csv is specified.
+
+Increase the amount of output using the --verbose (-v) option.
+
+Display the app version number and exit with the --version (-V)
+option.
 
 EOF
 }
@@ -175,7 +183,7 @@ SCHEDCODES=0
 PROdata=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o achg:s:vS:e:p --long all,csv,help,group:,schedcodes:,service:,version,start-date:,end-date:,pro-data -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o achg:s:S:e:pVv --long all,csv,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,version,verbose -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -191,7 +199,8 @@ do
     -e|--end*) endDate=${2} ; shift 2 ;;
     -p|--pro*) PROdata=4 ; shift ;;
     -h|--help) usage ${0} ; exit ;;
-    -v|--vers*) showVersion=1 ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    -v|--verb*) VERBOSE=1 ; shift ;;
     --) shift ; break ;;
     *) echo "Internal error, cannot continue!" ; exit 1 ;;
   esac
@@ -228,8 +237,13 @@ rivendellServiceList=( $(doSQL "SELECT name FROM SERVICES") )
 
 # Snag the SCHED_CODES list for future use. Rivendell does not permit
 # whitespace in CODE names.
-typeset -a rivendellSchedCodeList
-rivendellSchedCodeList=( $(doSQL "SELECT code from SCHED_CODES" | ${TR} '\012' '\t') )
+if okDatabaseStructure SCHED_CODES:code ; then
+  typeset -a rivendellSchedCodeList
+  rivendellSchedCodeList=( $(doSQL "SELECT code from SCHED_CODES" | ${TR} '\012' '\t') )
+else
+  echo "${0:t}: Unknown database structure, table SCHED_CODES. Seek professional help." >&2
+  exit 4
+fi
 
 typeset -A cartCount
 whereClauseOp='='
@@ -273,6 +287,9 @@ else
     exit 2
   fi
 fi
+
+((VERBOSE)) &&
+  printf "%18s: Using Start Date: %s and End Date: %s\n" "${0:t}" "${startDate}" "${endDate}" >&2
 
 # List the groups and prompt for a group to use in this report.
 if [[ -n "${group}" ]] ; then
@@ -375,21 +392,26 @@ fwLabel=$(maxLength label)
 fwPub=$(maxLength publisher)
 
 # Find all matching events in ELR_LINES.
-selectStatement="SELECT
-  elr.event_datetime, elr.title, c.number, elr.length/1000
-  $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
-  $(((SCHEDCODES)) && echo ', csch.sched_code')
-  FROM ELR_LINES AS elr
-  LEFT JOIN CART AS c on (elr.cart_number = c.number)
-  ${schedCodesJoinClause}
-  WHERE elr.cart_number IN
-  (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
-  AND elr.service_name = '${service}'
-  AND
-  elr.event_datetime > '${reportStartDate}'
-  AND
-  elr.event_datetime <= '${reportEndDate}'
-  ORDER BY elr.event_datetime"
+if okDatabaseStructure ELR_LINES:event_datetime+artist+album+title+length,CART:number,CART_SCHED_CODES:sched_code ; then
+  selectStatement="SELECT
+    elr.event_datetime, elr.title, c.number, elr.length/1000
+    $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
+    $(((SCHEDCODES)) && echo ', csch.sched_code')
+    FROM ELR_LINES AS elr
+    LEFT JOIN CART AS c on (elr.cart_number = c.number)
+    ${schedCodesJoinClause}
+    WHERE elr.cart_number IN
+    (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
+    AND elr.service_name = '${service}'
+    AND
+    elr.event_datetime > '${reportStartDate}'
+    AND
+    elr.event_datetime <= '${reportEndDate}'
+    ORDER BY elr.event_datetime"
+else
+  echo "${0:t}: Unknown database structure (multiple tables). Seek professional help." >&2
+  exit 4
+fi
 
 typeset -A artist album label publisher
 
