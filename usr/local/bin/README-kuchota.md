@@ -15,7 +15,7 @@ Kuchota is an app that fills the RSS-feed-fetch void in Rivendell. Use Kuchota t
 * _/usr/local/bin/pmw-podget-wrapper_ also in this repo
 * all commands listed in ourCommands in _kuchota_ and in _pmw-podget-wrapper_
 * replace the placeholder %PODGET\_DIR\_CONFIG% with its actual value in _kuchota_ and _pmw-podget-wrapper_
-* directory structure (where *$KUCHOTA* is the "home" directory of the kuchota app):
+n* directory structure (where *$KUCHOTA* is the "home" directory of the kuchota app):
 
 	+ *$KUCHOTA*/configuration
 	+ *$KUCHOTA*/log
@@ -31,7 +31,7 @@ Kuchota is an app that fills the RSS-feed-fetch void in Rivendell. Use Kuchota t
 		+ DIR\_LOG=%PODGET\_DIR\_LOG%
 	+ _serverlist_ Should be empty except for the comments.
 
-### Text GUI configuration
+### Text User Interface Configuration
 
 * Place _kuchota.desktop_ in _/usr/share/applications_
 * As the "target" user, run:
