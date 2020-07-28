@@ -1,0 +1,223 @@
+#!/bin/bash
+
+##############################################################################
+##############################################################################
+##                            btd-play-stats                                ##
+## A utility for Rivendell Automation to display simple statistics from the ##
+## Electronic Log Reconciliation table.                                     ##
+##                                                                          ##
+##############################################################################
+##############################################################################
+
+myName=${0##*/}
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=1
+# shellcheck disable=SC2016
+vHash='$Hash$'
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+# How to use this command.
+usage() {
+  local myName=${1}
+
+  ${CAT} <<EOF
+${myName}: Generate and display statistics from the Rivendell database table ELR_LINES.
+
+Summary
+
+${myName}      [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
+               [ --service (-s) <SERVICE-NAME> ]
+               [ --group (-g) <GROUP-NAME> ]
+	       [ --start <YYYY-MM-DD [ HH:MM:SS ]> ]
+	       [ --end <YYYY-MM-DD [ HH:MM:SS ]> ]
+
+Description
+
+Simply run this script to generate some statistics from the ELR_LINES
+table.
+
+Specify the Rivendell Service with the --service option (default:
+Production).
+
+Specify the Rivendell Group with the --group option (default: MUSIC)
+
+Specify a start date with --start YYYY-MM-DD (there is no short
+option) and optionally the time with HH:MM:SS. The default is the
+oldest row in ELR_LINES (see RDAdmin->Manage Services for ELR
+retention).
+
+Specify an end date with --end YYYY-MM-DD (there is no short option)
+and optionally the time with HH:MM:SS. The default is the newest row
+in ELR_LINES.
+
+EOF
+}
+
+# Make mysql calls look a bit more asthetically pleasing. The return
+# value of this shell funtion is the exit value of the mysql command
+# invocation.
+# shellcheck disable=SC2086
+doSQL() {
+  local statement="${1:?Need a database query to run.}"
+  local useMyCNF=0
+  local usableMyCNF=4
+  local rdconfig=${RD_CONFIG:-/etc/rd.conf}
+
+  # Use the exported variables if we have been through this function
+  # already. This applies to each running instance of scripts that
+  # use this function. This helps prevent the need to look this
+  # stuff up every time this function is called.
+  if [[ -z "${_DB_HOST}" ]] ; then
+
+    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
+    # else get credentials from rd.conf if it exists, else from the
+    # environment, else use defaults here.
+    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
+    # to the Rivendell database.
+    if [[ -r ~/.my.cnf ]] && [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+      mapfile -t < ~/.my.cnf
+
+      # Need to check for each of these parameters in .my.cnf in
+      # order to be able to use it.
+      for row in ${MAPFILE[*]} ; do
+	for parm in database host password user ; do
+	  if [[ "${MAPFILE[${row}]% = *}" == "${parm}" ]] ; then
+	    (( useMyCNF++ ))
+	  fi
+	done
+      done
+    else
+      if [[ -r ${rdconfig} ]] ; then
+	DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | awk -F'=' '/^Hostname=/{print $2}')
+	DB_USER=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | awk -F'=' '/^Loginname=/{print $2}')
+	DB_PASSWORD=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | awk -F'=' '/^Password=/{print $2}')
+	DB_DATABASE=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | awk -F'=' '/^Database=/{print $2}')
+      else
+	# Last ditch effort to set the MySQL access credentials.
+	# These are the "conventional" defaults that might otherwise
+	# exist in /etc/rd.conf (and friends).
+	DB_HOST=${RD_DB_HOST:-"localhost"}
+	DB_USER=${RD_DB_USER:-"rduser"}
+	DB_PASSWORD=${RD_DB_PASS:-"letmein"}
+	DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
+      fi
+    fi
+
+    declare -x _DB_HOST=${DB_HOST}
+    declare -x _DB_USER=${DB_USER}
+    declare -x _DB_PWD=${DB_PASSWORD}
+    declare -x _DB_DATABASE=${DB_DATABASE}
+    declare -x _USE_MYCNF=${useMyCNF}
+  fi
+
+  if (( _USE_MYCNF == usableMyCNF )) ; then
+    mysql -s -N -e "${statement}"
+  else
+    mysql -s -N -B -u "${_DB_USER}" -p"${_DB_PWD}" -h "${_DB_HOST}" "${_DB_DATABASE}" -e "${statement}"
+  fi
+}
+
+##############################################################################
+## Script main line
+##############################################################################
+
+## Defaults
+VERBOSE=0
+SERVICE_NAME="production"
+GROUP_NAME="music"
+
+# Process command line options.
+# We use the same option names and values as podget.
+TEMP=$(getopt -o g:hs:vV --long end:,group:,help,service:,start:,verbose,version -n "${0:t}" -- "${@}")
+# shellcheck disable=SC2181
+if (( ${?} != 0 )) ; then echo "${myName}: getopt Fatal Error (${?}). Terminating..." >&2 ; return 1 ; fi
+# Note the quotes around ${TEMP}: they are essential!
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    --end) END_DATE="${2}" ; shift 2 ;;
+    -h|--help*) usage "${myName}" ; exit ;;
+    -g|--grou*) GROUP_NAME="${2}" ; shift 2 ;;
+    -s|--serv*) SERVICE_NAME="${2}" ; shift 2 ;;
+    --start) START_DATE="${2}" ; shift 2 ;;
+    -v|--verb*) VERBOSE=1 ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${myName}: getopt Internal Error! Terminating..." >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  just_the_hash=${vHash#\$Hash: }
+  just_the_hash=${just_the_hash%$}
+  echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${just_the_hash}"
+  exit 0
+fi
+
+query="select distinct concat(substr(EVENT_DATETIME,1,10), ':', substr(EVENT_DATETIME,12,2)) as DATEHOUR, count(ID)"
+query="${query} from ELR_LINES join CART on NUMBER = CART_NUMBER"
+query="${query} where SERVICE_NAME = '${SERVICE_NAME}' AND"
+query="${query} group_name='${GROUP_NAME}'"
+[[ -n "${START_DATE}" ]] && query="${query} AND EVENT_DATETIME >= '${START_DATE}'"
+[[ -n "${END_DATE}" ]] && query="${query} AND EVENT_DATETIME <= '${END_DATE}'"
+query="${query} group by DATEHOUR order by EVENT_DATETIME"
+
+declare -i num=0 total=0 count=0 min=100 mincount=0 max=0 maxcount=0
+declare avg=''
+
+# shellcheck disable=SC2162
+doSQL "${query}" | {
+  while read datehour num; do
+    ((num < 10 || num > 50)) && { ((VERBOSE)) && printf '%s: Weird number of tracks (%d) on %s\n' "${myName}" "${num}" "${datehour}" ; continue ; }
+
+    ((total += num))
+    ((count++))
+
+    ((num == min)) && { ((mincount += 1)) ; ((mincount++)) ; ((VERBOSE)) && printf '\t\tHit Min (%d) on %s\n' ${min} "${datehour}" ; }
+    ((num < min)) && { ((min=num)) ; ((mincount = 1)) ; min_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Min %d\n\n' "${min_datehour}" ${min} ; }
+
+    ((num == max)) && { ((maxcount += 1)) ; ((maxcount++)) ; ((VERBOSE)) && printf '\t\tHit Max (%d) on %s\n' ${max} "${datehour}" ; }
+    ((num > max)) && { ((max=num)) ; ((maxcount = 1)) ; max_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Max %d\n\n' "${max_datehour}" ${max} ; }
+  done
+
+  # shellcheck disable=SC2046
+  read avg <<<$(awk "BEGIN{print ${total} / ${count}}")
+  printf 'Total of %d tracks played over %d hours. Average tracks per hour: %2.4f\n' \
+	 ${total} ${count} "${avg}"
+  printf 'First minimum-tracks hour (%d) on %s in the %02d:00 hour, First maximum-tracks hour (%d) on %s in the %02d:00 hour\n' \
+	  ${min} "${min_datehour%:*}" "${min_datehour#*:}" ${max} "${max_datehour%:*}" "${max_datehour#*:}"
+  printf 'Number of minimum-track (%d) hours: %d\n' "${min}" "${mincount}"
+  printf 'Number of maximum-track (%d) hours: %d\n' "${max}" "${maxcount}"
+}
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
