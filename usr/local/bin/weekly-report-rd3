@@ -18,7 +18,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 VERBOSE=0
@@ -56,7 +56,7 @@ date). This version works only with Rivendell version 3.X.
 
 Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
                        [ --end-date (-e) <YYYY-MM-DD> [HH:MM:SS] ]
-                       [ --csv (-c) ]
+                       [ --csv (-c) ] [ --cuts (-C) ]
                        [ --schedcodes <Code>[,<Code>,...] (or "list") ]
                        [ --pro-data (-p) ]
                        [ --group (-g) <Group Name> (or "list") ]
@@ -86,6 +86,8 @@ label) in the report output.
 The "Len" field is represented as MM:SS when --csv is not specified,
 and is represented as number of seconds (including the fractional
 part) when --csv is specified.
+
+Include Cut numbers in the output with the --cuts option.
 
 ${myName:t} generates Performance Totals (for each Cart) for the
 period at the end of the report unless --csv is specified.
@@ -178,12 +180,14 @@ fi
 
 #CSV=0
 SCHEDCODES=0
+# This will be set to 1 if requested on invocation.
+INCLUDE_CUTS=0
 # This will be set to 4 (the number of PRO fields) if requested on
 # invocation.
 PROdata=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o achg:s:S:e:pVv --long all,csv,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,version,verbose -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o acChg:s:S:e:pVv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,version,verbose -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -192,6 +196,7 @@ do
   case "${1}" in
     -a|--all) group=ALL_GROUPS ; shift ;;
     -c|--csv) CSV=1 ; shift ;;
+    -C|--cut*) INCLUDE_CUTS=1 ; shift ;;
     -g|--grou*) group=${2} ; shift 2 ;;
     -s|--serv*) service=${2} ; shift 2 ;;
     --sched*) schedCodes=${2} ; shift 2 ;;
@@ -363,26 +368,9 @@ selectCountStatement="SELECT
 eventCount=$(doSQL "${selectCountStatement}")
 
 # The report title.
-reportTitleText="${service}: ${eventCount} ${group/\%/all} Events between ${reportStartDate% *} and ${reportEndDate% *}"
+groupClause="$([[ ${group} =~ ^%$ ]] && print all Groups || print Group ${group})"
+reportTitleText="Service: ${service}: ${eventCount} Event$(((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
 (( CSV )) || print "${reportTitleText}\n"
-
-# The report header with optional column headings, based on invocation
-# options.
-if (( CSV )) ; then
-  printf "\"%s\",\"%s\",%s,\"%s\"$(((${PROdata})) && echo ,%s,%s,%s,%s)$(((${SCHEDCODES})) && echo ,%s)\n" \
-	 "Air Date" \
-	 "Cart #" \
-	 "Len" \
-	 "Cart Title" \
-	 $(((${PROdata})) && echo "Artist\nAlbum\nLabel\nPublisher") \
-	 $(((SCHEDCODES)) && echo "SchedCodes")
-else
-  printf "%19s${fs}%6s${fs}%5s${fs}%${len}s\n" \
-	 "Air Date" \
-	 "Cart #" \
-	 "Len" \
-	 "Cart Title"
-fi
 
 # Get the maximum length of each of these columns.
 fwTitle=$(maxLength title)
@@ -391,10 +379,31 @@ fwAlbum=$(maxLength album)
 fwLabel=$(maxLength label)
 fwPub=$(maxLength publisher)
 
+# The report header with optional column headings, based on invocation
+# options.
+if (( CSV )) ; then
+  printf "\"%s\",\"%s\"$(((INCLUDE_CUTS)) && echo ,%s),%s,\"%s\"$(((${PROdata})) && echo ,%s,%s,%s,%s)$(((${SCHEDCODES})) && echo ,%s)\n" \
+	 "Air Date" \
+	 "Cart #" \
+	 $(((INCLUDE_CUTS)) && echo "Cut #") \
+	 "Len" \
+	 "Cart Title" \
+	 $(((${PROdata})) && echo "Artist\nAlbum\nLabel\nPublisher") \
+	 $(((SCHEDCODES)) && echo "SchedCodes")
+else
+  printf "%19s${fs}%6s${fs}$(((INCLUDE_CUTS)) && echo %5s${fs})%5s${fs}%${fwTitle}s\n" \
+	 "Air Date" \
+	 "Cart #" \
+	 $(((INCLUDE_CUTS)) && echo Cut) \
+	 "Len" \
+	 "Cart Title"
+fi
+
 # Find all matching events in ELR_LINES.
-if okDatabaseStructure ELR_LINES:event_datetime+artist+album+title+length,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
+if okDatabaseStructure ELR_LINES:event_datetime+cut_number+artist+album+title+length,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
   selectStatement="SELECT
     elr.event_datetime, elr.title, c.number, elr.length/1000
+    $(((INCLUDE_CUTS)) && echo , elr.cut_number)
     $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
     $(((SCHEDCODES)) && echo ', csch.sched_code')
     FROM ELR_LINES AS elr
@@ -431,15 +440,19 @@ doSQL "${selectStatement}" | while read line ; do
   cartTitle="${2}"
   cartNumber=${3}
   cartLength=${4}
+  # Shift everything to the right by ${INCLUDE_CUTS} if --cuts was
+  # specified on the command line.
+  ((INCLUDE_CUTS)) && cutNumber=${(P)$((INCLUDE_CUTS + 4))}
   if ((PROdata)) ; then
-    cartArtist="${5}"
-    cartAlbum="${6}"
-    cartLabel="${7}"
-    cartPublisher="${8}"
+    cartArtist="${(P)$((INCLUDE_CUTS + 5))}"
+    cartAlbum="${(P)$((INCLUDE_CUTS + 6))}"
+    cartLabel="${(P)$((INCLUDE_CUTS + 7))}"
+    cartPublisher="${(P)$((INCLUDE_CUTS + 8))}"
   fi
-  # Position of schedCodes is dependent on the --pro-data option, also
-  # strip the trailing period (.) from the database record.
-  ((SCHEDCODES)) && schedCodes=${(P)$((5 + PROdata))%.}
+  # Position of schedCodes is dependent on the --pro-data and the
+  # --cuts options, also strip the trailing period (.) from the
+  # database record.
+  ((SCHEDCODES)) && schedCodes=${(P)$((5 + PROdata + INCLUDE_CUTS))%.}
   set -
 
   # Do not convert to MM:SS if we are in CSV mode.
@@ -453,10 +466,11 @@ doSQL "${selectStatement}" | while read line ; do
   [[ ${airDateTime% *} =~ ${lastAirDate} ]] || print
 
   if (( CSV )) ; then
-    printf "%s${fs}%d${fs}%s${fs}%s$(((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
+    printf "%s${fs}%d$(((INCLUDE_CUTS)) && print ${fs}%d)${fs}%s${fs}%s$(((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
 	   $(quote "${airDateTime}") \
-	   ${cartNumber} \
-	   ${cartMinSec} \
+	   "${cartNumber}" \
+	   $(((INCLUDE_CUTS)) && print "${cutNumber}") \
+	   "${cartMinSec}" \
 	   $(quote "${cartTitle}") \
 	   $(((${PROdata})) && quote "${cartArtist}") \
 	   $(((${PROdata})) && quote "${cartAlbum}") \
@@ -464,9 +478,10 @@ doSQL "${selectStatement}" | while read line ; do
 	   $(((${PROdata})) && quote "${cartPublisher}") \
 	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   else
-    printf "%20s${fs}%06d${fs}%5s${fs}%${fwTitle}s\n" \
+    printf "%20s${fs}%06d$(((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
+	   $(((INCLUDE_CUTS)) && print "${cutNumber}") \
 	   ${cartMinSec} \
 	   $(quote "${cartTitle}")
   fi
@@ -506,7 +521,7 @@ if ! (( CSV )) ; then
 
   for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
 
-    printf "%06d${fs}%5d${fs}%${len}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
+    printf "%06d${fs}%5d${fs}%${fwTitle}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
 	   ${cart} \
 	   ${cartCount[${cart}]} \
 	   "${title[${cart}]}" \
