@@ -18,7 +18,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 VERBOSE=0
@@ -363,7 +363,7 @@ selectCountStatement="SELECT
 eventCount=$(doSQL "${selectCountStatement}")
 
 # The report title.
-reportTitleText="${service}: ${eventCount} ${group/%/all} Events between ${reportStartDate% *} and ${reportEndDate% *}"
+reportTitleText="${service}: ${eventCount} ${group/\%/all} Events between ${reportStartDate% *} and ${reportEndDate% *}"
 (( CSV )) || print "${reportTitleText}\n"
 
 # The report header with optional column headings, based on invocation
