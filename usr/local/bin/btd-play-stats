@@ -14,7 +14,7 @@ myName=${0##*/}
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=1
+vPatch=2
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
@@ -78,20 +78,34 @@ doSQL() {
     # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
     # else get credentials from rd.conf if it exists, else from the
     # environment, else use defaults here.
-    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
+    # BUG ALERT: this assumes the credentials in .my.cnf grant access
     # to the Rivendell database.
-    if [[ -r ~/.my.cnf ]] && [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-      mapfile -t < ~/.my.cnf
+    if [[ -r ~/.my.cnf ]] &&
+	 grep -q -E -i '^\[mysql\]$' ~/.my.cnf 2>/dev/null &&
+	 [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
 
-      # Need to check for each of these parameters in .my.cnf in
-      # order to be able to use it.
-      for row in ${MAPFILE[*]} ; do
-	for parm in database host password user ; do
-	  if [[ "${MAPFILE[${row}]% = *}" == "${parm}" ]] ; then
-	    (( useMyCNF++ ))
-	  fi
-	done
-      done
+      declare -A parameters
+
+      # We need all four parameters in the [mysql] stanza of .my.cnf
+      # in order to be able to use it.
+      while read -r line ; do
+	[[ "${line}" =~ ^\[.*\]$ ]] && { stanza="${line//[\]\[]//}" ; continue ; }
+	if [[ "${stanza}" == "mysql" ]] ; then
+	  for parm in database host password user ; do
+	    if [[ "${line% = *}" == "${parm}" ]] ; then
+	      (( useMyCNF++ ))
+	      line="${line// /}" # eliminate embedded spaces
+	      k="${line%[=:]*}"  # the left side of '=' or ':'
+	      v="${line#*[=:]}"  # the right side of '=' or ':'
+	      parameters[${k}]="${v}"
+	    fi
+	  done
+	fi
+      done < ~/.my.cnf
+      DB_HOST="${parameters[host]}"
+      DB_USER="${parameters[user]}"
+      DB_PASSWORD="${parameters[password]}"
+      DB_DATABASE="${parameters[database]}"
     else
       if [[ -r ${rdconfig} ]] ; then
 	DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' ${rdconfig} | awk -F'=' '/^Hostname=/{print $2}')
