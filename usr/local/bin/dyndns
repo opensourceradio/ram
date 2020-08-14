@@ -1,0 +1,198 @@
+#!/bin/bash
+
+##############################################################################
+##############################################################################
+##
+## This script needs write access to files in /var/cache/public
+##
+## Create this directory and set its permission mode to 01777
+## (sudo chmod 1777 /var/cache/public), similarly to /tmp and /var/tmp
+##
+##############################################################################
+##############################################################################
+
+declare DOMAIN="btd.support"
+declare HOSTNAME="wcaa-studio"
+# ShellCheck does not seem to know about read-only variables.
+# shellcheck disable=SC2155
+declare -r DO_API_KEY=$(< /home/dklann/.config/doctl/api-access)
+declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
+declare -i VERBOSE=0
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -r vMajor=0
+declare -r vMinor=1
+declare -r vPatch=1
+# We can do this in one step in ZSH, but Bash needs 2 statements
+# And we do *not* want $Hash expanded yet.
+# shellcheck disable=SC2016
+declare -r vHash='$Hash$'
+declare -r vvHash="${vHash#\$Hash: }"
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  cat << EOF
+${myName}: update DNS records for a non-static public IP address
+
+Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
+                [ --help ]
+                [ --domain (-d) <DOMAIN> ]
+		[ --hostname (-h) <HOSTNAME> ]
+
+The default domain (if you do not specify one) is "btd.support".
+
+The default hostname (if you do not specify one) is "wcaa-studio".
+
+EOF
+}
+
+# Execute curl(1) against the Digital Ocean API.
+do_curl() {
+  local -r method="${1}" ; shift
+  local -r route="${1}" ; shift
+  local -r data="${1}"
+
+  if [[ -z "${DO_API_KEY}" ]] ; then
+    printf '%s: ERROR: Missing Digital Ocean API Key.\n' "${0##*/}" >&2
+    return 1
+  fi
+
+  curl --silent \
+       -X "${method}" \
+       -H 'Content-Type: application/json' \
+       -H "Authorization: Bearer ${DO_API_KEY}" \
+       ${data:+-d ${data}} \
+       "${route}"
+}
+
+get_domain_record_id() {
+  local -r key="${1}" ; shift
+  local -r value="${1}" ; shift
+  local json_string="${1}" ; shift
+  local -i x=0
+
+  while ((x<100)) ; do
+    if [[ $(printf '%s' "${json_string}" | jq ".domain_records[${x}].${key}") =~ .*${value}.* ]] ; then
+      printf '%s' "${json_string}" | jq ".domain_records[${x}].id"
+      break
+    fi
+    ((x++))
+  done
+  if ((x == 100)) ; then
+    printf '%s: ERROR: unable to get a domain record for key: %s value: %s\n' "${0##*/}" "${key}" "${value}" >&2
+    printf "UNKNOWN\n"
+    return 1
+  fi
+}
+
+##############################################################################
+##############################################################################
+##     SCRIPT       MAIN       LINE
+##############################################################################
+##############################################################################
+
+if ! TEMP=$(getopt -o d:h:Vv --long domain:,help,hostname:,version,verbose -n "${0##*/}" -- "${@}") ; then
+  printf 'getopt(1) Fatal Error (%s). Terminating...\n' "${?}" >&2
+  exit 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  case "${1}" in
+    -d|--domain) DOMAIN="${2}" ; shift 2 ;;
+    --help*) usage "${0##*/}" ; exit ;;
+    -h|--host*) HOSTNAME="${2}" ; shift 2 ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    --) shift ; break ;;
+    *) printf '%s:: getopt internal error (%s)! Terminating...\n' "${0##*/}" "${?}" >&2 ; exit 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  printf '%s: version %d.%d.%d-%s\n' "${0##*/}" "${vMajor}" "${vMinor}" "${vPatch}" "${vvHash%$}"
+  exit 0
+fi
+
+# This is meant to be run regularly from cron(8), so deal with output.
+exec 1> "/var/tmp/${0##*/}.out"
+exec 2> "/var/tmp/${0##*/}.err"
+
+((VERBOSE)) && set -o xtrace
+((VERBOSE > 1)) && set -o errtrace functrace
+
+# Our last-known public IP addres is cached in local storage.
+last_ip=$(< "${IP_ADDRESS_CACHE}")
+
+# Hit David Klann's personal server to get the current public IP
+# address.
+current_ip=$(curl --silent -o - 'https://nxx.grunch.org/h/whatsmyip.php')
+
+if [[ -z "${last_ip}" ]] ; then
+  # Maybe the first time doing this? Make sure /var/cache/public is
+  # world writeable!
+  if [[ -n "${current_ip}" ]] ; then
+    printf '%s\n' "${current_ip}" > "${IP_ADDRESS_CACHE}"
+  else
+    printf '%s: unable to get our current Public IP address, and no known previous IP address. Bad News!\n' "${0##*/}" >&2
+    exit 3
+  fi
+fi
+
+if [[ "${last_ip}" != "${current_ip}" ]] ; then
+
+  # Save this new IP address in the cache.
+  printf '%s\n' "${current_ip}" >! /usr/local/etc/last-know-public-ip
+
+  if ! DOMAIN_JSON=$(do_curl GET "https://api.digitalocean.com/v2/domains/${DOMAIN}/records") ; then
+    curl_exit_value="${?}"
+    printf '%s: unable to get domain records.\n' "${0##*/}" >&2
+    exit "${curl_exit_value}"
+  fi
+
+  # Get the record ID from D.O.
+  # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
+  if ! RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}") ; then
+    printf '%s: unable to get domain record ID.\n' "${0##*/}" >&2
+    exit 1
+  fi
+
+  # Update the A record for this host.
+  if ! RESPONSE=$(do_curl PUT "https://api.digitalocean.com/v2/domains/${DOMAIN}/records/${RECORD_ID}" "{'data':'${current_ip}'}") ; then
+    curl_exit_value="${?}"
+    printf '"%s: unable to update domain record %s.\n' "${0##*/}" "${RECORD_ID}" >&2
+    printf 'response: %s\n' "${RESPONSE}" >&2
+    exit "${curl_exit_value}"
+  fi
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
