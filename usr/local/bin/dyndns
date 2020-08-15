@@ -11,18 +11,22 @@
 ##############################################################################
 ##############################################################################
 
-declare DOMAIN="btd.support"
-declare HOSTNAME="wcaa-studio"
+declare DOMAIN='btd.support'
+declare HOSTNAME='wcaa-studio'
+declare -r WHATS_MY_IP_URL='https://nxx.grunch.org/h/whatsmyip'
+declare -r API_PROTO='https'
+declare -r API_HOST='api.digitalocean.com'
+declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 # ShellCheck does not seem to know about read-only variables.
 # shellcheck disable=SC2155
-declare -r DO_API_KEY=$(< /home/dklann/.config/doctl/api-access)
+declare -r DO_API_KEY=$([[ -r /home/dklann/.config/doctl/api-access ]] && cat /home/dklann/.config/doctl/api-access)
 declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=1
-declare -r vPatch=1
+declare -r vPatch=3
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -33,12 +37,11 @@ declare -r vvHash="${vHash#\$Hash: }"
 ## Locally defined subroutines
 ##########################################################################################
 
-# How to use this command.
 usage() {
   myName=${1}
 
   cat << EOF
-${myName}: update DNS records for a non-static public IP address
+${myName}: update DNS records for a non-static public IP address.
 
 Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
                 [ --help ]
@@ -48,6 +51,29 @@ Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
 The default domain (if you do not specify one) is "btd.support".
 
 The default hostname (if you do not specify one) is "wcaa-studio".
+
+${myName} updates the name server "A" (aka "host") record for the
+default or named domain.
+
+This script depends on two external resources:
+
+ - a Digital Ocean compantible API containing DNS resource records,
+   with an API access key stored in a local file; these values
+   are currently set to:
+
+   '${API_PROTO}://${API_HOST}/${API_BASE_ROUTE}'
+
+ - an HTTP-based public IP address reporting tool; it currently
+   uses David Klann's personal web server:
+
+   '${WHATS_MY_IP_URL}'
+
+Changing the location of either of these resources requires updating
+the code in this script (see the variables at the top of the script).
+
+Locally, ${myName} depends on the cache directory /var/cache/public
+being world writable. The file ${IP_ADDRESS_CACHE}
+shall contain the last known public IP address for this site.
 
 EOF
 }
@@ -68,13 +94,16 @@ do_curl() {
        -H 'Content-Type: application/json' \
        -H "Authorization: Bearer ${DO_API_KEY}" \
        ${data:+-d ${data}} \
-       "${route}"
+       "${API_PROTO}://${API_HOST}${route}"
 }
 
+# Given a domain record, return the ID value associated with the
+# key/value pair.
 get_domain_record_id() {
-  local -r key="${1}" ; shift
-  local -r value="${1}" ; shift
   local json_string="${1}" ; shift
+  local -r key="${1}" ; shift
+  local -r value="${1}"
+
   local -i x=0
 
   while ((x<100)) ; do
@@ -131,7 +160,7 @@ last_ip=$(< "${IP_ADDRESS_CACHE}")
 
 # Hit David Klann's personal server to get the current public IP
 # address.
-current_ip=$(curl --silent -o - 'https://nxx.grunch.org/h/whatsmyip.php')
+current_ip=$(curl --silent -o - "${WHATS_MY_IP_URL}")
 
 if [[ -z "${last_ip}" ]] ; then
   # Maybe the first time doing this? Make sure /var/cache/public is
@@ -149,7 +178,7 @@ if [[ "${last_ip}" != "${current_ip}" ]] ; then
   # Save this new IP address in the cache.
   printf '%s\n' "${current_ip}" >! /usr/local/etc/last-know-public-ip
 
-  if ! DOMAIN_JSON=$(do_curl GET "https://api.digitalocean.com/v2/domains/${DOMAIN}/records") ; then
+  if ! DOMAIN_JSON=$(do_curl GET "${API_BASE_ROUTE}") ; then
     curl_exit_value="${?}"
     printf '%s: unable to get domain records.\n' "${0##*/}" >&2
     exit "${curl_exit_value}"
@@ -157,15 +186,18 @@ if [[ "${last_ip}" != "${current_ip}" ]] ; then
 
   # Get the record ID from D.O.
   # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
-  if ! RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}") ; then
+  if ! RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'name' "${HOSTNAME}") ||
+     [[ -z "${RECORD_ID}" ]] ; then
     printf '%s: unable to get domain record ID.\n' "${0##*/}" >&2
     exit 1
   fi
 
-  # Update the A record for this host.
-  if ! RESPONSE=$(do_curl PUT "https://api.digitalocean.com/v2/domains/${DOMAIN}/records/${RECORD_ID}" "{'data':'${current_ip}'}") ; then
+  # Update the record for this hostname.
+  # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
+  if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${RECORD_ID}" '{"data":"'"${current_ip}"'"}') ||
+     ! [[ "${RESPONSE}" =~ .*${RECORD_ID}.* ]] ; then
     curl_exit_value="${?}"
-    printf '"%s: unable to update domain record %s.\n' "${0##*/}" "${RECORD_ID}" >&2
+    printf '"%s: unable to update domain record %s (%d).\n' "${0##*/}" "${RECORD_ID}" "${curl_exit_value}" >&2
     printf 'response: %s\n' "${RESPONSE}" >&2
     exit "${curl_exit_value}"
   fi
