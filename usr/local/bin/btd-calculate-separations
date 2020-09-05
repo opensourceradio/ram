@@ -1,0 +1,201 @@
+#!/bin/zsh
+# shellcheck shell=bash
+
+# Calculate number of Artists and Tracks per Scheduler Code. Use this
+# to recommend values for Title and Artist Separation in Events that use
+# Scheduler Codes.
+
+zmodload zsh/mathfunc
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=5
+vHash='$Hash$'
+
+# Get zsh functions necessary for this script.
+if [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  echo "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your astrologist!" >&2
+  exit 2
+fi
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  myName=${1}
+
+  ${CAT} << EOF
+${myName}: Calculate and display "optimal" Artist and Title Separations.
+
+Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
+                       [ --service (-s) <Rivendell-Service-Name> ]
+
+You may use the word "list" for the --service (-s) option.
+This will cause ${myName##*/} to list the available Services and
+prompt you for which one to use.
+
+EOF
+}
+
+# tracks_per_week() simply counts the number of ${event_name} Events
+# in a week that contain the given Scheduler Codes ("Must have code"
+# and "And code" settings in RDLogManager->Events)
+tracks_per_week() {
+  local event_name="${1}"
+  
+  local query="select count(e.NAME) from SERVICE_CLOCKS sc"
+  query="${query} join CLOCK_LINES cl on sc.CLOCK_NAME = cl.CLOCK_NAME"
+  query="${query} join EVENTS e on cl.EVENT_NAME = e.NAME"
+  query="${query} where e.NAME = '${event_name}'"
+  query="${query} order by sc.HOUR"
+
+  ((VERBOSE>1)) && echo "${query}" >&2
+  doSQL "${query}"
+}
+
+recommended_separation() {
+  local type="${1}"
+  local -i number_of_items="${2}"
+
+  local -i slush_factor=0
+  local -i recommended=0
+
+  # The calculation of slush_factor is mostly arbitrary. I chose it
+  # based on trial and error using different math functions in the ZSH
+  # "mathfunc" module. See "mathfunc" in `man zshmodules(1)` for more
+  # details and options.
+  # It is also a ZSH-specific thing, tell shellcheck(1) to ignore it.
+  if ((number_of_items > 1)) ; then
+    # shellcheck disable=SC1073,SC1009,SC1072
+    slush_factor=$((number_of_items * (1/logb(number_of_items))))
+  fi
+
+  ((VERBOSE)) && echo "recommended_separation: ${type}: slush_factor: ${slush_factor}" >&2
+
+  (( recommended = number_of_items - slush_factor ))
+
+  echo ${recommended}
+}
+
+typeset -i VERBOSE=0
+
+if ! TEMP=$(getopt -o Vvhs: --long version,verbose,help,service: -n "${0##*/}" -- "${@}") ; then
+  echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -h|--help*) usage ${0##*/} ; exit ;;
+    -s|--serv*) SERVICE=${2} ; shift 2 ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${0##*/}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+# Snag the SERVICES list. SERVICE names may not contain whitespace.
+typeset -a rivendellServiceList
+rivendellServiceList=( $(doSQL "SELECT name FROM SERVICES") )
+
+# List the SERVICES if there are more than one, otherwise use the lone SERVICE.
+if [[ -z "${SERVICE}" ]] || [[ "${SERVICE}" =~ 'list' ]] ; then
+  if (( ${#rivendellServiceList} > 1 )) ; then
+    echo "Current Services:"
+    echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    read SERVICE\?"Enter a Service on which to report: "
+  else
+    SERVICE=${rivendellServiceList[1]}
+  fi
+fi
+
+# Set the shell internal field separator to just <Tab>
+IFS='	'
+
+# Find all the Events that include a "Must have Code". The query also
+# includes the "Must also have Code" column (have_code2).
+outer_query="select distinct e.NAME, e.TITLE_SEP, e.ARTIST_SEP, e.SCHED_GROUP, e.HAVE_CODE, e.HAVE_CODE2 from SERVICE_CLOCKS sc"
+outer_query="${outer_query} join CLOCK_LINES cl on sc.CLOCK_NAME = cl.CLOCK_NAME"
+outer_query="${outer_query} join EVENTS e on cl.EVENT_NAME = e.NAME"
+outer_query="${outer_query} where sc.SERVICE_NAME = '${SERVICE}'"
+outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
+outer_query="${outer_query} order by e.NAME"
+((VERBOSE>1)) && echo "Query: ${outer_query}" >&2
+doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group have_code have_code2 ; do
+  ((VERBOSE)) &&
+    printf "Event: %34s: G:%12s T:%5d, A:%5d: %s%s\n" \
+	   "${event_name}" \
+	   "${sched_group}" \
+	   ${title_sep} ${artist_sep} \
+	   "${have_code:+Must have '${have_code}'}" \
+	   "${have_code2:+ and also have '${have_code2}'}" >&2
+
+    tracks_per_week=$(tracks_per_week "${event_name}" "${have_code}" "${have_code2}")
+
+    inner_query="select count(distinct c.NUMBER),count(distinct c.ARTIST) from CART c"
+    inner_query="${inner_query} join CART_SCHED_CODES sc on c.NUMBER = sc.CART_NUMBER where c.GROUP_NAME = '${sched_group}'"
+    inner_query="${inner_query} and SCHED_CODE = '${have_code}'"
+    if [[ -n "${have_code2}" ]] ; then
+      inner_query="${inner_query} "$(printf "and sc.CART_NUMBER in (select CART_NUMBER from CART_SCHED_CODES where SCHED_CODE = '%s')" "${have_code2}")
+    fi
+    ((VERBOSE>1)) && echo "${inner_query}" >&2
+    read tracks artists <<<$(doSQL "${inner_query}")
+    ((VERBOSE>1)) && echo "Track count: ${tracks}" >&2
+    ((VERBOSE>1)) && echo "Artist count: ${artists}" >&2
+
+    recommended_title_separation=$(recommended_separation title "${tracks}")
+    recommended_artist_separation=$(recommended_separation artist "${artists}")
+
+    printf "Event: %-36s Code: %-12s%-25s Tracks: %-5d Per Week: %-5d Artists:%5d Separation: Title %5d Artist %4d\n" \
+	   "${event_name}" \
+	   "${have_code}" \
+	   "${have_code2:+ and Code: ${have_code2}}" \
+	   ${tracks} \
+	   ${tracks_per_week} \
+	   ${artists} \
+	   ${title_sep} \
+	   ${artist_sep}
+    space_count=$((36+27+11+5+5+5 + 7+7+9+10+9))
+    printf "%${space_count}sRecommended: title %5d artist %4d\n" \
+	   " " ${recommended_title_separation} ${recommended_artist_separation}
+
+done
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
