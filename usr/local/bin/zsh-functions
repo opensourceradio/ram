@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=2
-vLibPatch=0
+vLibPatch=1
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -953,16 +953,21 @@ rdGetDropboxIDFromPath() {
 
 # Determine whether the database structure matches our expectation.
 # Parameters:
-# - comma-separated list of table:column+column... tuples
+# - comma-separated list of table:column[+column...] tuples
 # - (optional) verbose boolean
-# Returns: true (0) if the database structure is OK, else false
-# (non-zero)
+# Returns: true (0) if the database structure is OK, false (1) if the
+# table does not exist, or false (2) if a column is not found in the
+# table.
 okDatabaseStructure() {
   local tablesAndColumns=${1} ; shift
   local verbose=${1}
 
   local -a columns
   local schema
+
+  # We need to make sure the Internal Field Separator (IFS) is a
+  # <Space> for the command substitution below.
+  oIFS="${IFS}" ; IFS=' '
 
   # Split the comma-separated list of
   # table:colum+column+column... into this ZSH associative array.
@@ -974,14 +979,21 @@ okDatabaseStructure() {
     columns=( $(echo ${tables[${table}]//\+/ }) )
 
     if ! schema=$(doSQL "SHOW CREATE TABLE \`${table}\`\\G" 2>/dev/null) ; then
+      IFS="${oIFS}"
+      echo "okDatabaseStructure: ERROR: unable to get a schema for table '${table}'" >&2
       return 1
     fi
 
     for column in $(echo ${tables[${table}]//+/ }) ; do
-      [[  "${schema}" =~ [[:space:]]+\`${(U)column}\`[[:space:]]+ ]] || return
+      if ! [[ "${schema}" =~ [[:space:]]+\`${(U)column}\`[[:space:]]+ ]] ; then
+	IFS="${oIFS}"
+	echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
+	return 2
+      fi
     done
   done
 
+  IFS="${oIFS}"
   return
 }
 

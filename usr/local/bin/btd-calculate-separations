@@ -10,7 +10,7 @@ zmodload zsh/mathfunc
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -34,10 +34,14 @@ ${myName}: Calculate and display "optimal" Artist and Title Separations.
 
 Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
                        [ --service (-s) <Rivendell-Service-Name> ]
+                       [ --set ]
 
 You may use the word "list" for the --service (-s) option.
 This will cause ${myName##*/} to list the available Services and
 prompt you for which one to use.
+
+Use the "--set" option to set the separations to the suggested values
+in the Rivendell database.
 
 EOF
 }
@@ -54,10 +58,17 @@ tracks_per_week() {
   query="${query} where e.NAME = '${event_name}'"
   query="${query} order by sc.HOUR"
 
-  ((VERBOSE>1)) && echo "${query}" >&2
+  if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name ; then
+    ((VERBOSE>1)) && echo "${query}" >&2
+    return 1
+  fi
+
   doSQL "${query}"
 }
 
+# Calculate a "recommended" value for the separation. The
+# recommendation comes from some trial and error, and testing various
+# ratios of tracks and artists.
 recommended_separation() {
   local type="${1}"
   local -i number_of_items="${2}"
@@ -82,9 +93,32 @@ recommended_separation() {
   echo ${recommended}
 }
 
-typeset -i VERBOSE=0
+# Set the Artist and Title separations in the database to the
+# "recommended" values.
+set_separations() {
+  local -r event_name="${1}"
+  local -i title_separation="${2}"
+  local -i artist_separation="${3}"
 
-if ! TEMP=$(getopt -o Vvhs: --long version,verbose,help,service: -n "${0##*/}" -- "${@}") ; then
+  local query="update EVENTS"
+  query="${query} set TITLE_SEP=${title_separation},"
+  query="${query} ARTIST_SEP=${artist_separation}"
+  query="${query} where NAME='${event_name}'"
+
+  ((VERBOSE)) && echo "set_separations: Query: ${query}" >&2
+
+  if ! okDatabaseStructure EVENTS:name+title_sep+artist_sep ; then
+    echo "set_separations: ERROR: Unknown database schema. Please report this to the authorities." >&2
+    return 1
+  fi
+
+  doSQL "${query}"
+}
+
+typeset -i VERBOSE=0
+typeset -i SET_SEPARATIONS=0
+
+if ! TEMP=$(getopt -o Vvhs: --long version,verbose,help,set,service: -n "${0##*/}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -95,6 +129,7 @@ while : ; do
   case "${1}" in
     -h|--help*) usage ${0##*/} ; exit ;;
     -s|--serv*) SERVICE=${2} ; shift 2 ;;
+    --set) SET_SEPARATIONS=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -125,6 +160,9 @@ fi
 # Set the shell internal field separator to just <Tab>
 IFS='	'
 
+# Find the longest Event Name for better looking output.
+max_event_name_len=$(doSQL "select max(length(NAME)) from EVENTS")
+
 # Find all the Events that include a "Must have Code". The query also
 # includes the "Must also have Code" column (have_code2).
 outer_query="select distinct e.NAME, e.TITLE_SEP, e.ARTIST_SEP, e.SCHED_GROUP, e.HAVE_CODE, e.HAVE_CODE2 from SERVICE_CLOCKS sc"
@@ -133,10 +171,14 @@ outer_query="${outer_query} join EVENTS e on cl.EVENT_NAME = e.NAME"
 outer_query="${outer_query} where sc.SERVICE_NAME = '${SERVICE}'"
 outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
 outer_query="${outer_query} order by e.NAME"
+if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name+title_sep+artist_sep+sched_group+have_code+have_code2 ; then
+  echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+  exit 1
+fi
 ((VERBOSE>1)) && echo "Query: ${outer_query}" >&2
 doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group have_code have_code2 ; do
   ((VERBOSE)) &&
-    printf "Event: %34s: G:%12s T:%5d, A:%5d: %s%s\n" \
+    printf "Event: %${max_event_name_len}s: G:%12s T:%5d, A:%5d: %s%s\n" \
 	   "${event_name}" \
 	   "${sched_group}" \
 	   ${title_sep} ${artist_sep} \
@@ -145,11 +187,17 @@ doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group 
 
     tracks_per_week=$(tracks_per_week "${event_name}" "${have_code}" "${have_code2}")
 
+    # Now that we have a list of required Scheduler Codes for the
+    # Event, find the total number of Carts and the total number of Carts with Artists with that (those) code(s).
     inner_query="select count(distinct c.NUMBER),count(distinct c.ARTIST) from CART c"
     inner_query="${inner_query} join CART_SCHED_CODES sc on c.NUMBER = sc.CART_NUMBER where c.GROUP_NAME = '${sched_group}'"
-    inner_query="${inner_query} and SCHED_CODE = '${have_code}'"
+    inner_query="${inner_query} and sc.SCHED_CODE = '${have_code}'"
     if [[ -n "${have_code2}" ]] ; then
       inner_query="${inner_query} "$(printf "and sc.CART_NUMBER in (select CART_NUMBER from CART_SCHED_CODES where SCHED_CODE = '%s')" "${have_code2}")
+    fi
+    if ! okDatabaseStructure CART:number+artist,CART_SCHED_CODES:cart_number+sched_code ; then
+      echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+      exit 2
     fi
     ((VERBOSE>1)) && echo "${inner_query}" >&2
     read tracks artists <<<$(doSQL "${inner_query}")
@@ -159,7 +207,7 @@ doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group 
     recommended_title_separation=$(recommended_separation title "${tracks}")
     recommended_artist_separation=$(recommended_separation artist "${artists}")
 
-    printf "Event: %-36s Code: %-12s%-25s Tracks: %-5d Per Week: %-5d Artists:%5d Separation: Title %5d Artist %4d\n" \
+    printf "Event: %-${max_event_name_len}s Code: %-12s%-25s Tracks: %-5d Per Week: %-5d Artists:%5d Separation: Title %5d Artist %4d\n" \
 	   "${event_name}" \
 	   "${have_code}" \
 	   "${have_code2:+ and Code: ${have_code2}}" \
@@ -168,10 +216,13 @@ doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group 
 	   ${artists} \
 	   ${title_sep} \
 	   ${artist_sep}
-    space_count=$((36+27+11+5+5+5 + 7+7+9+10+9))
+    space_count=$((max_event_name_len+27+11+5+5+5 + 7+7+9+10+9))
     printf "%${space_count}sRecommended: title %5d artist %4d\n" \
 	   " " ${recommended_title_separation} ${recommended_artist_separation}
 
+    if ((SET_SEPARATIONS)) ; then
+      set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation}
+    fi
 done
 
 exit
