@@ -10,7 +10,7 @@ zmodload zsh/mathfunc
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -34,14 +34,18 @@ ${myName}: Calculate and display "optimal" Artist and Title Separations.
 
 Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
                        [ --service (-s) <Rivendell-Service-Name> ]
-                       [ --set ]
+                       [ --set [ --interactive (-i) ]]
 
 You may use the word "list" for the --service (-s) option.
 This will cause ${myName##*/} to list the available Services and
 prompt you for which one to use.
 
-Use the "--set" option to set the separations to the suggested values
-in the Rivendell database.
+Use the "--set" option to set the Artist and Title separations to the
+suggested values in the Rivendell database.
+
+Use "--interactive" (or "-i") along with the "--set" option to have
+${myName} prompt you for the new values of Artist and Title
+separation.
 
 EOF
 }
@@ -99,10 +103,35 @@ set_separations() {
   local -r event_name="${1}"
   local -i title_separation="${2}"
   local -i artist_separation="${3}"
+  local -i RUN_INTERACTIVE="${4}"
 
+  local response
+  local -A separations
   local query="update EVENTS"
-  query="${query} set TITLE_SEP=${title_separation},"
-  query="${query} ARTIST_SEP=${artist_separation}"
+
+  if (( RUN_INTERACTIVE )) ; then
+    for type in title artist ; do
+      until [[ "${response}" =~ [[:digit:]]+ ]] ; do
+	printf "Enter a value for %s Separation (press <Enter> to use %5s): " ${(C)type} $(eval echo \${${type}_separation}) > /dev/tty
+	read response < /dev/tty
+	if [[ -z "${response}" ]] ; then
+	  response=$(eval echo \${${type}_separation})
+	fi
+	if ! [[ "${response}" =~ [[:digit:]]+ ]] || ((response < 0 || response > 50000)) ; then
+	  printf "%s separation needs to be a numeric value greater than 0 and less than 50000. You entered '%s'\n" ${(C)type} "${response}" > /dev/tty
+	  response=''
+	fi
+      done
+      separations[${type}]=${response}
+      response=
+    done
+  else
+    separations[title]=${title_separation}
+    separations[artist]=${artist_separation}
+  fi
+
+  query="${query} set TITLE_SEP=${separations[title]},"
+  query="${query} ARTIST_SEP=${separations[artist]}"
   query="${query} where NAME='${event_name}'"
 
   ((VERBOSE)) && echo "set_separations: Query: ${query}" >&2
@@ -112,13 +141,30 @@ set_separations() {
     return 1
   fi
 
+  if ((RUN_INTERACTIVE)) ; then
+    trap 'echo ; trap - ; return ;' 2
+    printf "About to update the database. Press <Enter> to continue, or Ctrl-C to cancel: " > /dev/tty
+    read value_not_used < /dev/tty
+  fi
+
   doSQL "${query}"
+
+  trap -
 }
+
+##########################################################################################
+##########################################################################################
+##
+## Script Main Line
+##
+##########################################################################################
+##########################################################################################
 
 typeset -i VERBOSE=0
 typeset -i SET_SEPARATIONS=0
+typeset -i RUN_INTERACTIVE=0
 
-if ! TEMP=$(getopt -o Vvhs: --long version,verbose,help,set,service: -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o Vvhis: --long version,verbose,help,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -130,6 +176,7 @@ while : ; do
     -h|--help*) usage ${0##*/} ; exit ;;
     -s|--serv*) SERVICE=${2} ; shift 2 ;;
     --set) SET_SEPARATIONS=1 ; shift ;;
+    -i|--inter*) RUN_INTERACTIVE=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -176,7 +223,8 @@ if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS
   exit 1
 fi
 ((VERBOSE>1)) && echo "Query: ${outer_query}" >&2
-doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group have_code have_code2 ; do
+coproc doSQL "${outer_query}" >&p
+while read -p event_name title_sep artist_sep sched_group have_code have_code2 ; do
   ((VERBOSE)) &&
     printf "Event: %${max_event_name_len}s: G:%12s T:%5d, A:%5d: %s%s\n" \
 	   "${event_name}" \
@@ -221,8 +269,9 @@ doSQL "${outer_query}" | while read event_name title_sep artist_sep sched_group 
 	   " " ${recommended_title_separation} ${recommended_artist_separation}
 
     if ((SET_SEPARATIONS)) ; then
-      set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation}
+      set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation} "${RUN_INTERACTIVE}"
     fi
+
 done
 
 exit
