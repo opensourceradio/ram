@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=2
-vLibPatch=1
+vLibPatch=2
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -585,12 +585,34 @@ rdDropCut() {
   return ${returnValue}
 }
 
-# Use the Rivendell Web API to list all the CUTS for the specified
-# CART.
-rdListGroups() {
-  local verbose=${1:-0}
+# Use the Rivendell Web API to list all the SERVICES,
+# Optionally, list only services that have a valid
+# VoiceTracking configuration.
+rdListServices() {
+  local -r trackable=${1} ; shift
+  local -r verbose=${1:-0}
 
-  local command=4
+  local -r command=21
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # List Services: Command 21: ListServices
+  # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
+  curlArguments=( "TRACKABLE=${trackable}" )
+
+  result=$(rdWebInvoke ${verbose} ${command} ${curlArguments})
+  returnValue=${?}
+
+  echo "${result}"
+  return ${returnValue}
+}
+
+# Use the Rivendell Web API to list all the GROUPS.
+rdListGroups() {
+  local -r verbose=${1:-0}
+
+  local -r command=4
   local -a curlArguments
   local result
   local returnValue

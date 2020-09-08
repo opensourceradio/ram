@@ -1,16 +1,23 @@
 #!/bin/zsh
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2016,SC2086,SC2162
+# SC2016: The single quotes are inside a double-quoted string
+# SC2086: I know about the double-quoting issues
+# SC2162: I do not care about read and its backslashes
 
-# Calculate number of Artists and Tracks per Scheduler Code. Use this
-# to recommend values for Title and Artist Separation in Events that use
-# Scheduler Codes.
+# btd-calculate-separations
+# Calculate Artist and Title (Track) Separations per Event and
+# Scheduler Code. Use this to recommend (and optionally update) values
+# for Title and Artist Separation in Events that use Scheduler Codes.
 
 zmodload zsh/mathfunc
 
+# Match regular expressions case insensitively.
+setopt NO_CASE_MATCH
+
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=1
-vPatch=7
+vMinor=2
+vPatch=1
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -27,18 +34,51 @@ fi
 
 # How to use this command.
 usage() {
-  myName=${1}
+  myName="${1:t}"
 
-  ${CAT} << EOF
-${myName}: Calculate and display "optimal" Artist and Title Separations.
+  fmt << EOF
 
-Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
-                       [ --service (-s) <Rivendell-Service-Name> ]
-                       [ --set [ --interactive (-i) ]]
+${myName}: Calculate and display Artist and Title Separations for Rivendell Events,
+and optionally update the values in the Rivendell database.
 
-You may use the word "list" for the --service (-s) option.
-This will cause ${myName##*/} to list the available Services and
-prompt you for which one to use.
+SUMMARY
+EOF
+
+  cat << EOF
+
+${myName} [ --verbose (-v) ] [ --version (-V) ]
+                          [ --help (-h) ]
+                          [ --service (-s) <Rivendell-Service-Name> ]
+                          [ --group (-g) <Rivendell-Group-Name> ]
+                          [ --set [ --interactive (-i) ]]
+EOF
+  fmt << EOF
+
+DESCRIPTION
+
+${myName} displays and optionally sets the values for Artist
+Separation and Title Separation in Rivendell Events. ${myName}
+calculates these values based on the number of unique Artist names and
+the number of Carts in Event Groups in the Rivendell database. It also
+takes into account the number of times each Event is scheduled during
+the course of a week (168 hours).
+
+The actual algorithm ${myName} uses is in the function
+recommended_separation().
+
+With no options, ${myName} simply performs the calculations for all
+active Events and writes the current settings and the recommended
+settings to STDOUT.
+
+You may use the word "list" for the --service (-s) option. This will
+cause ${myName} to list the available Services and prompt you for
+which one to use. If there is only a single Service, ${myName} will
+use that Service even if you specify "list".
+
+Restrict the search for Events to the named Group with the --group
+(-g) <Rivendell-Group-Name> option. Like the --service option, you
+may use the word 'list' as the Group name and ${myName} will prompt
+you for a Group to choose.
 
 Use the "--set" option to set the Artist and Title separations to the
 suggested values in the Rivendell database.
@@ -77,24 +117,27 @@ recommended_separation() {
   local type="${1}"
   local -i number_of_items="${2}"
 
-  local -i slush_factor=0
+  local -i ratio=0
   local -i recommended=0
 
-  # The calculation of slush_factor is mostly arbitrary. I chose it
-  # based on trial and error using different math functions in the ZSH
-  # "mathfunc" module. See "mathfunc" in `man zshmodules(1)` for more
-  # details and options.
-  # It is also a ZSH-specific thing, tell shellcheck(1) to ignore it.
+  # The calculation of ratio is mostly arbitrary. I chose it based on
+  # trial and error using different math functions in Perl, AWK and in
+  # the ZSH "mathfunc" module. See "mathfunc" in `man zshmodules(1)`
+  # for more details and other choices. The current code calculates
+  # ratio as a fraction of the total number of items. Using Perl's
+  # log() function and this locally defined log2() subroutine, the
+  # more items given, the smaller the fraction. So for 5000 items,
+  # ratio is 416 (8.3%); for 10 items, ratio is 3 (30%). It is also a
+  # ZSH-specific thing, tell shellcheck(1) to ignore it.
   if ((number_of_items > 1)) ; then
-    # shellcheck disable=SC1073,SC1009,SC1072
-    slush_factor=$((number_of_items * (1/logb(number_of_items))))
+    ratio=$(echo ${number_of_items} | perl -ne 'sub log2 {my $n=shift; return log($n)/log(2);} printf qq{%d}, int($_ * (1/log2($_)));')
   fi
 
-  ((VERBOSE)) && echo "recommended_separation: ${type}: slush_factor: ${slush_factor}" >&2
+  ((VERBOSE)) && echo "recommended_separation: ${type}: ratio: ${ratio}" >&2
 
-  (( recommended = number_of_items - slush_factor ))
+  (( recommended = number_of_items - ratio ))
 
-  echo ${recommended}
+  echo "${recommended}"
 }
 
 # Set the Artist and Title separations in the database to the
@@ -111,14 +154,19 @@ set_separations() {
 
   if (( RUN_INTERACTIVE )) ; then
     for type in title artist ; do
+      # The shellcheck does not seem to know about ZSH-style nested
+      # parameter expansion, or quotes outside command substitution.
+      # shellcheck disable=SC1083,SC2248
       until [[ "${response}" =~ [[:digit:]]+ ]] ; do
-	printf "Enter a value for %s Separation (press <Enter> to use %5s): " ${(C)type} $(eval echo \${${type}_separation}) > /dev/tty
+	printf "Enter a value for %6s Separation (press <Enter> to use %s): " ${(C)type} "$(eval echo \${${type}_separation})" > /dev/tty
 	read response < /dev/tty
 	if [[ -z "${response}" ]] ; then
 	  response=$(eval echo \${${type}_separation})
 	fi
-	if ! [[ "${response}" =~ [[:digit:]]+ ]] || ((response < 0 || response > 50000)) ; then
-	  printf "%s separation needs to be a numeric value greater than 0 and less than 50000. You entered '%s'\n" ${(C)type} "${response}" > /dev/tty
+	# As of Rivendell version 3.4.1, these values come from the
+	# Rivendell source code file rivendell/lib/rdevent_line.cpp.
+	if ! [[ "${response}" =~ [[:digit:]]+ ]] || ((response < -1 || response > 50000)) ; then
+	  printf "%s separation needs to be a numeric value greater than -1 and less than 50000. You entered '%s'\n" ${(C)type} "${response}" > /dev/tty
 	  response=''
 	fi
       done
@@ -142,14 +190,18 @@ set_separations() {
   fi
 
   if ((RUN_INTERACTIVE)) ; then
-    trap 'echo ; trap - ; return ;' 2
+    trap 'echo ; echo ; echo ; trap - ; return ;' 2
     printf "About to update the database. Press <Enter> to continue, or Ctrl-C to cancel: " > /dev/tty
+    # shellcheck disable=SC2034
     read value_not_used < /dev/tty
   fi
 
   doSQL "${query}"
 
-  trap -
+  if ((RUN_INTERACTIVE)) ; then
+    printf "\tUpdated Event %s\n\n\n" "${event_name}"
+    trap -
+  fi
 }
 
 ##########################################################################################
@@ -163,8 +215,9 @@ set_separations() {
 typeset -i VERBOSE=0
 typeset -i SET_SEPARATIONS=0
 typeset -i RUN_INTERACTIVE=0
+RDGROUP=''
 
-if ! TEMP=$(getopt -o Vvhis: --long version,verbose,help,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o Vvhg:is: --long version,verbose,help,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -173,10 +226,11 @@ while : ; do
   # VERBOSE is used, but in a non-Bash way.
   # shellcheck disable=SC2034
   case "${1}" in
-    -h|--help*) usage ${0##*/} ; exit ;;
+    -g|--group) RDGROUP="${2}" ; shift 2 ;;
+    -i|--inter*) RUN_INTERACTIVE=1 ; shift ;;
     -s|--serv*) SERVICE=${2} ; shift 2 ;;
     --set) SET_SEPARATIONS=1 ; shift ;;
-    -i|--inter*) RUN_INTERACTIVE=1 ; shift ;;
+    -h|--help*) usage ${0##*/} ; exit ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
@@ -191,40 +245,89 @@ fi
 
 # Snag the SERVICES list. SERVICE names may not contain whitespace.
 typeset -a rivendellServiceList
-rivendellServiceList=( $(doSQL "SELECT name FROM SERVICES") )
+# It seems shellcheck does not know about array assignment?
+# shellcheck disable=SC2207
+rivendellServiceList=( $(doSQL "select NAME from SERVICES order by NAME") )
 
-# List the SERVICES if there are more than one, otherwise use the lone SERVICE.
-if [[ -z "${SERVICE}" ]] || [[ "${SERVICE}" =~ 'list' ]] ; then
+# List the SERVICES if there are more than one, otherwise use the lone
+# SERVICE.
+if [[ -z "${SERVICE}" ]] || [[ "${SERVICE}" =~ list ]] ; then
   if (( ${#rivendellServiceList} > 1 )) ; then
-    echo "Current Services:"
-    echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-    read SERVICE\?"Enter a Service on which to report: "
+    until [[ ${rivendellServiceList[*]} =~ .*${SERVICE}.* ]] ; do
+      echo "Current Services:"
+      echo ${(F)rivendellServiceList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      read SERVICE\?"Enter a Service for the Events: "
+    done
   else
     SERVICE=${rivendellServiceList[1]}
+  fi
+fi
+
+# Snag the GROUPS list. GROUP names may not contain whitespace.
+typeset -a rivendellGroupList
+# It seems shellcheck does not know about array assignment?
+# shellcheck disable=SC2207
+rivendellGroupList=( $(doSQL "select NAME from GROUPS order by NAME") )
+
+# List the GROUPS and let the user choose one.
+if [[ -z "${RDGROUP}" ]] || [[ "${RDGROUP}" =~ list ]] ; then
+  if (( ${#rivendellGroupList} > 1 )) ; then
+    until [[ ${rivendellGroupList[*]} =~ .*${RDGROUP}.* ]] ; do
+      echo "Available Groups:"
+      echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      read RDGROUP\?"Enter an Event Group: "
+    done
+  else
+    RDGROUP=${rivendellGroupList[1]}
   fi
 fi
 
 # Set the shell internal field separator to just <Tab>
 IFS='	'
 
-# Find the longest Event Name for better looking output.
-max_event_name_len=$(doSQL "select max(length(NAME)) from EVENTS")
+# Will hold the length of the longest Event Name for better looking
+# output.
+typeset -i max_event_name_len=0
+# Find the length of the longest Event name.
+query="select max(length(e.NAME)) from SERVICE_CLOCKS sc"
+query="${query} join CLOCK_LINES cl on sc.CLOCK_NAME = cl.CLOCK_NAME"
+query="${query} join EVENTS e on cl.EVENT_NAME = e.NAME"
+query="${query} where sc.SERVICE_NAME = '${SERVICE}'"
+query="${query} and e.IMPORT_SOURCE = 3"
+query="${query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
+query="${query} order by e.NAME"
+if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name+title_sep+artist_sep+sched_group+have_code+have_code2 ; then
+  echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+  exit 1
+fi
+((VERBOSE>2)) && echo "Length query: ${query}" >&2
+# The quoting is the way I want it.
+# shellcheck disable=SC2046
+read -r max_event_name_len <<<$(doSQL "${query}")
 
-# Find all the Events that include a "Must have Code". The query also
+# Find all active Events that include a "Must have Code". The query also
 # includes the "Must also have Code" column (have_code2).
 outer_query="select distinct e.NAME, e.TITLE_SEP, e.ARTIST_SEP, e.SCHED_GROUP, e.HAVE_CODE, e.HAVE_CODE2 from SERVICE_CLOCKS sc"
 outer_query="${outer_query} join CLOCK_LINES cl on sc.CLOCK_NAME = cl.CLOCK_NAME"
 outer_query="${outer_query} join EVENTS e on cl.EVENT_NAME = e.NAME"
 outer_query="${outer_query} where sc.SERVICE_NAME = '${SERVICE}'"
+if [[ -n "${RDGROUP}" ]] ; then
+  outer_query="${outer_query} and e.SCHED_GROUP = '${RDGROUP}'"
+fi
+outer_query="${outer_query} and e.IMPORT_SOURCE = 3"
 outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
 outer_query="${outer_query} order by e.NAME"
-if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name+title_sep+artist_sep+sched_group+have_code+have_code2 ; then
-  echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
-  exit 1
-fi
-((VERBOSE>1)) && echo "Query: ${outer_query}" >&2
+((VERBOSE>1)) && echo "Outer query: ${outer_query}" >&2
+
+# Use the ZSH "coproc" mechanism to perform the query. We do this
+# because reading the column data directly in the while() loop causes
+# SIGINT to drop out of the loop. We want to continue with the next
+# iteration of the loop if the user cancels updating the database for
+# an Event. See `man zshbuiltins` and `man zshmisc` for details about
+# ZSH coprocesses.
 coproc doSQL "${outer_query}" >&p
 while read -p event_name title_sep artist_sep sched_group have_code have_code2 ; do
+
   ((VERBOSE)) &&
     printf "Event: %${max_event_name_len}s: G:%12s T:%5d, A:%5d: %s%s\n" \
 	   "${event_name}" \
@@ -236,7 +339,8 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
     tracks_per_week=$(tracks_per_week "${event_name}" "${have_code}" "${have_code2}")
 
     # Now that we have a list of required Scheduler Codes for the
-    # Event, find the total number of Carts and the total number of Carts with Artists with that (those) code(s).
+    # Event, find the total number of Carts and the total number of
+    # Carts with Artists with that (those) code(s).
     inner_query="select count(distinct c.NUMBER),count(distinct c.ARTIST) from CART c"
     inner_query="${inner_query} join CART_SCHED_CODES sc on c.NUMBER = sc.CART_NUMBER where c.GROUP_NAME = '${sched_group}'"
     inner_query="${inner_query} and sc.SCHED_CODE = '${have_code}'"
@@ -247,7 +351,10 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
       echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
       exit 2
     fi
-    ((VERBOSE>1)) && echo "${inner_query}" >&2
+    ((VERBOSE>1)) && echo "Inner query: ${inner_query}" >&2
+    # Disable this shellcheck because the quoting is done on the
+    # string, not the command expansion.
+    # shellcheck disable=SC2046
     read tracks artists <<<$(doSQL "${inner_query}")
     ((VERBOSE>1)) && echo "Track count: ${tracks}" >&2
     ((VERBOSE>1)) && echo "Artist count: ${artists}" >&2
