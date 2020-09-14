@@ -43,7 +43,6 @@ Description
 $(${FMT} <<<"${myName} formats and dumps the contents of the named Clock. Use the word 'list' to see a list of Clock names.")
 
 $(${FMT} <<<"The --all option causes ${myName} to display all Rivendell Clocks to STDOUT.")
-$(${FMT} <<<"Use the --html output to cause ${myName} to display the output suitable for viewing with your favorite web browser.")
 
 $(${FMT} <<<"The --verbose option enables more chattiness in the operation. ${myName} sends diagnostic output to the standard error (STDERR) channel.")
 
@@ -146,7 +145,7 @@ BOLD="${bold_color}"
 NORM="${reset_color}"
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o ahvV --long all,html,verbose,version -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o ahvV --long all,help,verbose,version -n ${0:t} -- "${@}")
 if [ "${?}" != 0 ] ; then echo "${BOLD}Terminating...${NORM}" >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
