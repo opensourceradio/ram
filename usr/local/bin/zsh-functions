@@ -256,7 +256,7 @@ doSQL() {
       # Need to check for each of these parameters in .my.cnf in
       # order to be able to use it.
       for parm in database host password user ; do
-	if [[ "${myCnfLines}" =~ ${parm} ]] ; then
+	if [[ "${myCnfLines}" = ${parm} ]] ; then
 	  (( useMyCNF++ ))
 	fi
       done
@@ -440,10 +440,10 @@ rdWebInvoke() {
   response=( $(${CURL} --include ${curlVerbosity} -d LOGIN_NAME='user' -d PASSWORD='' -d COMMAND=${command} ${curlArguments:+"-d"} ${(zj: -d :)curlArguments} http://${httpServer}/rd-bin/rdxport.cgi) )
   returnValue=${?}
   while read responseLine ; do
-    if [[ ${responseLine} =~ '^HTTP/[[:digit:]]+\.[[:digit:]]+ 200 OK' ]] ; then
+    if echo "${responseLine}" | grep --quiet -P -i '^http/[[:digit:]]+\.[[:digit:]]+ 200 ok' ; then
       result=OK
       break
-    elif [[ ${responseLine} =~ 'ErrorString' ]] ; then
+    elif [[ ${responseLine} = 'ErrorString' ]] ; then
       # Strip the XML tag and extract just the "error string".
       result=${${responseLine%</ErrorString>*}#*<ErrorString>}
       break
@@ -1007,7 +1007,7 @@ okDatabaseStructure() {
     fi
 
     for column in $(echo ${tables[${table}]//+/ }) ; do
-      if ! [[ "${schema}" =~ [[:space:]]+\`${(U)column}\`[[:space:]]+ ]] ; then
+      if ! echo "${schema}" | grep --quiet -i -P "[[:space:]]+\`${(U)column}\`[[:space:]]+" ; then
 	IFS="${oIFS}"
 	echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
 	return 2
