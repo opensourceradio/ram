@@ -218,7 +218,7 @@ doSQL() {
   # Look for them in their upper case, parameter expanded form.
   ourCommands=(
     awk
-    egrep
+    grep
     mysql
     sed
   )
@@ -249,14 +249,14 @@ doSQL() {
     # environment, else use defaults here.
     # BUG ALERT: this assumes the credentials in .my.cnf are relevant
     # to the Rivendell database.
-    if [[ -r ~/.my.cnf ]] && [[ $(${EGREP} -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+    if [[ -r ~/.my.cnf ]] && [[ $(${GREP} -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
       cd -q			# Sigh, mapfile cannot deal with path components.
       myCnfLines=( ${mapfile[.my.cnf]} )
 
       # Need to check for each of these parameters in .my.cnf in
       # order to be able to use it.
       for parm in database host password user ; do
-	if [[ "${myCnfLines}" = ${parm} ]] ; then
+	if echo ${myCnfLines} | ${GREP} --quiet --ignore-case "${parm}" ; then
 	  (( useMyCNF++ ))
 	fi
       done
@@ -440,7 +440,7 @@ rdWebInvoke() {
   response=( $(${CURL} --include ${curlVerbosity} -d LOGIN_NAME='user' -d PASSWORD='' -d COMMAND=${command} ${curlArguments:+"-d"} ${(zj: -d :)curlArguments} http://${httpServer}/rd-bin/rdxport.cgi) )
   returnValue=${?}
   while read responseLine ; do
-    if echo "${responseLine}" | grep --quiet -P -i '^http/[[:digit:]]+\.[[:digit:]]+ 200 ok' ; then
+    if echo "${responseLine}" | grep --quiet --perl-regexp --ignore-case '^http/\d+\.\d+ 200 ok' ; then
       result=OK
       break
     elif [[ ${responseLine} = 'ErrorString' ]] ; then
@@ -1007,7 +1007,7 @@ okDatabaseStructure() {
     fi
 
     for column in $(echo ${tables[${table}]//+/ }) ; do
-      if ! echo "${schema}" | grep --quiet -i -P "[[:space:]]+\`${(U)column}\`[[:space:]]+" ; then
+      if ! echo "${schema}" | grep --quiet --perl-regexp --ignore-case "\s+\`${(U)column}\`\s+" ; then
 	IFS="${oIFS}"
 	echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
 	return 2
