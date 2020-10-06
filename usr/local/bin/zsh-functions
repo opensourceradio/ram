@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=2
-vLibPatch=2
+vLibPatch=4
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
