@@ -7,7 +7,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 ##############################################################################
@@ -98,9 +98,6 @@ NWS_XML_URL_BASE="https://w1.weather.gov/xml/current_obs"
 ## Default temperature unit is Farenheit. Specify Celcius in the
 ## calling environment variable TEMPERATURE_UNIT (case is ignored).
 TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
-
-## The default normalization level in dBFS.
-#DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-13"}
 
 ##############################################################################
 ##############################################################################
@@ -328,13 +325,20 @@ fi
 
 ## Ask Rivendell what its system-wide sample rate is. Set it to 44100
 ## if we are unable to discern the Rivendell setting.
+if ! okDatabaseStructure SYSTEM:sample_rate ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing column 'Rivendell.SYSTEM.SAMPLE_RATE'."
+  exit
+fi
 sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
 typeset -r sample_rate=${sample_rate:-44100}
 
 ## Ask Rivendell for the number of the Time and Temperature Cart.  How
 ## will this fail when there are either a) zero, or b) multiple time
 ## and temperature Carts in the Library?
-typeset -r -Z 6 time_and_temperature_cart=$(doSQL "select number from CART where TITLE like '%time%temperature%'")
+if ! okDatabaseStructure CART:title ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing column 'Rivendell.CART.TITLE'."
+  exit
+fi
 
 ## The complete NWS URL is constructed by simply tacking it onto the
 ## end of the base and adding the extension.
@@ -384,32 +388,18 @@ if ! [[ -s "${current_time_and_temperature}" ]] ; then
   exit 4
 fi
 
-## Simply replace the WAV file if they have a Time and Temperature
-## Cart.
-if [[ -n "${time_and_temperature_cart}" ]] ; then
-  if ! [[ -w /var/snd/${time_and_temperature_cart}_001.wav ]] ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: created an empty audio file that was supposed to have the time and temperature."
-    exit 5
-  fi
-  zstat -H existing_file_metadata "/var/snd/${time_and_temperature_cart}_001.wav"
-  ${SUDO} "${MV}" "${current_time_and_temperature}" "/var/snd/${time_and_temperature_cart}_001.wav"
-  ${SUDO} "${CHOWN}" "${existing_file_metadata[uid]}:${existing_file_metadata[gid]}" "/var/snd/${time_and_temperature_cart}_001.wav"
-  ${SUDO} "${CHMOD}" 664 "/var/snd/${time_and_temperature_cart}_001.wav"
-else
-  # Otherwise, move the generated file into the Rivendell dropbox
-  # folder.
-  if [[ -z "${RD_DROPBOX_DIR}" ]] ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: Unable to find a Rivendell dropbox for Time and Temperature."
-    exit 6
-  fi    
-  if ! [[ -d "${RD_DROPBOX_DIR}" ]] ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Missing Rivendell dropbox folder ${RD_DROPBOX_DIR}."
-    exit 7
-  fi
-  if ! ${MV} "${current_time_and_temperature}" "${RD_DROPBOX_DIR}" ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Unable to move audio file to '${RD_DROPBOX_DIR}' (${?})."
-    exit 8
-  fi
+## Move the generated file into the Rivendell dropbox folder.
+if [[ -z "${RD_DROPBOX_DIR}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: Unable to find a Rivendell dropbox for Time and Temperature."
+  exit 6
+fi
+if ! [[ -d "${RD_DROPBOX_DIR}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Missing Rivendell dropbox folder ${RD_DROPBOX_DIR}."
+  exit 7
+fi
+if ! ${MV} "${current_time_and_temperature}" "${RD_DROPBOX_DIR}" ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Unable to move audio file to '${RD_DROPBOX_DIR}' (${?})."
+  exit 8
 fi
 
 exit
