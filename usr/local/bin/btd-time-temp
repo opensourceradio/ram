@@ -1,0 +1,439 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2154,SC2162
+# SC2016: The single quotes are inside a double-quoted string
+# SC2154: I know about all the referenced but not assigned variables
+# SC2162: I do not care about read and its backslashes
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=1
+vPatch=0
+vHash='$Hash$'
+
+##############################################################################
+##############################################################################
+##
+## rd-time-temp.sh
+##
+## Provide current time and temperature audio snippets to Rivendell.
+##
+## This script uses the current system time (please make sure the
+## system time is synchronized to a working network time protocol
+## (NTP) service) and the United States National Weather Service (NWS)
+## (based on a pre-configured location) to import audio files into a
+## specific audio Cart in the Rivendell Library.
+##
+## Audio files containing time readings can contain any meaningful
+## sounds, and must be named using four digits like this: HHMM. You
+## should at least provide audio files for every minute of every hour
+## between midnight (0000) and noon (1200). More "sophisiticated" time
+## announcement files may include the "am" and "pm" suffixes (or
+## simply "a" or "p") in order to differentiate the time of day.
+##
+## Similarly, audio files containing temperature readings are named
+## for the numeric temperature. (There is no distinction between
+## Farenheit and Celcius.) Temperature readings are retrieved using
+## the NWS four character location codes (see
+## https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for the
+## state-by-state lists of locations). This script uses the XML file,
+## not the RSS file. The URL is formed using the four-character code
+## inserted into this string (substituting for "XXXX"):
+## https://w1.weather.gov/xml/current_obs/XXXX.xml
+##
+## Specify the NWS location code using the "-l" (or "--location")
+## command line argument or in the environment variable
+## NWS_LOCATION_CODE. The command line argument takes precedence over
+## the environment variable if both are set.
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+##############################################################################
+##
+## REQUIREMENTS
+##
+## Network: This script requires access to both the local LAN (for NTP
+## synchronization), and the Internet (for current temperature
+## retrieval).
+##
+## A Rivendell dropbox folder. Configure this using RDAdmin->Manage
+## Hosts->[hostname]->Dropboxes. The dropbox folder must match the
+## shell parameter RD_DROPBOX_DIR in this script (see below).
+##
+## FFMPEG. The script uses the ffmpeg command to concatenate the time
+## audio file and the temperature audio file into a single audio
+## file. It then places that single audio file in the Rivendell
+## dropbox folder.
+##
+##############################################################################
+##############################################################################
+
+##############################################################################
+##############################################################################
+##
+## CONFIGURATION
+##
+## This secton of the file contains configuration settings for this script.
+## Defaults may be overridden by setting shell environment variables by
+## the thing what calls this script.
+##
+##############################################################################
+##############################################################################
+TOP_DIR="${TOP_DIR:-/usr/local/share/time-temp}"
+TEMPERATURE_DIR="${TEMPERATURE_DIR:-${TOP_DIR}/TempAnnounce}"
+TIME_DIR="${TIME_DIR:-${TOP_DIR}/TimeAnnounce}"
+
+## The value of this parameter must match the Rivendell dropbox
+## configuration. Try to look it up in the database, and default to
+## /var/tmp/time-temp if not found.
+RD_DROPBOX_DIR=$(doSQL "select PATH from DROPBOXES where PATH like '%time%temp%'")
+## Strip off the trailing wildcard character(s).
+RD_DROPBOX_DIR=${RD_DROPBOX_DIR%/*}
+
+## United States National Weather Service current observation URL
+## base.
+NWS_XML_URL_BASE="https://w1.weather.gov/xml/current_obs"
+
+## Default temperature unit is Farenheit. Specify Celcius in the
+## calling environment variable TEMPERATURE_UNIT (case is ignored).
+TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
+
+## The default normalization level in dBFS.
+#DEFAULT_NORMALIZATION=${DEFAULT_NORMALIZATION:-"-13"}
+
+##############################################################################
+##############################################################################
+##
+## LOCALLY DEFINED SUBROUTINES
+##
+##############################################################################
+##############################################################################
+
+## Tell them how to use this command.
+usage() {
+  local my_name=${1:t}
+
+  ${CAT} << EOF >&2
+${my_name}: Get the current time and temperature and import an audio
+file containing same into the Rivendell Library.
+
+SUMMARY
+
+${my_name} --location (-l) <NWS Location Code>
+
+DESCRIPTION
+
+${my_name} captures the current time of day and the current reported
+temperature from the US National Weather Service into a single audio
+file and imports that audio file to a specified Cart in the Rivendell
+Library.
+
+The sole command line argument is mandatory. Use it to specify the NWS
+location code for which to retrieve the current temperature (see
+https://w1.weather.gov/xml/current_obs/seek.php?Find=Find).
+
+EOF
+}
+
+## Make mysql calls look a bit more asthetically pleasing. The return
+## value of this shell funtion is the exit value of the mysql command
+## invocation.
+doSQL() {
+  local statement="${1:?Need a database query to run.}"
+  local useMyCNF=0
+  local usableMyCNF=4
+  local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+
+  typeset -gx _DB_HOST _DB_USER _DB_PWD _DB_DATABASE _USE_MYCNF
+
+  zmodload zsh/mapfile
+
+  # Use the exported variables if we have been through this function
+  # already. This applies to each running instance of scripts that
+  # use this function. This helps prevent the need to look this
+  # stuff up every time this function is called.
+  if [[ -z "${_DB_HOST}" ]] ; then
+
+    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
+    # else get credentials from rd.conf if it exists, else from the
+    # environment, else use defaults here.
+    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
+    # to the Rivendell database.
+    if [[ -r ~/.my.cnf ]] && [[ $(${GREP} -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
+      cd -q || return
+
+      myCnfLines=( "${mapfile[.my.cnf]}" )
+
+      # Need to check for each of these parameters in .my.cnf in
+      # order to be able to use it.
+      for parm in database host password user ; do
+	if echo "${myCnfLines[*]}" | ${GREP} --quiet --ignore-case "${parm}" ; then
+	  (( useMyCNF++ ))
+	fi
+      done
+    else
+      # Horribly insecure, but this is the "Rivendell Way".
+      if [[ -r "${rdconfig}" ]] ; then
+	DB_HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Hostname=/{print $2}')
+	DB_USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Loginname=/{print $2}')
+	DB_PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Password=/{print $2}')
+	DB_DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Database=/{print $2}')
+      else
+	# Last ditch effort to set the MySQL access credentials.
+	# These are the "conventional" defaults that might otherwise
+	# exist in /etc/rd.conf (and friends).
+	DB_HOST=${RD_DB_HOST:-"localhost"}
+	DB_USER=${RD_DB_USER:-"rduser"}
+	DB_PASSWORD=${RD_DB_PASS:-"letmein"}
+	DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
+      fi
+    fi
+
+    _DB_HOST=${DB_HOST}
+    _DB_USER=${DB_USER}
+    _DB_PWD=${DB_PASSWORD}
+    _DB_DATABASE=${DB_DATABASE}
+    _USE_MYCNF=${useMyCNF}
+  fi
+
+  if (( _USE_MYCNF == usableMyCNF )) ; then
+    ${MYSQL} -s -N -e "${statement}"
+  else
+    ${MYSQL} -s -N -B -u "${_DB_USER}" -p"${_DB_PWD}" -h "${_DB_HOST}" "${_DB_DATABASE}" -e "${statement}"
+  fi
+}
+
+## Determine whether the database structure matches our expectation.
+## Parameters:
+## - comma-separated list of table:column[+column...] tuples
+## - (optional) verbose boolean
+## Returns: true (0) if the database structure is OK, false (1) if the
+## table does not exist, or false (2) if a column is not found in the
+## table.
+okDatabaseStructure() {
+  local tables_and_columns="${1}" ; shift
+
+  local column schema table
+  local -A tables
+
+  # Ensure that the Internal Field Separator (IFS) is a <Space> for
+  # the command substitution below.
+  local -r oIFS="${IFS}" ; IFS=' '
+
+  # Split the comma-separated list of
+  # table:colum+column+column... into the ${tables} ZSH associative
+  # array parameter.
+  # shellcheck disable=SC2190,SC2207,SC2116
+  # SC2190: ZSH arrays are handled differently than BASH arrays
+  # SC2207: we do not want to use BASH mapfile or 'read -a'
+  # SC2116: we need the echo in order to expand the parameter properly.
+  tables=( $(echo ${${tables_and_columns//,/ }//:/ }) )
+
+  # Check for the existence of each of these columns in these tables.
+  # shellcheck disable=SC2116,SC2086
+  # SC2116: we need the echo in order to expand the parameter properly.
+  # SC2086: we do not want to quote the variable because it will
+  #         change the way we want it expanded.
+  for table in $(echo ${(k)tables}) ; do
+    if ! schema=$(doSQL "show create table \`${table}\`\\G" 2>/dev/null) ; then
+      IFS="${oIFS}"
+      echo "okDatabaseStructure: ERROR: unable to get a schema for table '${table}'" >&2
+      return 1
+    fi
+
+    # shellcheck disable=SC2116
+    # SC2116: we need the echo in order to expand the parameter properly.
+    for column in $(echo "${tables[${table}]//+/ }") ; do
+      if ! echo "${schema}" | ${GREP} --quiet --ignore-case --perl-regexp "\s+\`${(U)column}\`\s+" ; then
+	IFS="${oIFS}"
+	echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
+	return 2
+      fi
+    done
+  done
+
+  IFS="${oIFS}"
+  return
+}
+
+##############################################################################
+##############################################################################
+##
+## SCRIPT MAIN LINE
+##
+##############################################################################
+##############################################################################
+
+## In which we find the ZSH implementation of strftime(3) and the
+## shell parameter EPOCHSECONDS.
+zmodload zsh/datetime
+
+## In which we find the filesystem zstat() subroutine.
+zmodload zsh/stat
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 15 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( awk cat chmod chown ffmpeg grep logger mktemp mv mysql rm sed sudo wget xmlstarlet )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands[*]} ; do
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands
+############## END external shell commands used in this script. ##############
+
+typeset -i VERBOSE=0
+NWS_LOCATION_CODE=''
+
+if ! TEMP=$(getopt -o l:hVv --long location:,help,version,verbose -n "${0##*/}" -- "${@}") ; then
+  echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -l|--location) NWS_LOCATION_CODE="${2}" ; shift 2 ;;
+    -h|--help*) usage "${0}" ; exit ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${0##*/}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+## Make sure they specified all three required parameters.
+if [[ -z "${NWS_LOCATION_CODE}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Missing NWS Location Code."
+  usage "${0}"
+  exit 3
+fi
+
+## Ask Rivendell what its system-wide sample rate is. Set it to 44100
+## if we are unable to discern the Rivendell setting.
+sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
+typeset -r sample_rate=${sample_rate:-44100}
+
+## Ask Rivendell for the number of the Time and Temperature Cart.  How
+## will this fail when there are either a) zero, or b) multiple time
+## and temperature Carts in the Library?
+typeset -r -Z 6 time_and_temperature_cart=$(doSQL "select number from CART where TITLE like '%time%temperature%'")
+
+## The complete NWS URL is constructed by simply tacking it onto the
+## end of the base and adding the extension.
+NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION_CODE}.xml"
+
+## Make current_time and other variables read-only for the duration of
+## this run so that we don't risk them changing by some nefarious
+## process. We save the value of EPOCHSECONDS because EPOCHSECONDS
+## changes every second and we want a consistent time for the duration
+## of this run. current_time_rfc2822 is used in the header of the file
+## containing the list of audio files to concatenate with ffmpeg.
+typeset -r current_time="${EPOCHSECONDS}"
+typeset -r hour_minute=$(strftime "%I%M" "${current_time}")
+
+if ! current_temperature=$(${WGET} --quiet -O - "${NWS_XML_URL}" |
+			     ${XMLSTARLET} c14n --without-comments - |
+			     ${AWK} -F '[<>]' "/temp_${TEMPERATURE_UNIT}/{print \$3}") ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR:  ${WGET} failed to retrieve data for location '${NWS_LOCATION_CODE}'."
+  exit 1
+fi
+if [[ -z "${current_temperature}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Unable to retrieve current location '${NWS_LOCATION_CODE}'."
+  exit 2
+fi
+
+## Drop the fraction to the right of the decimal point in the
+## retrieved temperature.
+typeset -r current_temperature="${current_temperature%.*}"
+
+## Save the concatenated audio in this file.
+typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
+
+## Set the shell to remove the temporary files on script exit or
+## interruption.
+## We want these variables to be expanded when referenced rather than
+## when signalled.
+# shellcheck disable=SC2064
+trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
+
+## Use ffmpeg to concatenate and transcode the time and temperature
+## audio files into a PCM file with the sample rate that matches the
+## system setting in Rivendell.
+${FFMPEG} -y -loglevel quiet -i "concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}" -c pcm_s16le -ar "${sample_rate}" "${current_time_and_temperature}"
+
+if ! [[ -s "${current_time_and_temperature}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: created an empty audio file that was supposed to have the time and temperature."
+  exit 4
+fi
+
+## Simply replace the WAV file if they have a Time and Temperature
+## Cart.
+if [[ -n "${time_and_temperature_cart}" ]] ; then
+  if ! [[ -w /var/snd/${time_and_temperature_cart}_001.wav ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: created an empty audio file that was supposed to have the time and temperature."
+    exit 5
+  fi
+  zstat -H existing_file_metadata "/var/snd/${time_and_temperature_cart}_001.wav"
+  ${SUDO} "${MV}" "${current_time_and_temperature}" "/var/snd/${time_and_temperature_cart}_001.wav"
+  ${SUDO} "${CHOWN}" "${existing_file_metadata[uid]}:${existing_file_metadata[gid]}" "/var/snd/${time_and_temperature_cart}_001.wav"
+  ${SUDO} "${CHMOD}" 664 "/var/snd/${time_and_temperature_cart}_001.wav"
+else
+  # Otherwise, move the generated file into the Rivendell dropbox
+  # folder.
+  if [[ -z "${RD_DROPBOX_DIR}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: Unable to find a Rivendell dropbox for Time and Temperature."
+    exit 6
+  fi    
+  if ! [[ -d "${RD_DROPBOX_DIR}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Missing Rivendell dropbox folder ${RD_DROPBOX_DIR}."
+    exit 7
+  fi
+  if ! ${MV} "${current_time_and_temperature}" "${RD_DROPBOX_DIR}" ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: Unable to move audio file to '${RD_DROPBOX_DIR}' (${?})."
+    exit 8
+  fi
+fi
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
