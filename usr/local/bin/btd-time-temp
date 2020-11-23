@@ -7,7 +7,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 ##############################################################################
@@ -278,11 +278,6 @@ done
 unset our_commands
 ############## END external shell commands used in this script. ##############
 
-## Log STDOUT and STDERR of this script and all commands called by this
-## script to separate files.
-exec 1> "/var/tmp/${0##*/}.out"
-exec 2> "/var/tmp/${0##*/}.err"
-
 typeset -i VERBOSE=0
 LOGGER_VERBOSE=''
 
@@ -346,6 +341,11 @@ if ((showVersion)) ; then
   echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
+
+## Log STDOUT and STDERR of this script and all commands called by this
+## script to separate files.
+exec 1> "/var/tmp/${0##*/}.out"
+exec 2> "/var/tmp/${0##*/}.err"
 
 ## Enable script tracing and logger(1) output to STDERR for
 ## troubleshooting if they specified --verbose mode on the command
