@@ -31,8 +31,8 @@ strProt = argv( 1 )
 strHost = argv( 2 )
 strPort = int_of_string( argv( 3 ))
 strMnt  = argv( 4 )
-strUser = "source"
-strPass = argv( 5 )
+strUser = argv( 5 )
+strPass = argv( 6 )
 strDesc = "Streaming Audio"
 strURL  = "http://example.com/"
 
