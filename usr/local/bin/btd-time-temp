@@ -41,9 +41,7 @@ vHash='$Hash$'
 ## https://w1.weather.gov/xml/current_obs/XXXX.xml
 ##
 ## Specify the NWS location code using the "-l" (or "--location")
-## command line argument or in the environment variable
-## NWS_LOCATION_CODE. The command line argument takes precedence over
-## the environment variable if both are set.
+## command line parameter. See usage() for more details.
 ##
 ##############################################################################
 ##############################################################################
@@ -96,7 +94,7 @@ file containing same into the Rivendell Library.
 SUMMARY
 
 ${my_name} [ --verbose ... ]
-              --cart (-c) <Cart Number> --location (-l) <NWS Location Code>
+              --cart (-c) <Cart Number> --location (-l) <NWS Location Code>[,<NWS Location Code>]...
 
 DESCRIPTION
 
@@ -107,10 +105,18 @@ Cart in the Rivendell Library.
 
 The command line arguments --cart and --location are mandatory. Use
 --cart (short option: -c) to specify the Rivendell Cart Number. Use
---location (short option -l) to specify the NWS location code for
-which to retrieve the current temperature from the US National Weather
-Service (see https://w1.weather.gov/xml/current_obs/seek.php?Find=Find
-for all available locations).
+--location (short option -l) to specify one or more NWS location codes
+for which to retrieve the current temperature from the US National
+Weather Service (see
+https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for all
+available locations). Separate multiple location codes with a comma
+(and no whitespace).
+
+Specifying multiple location codes is a form of "backup". If the URL
+for the first code fails to return data, ${my_name} attempts to
+retrieve observation data for the second and subsequent codes in
+order. The last known observation values are used if none of the URLs
+return data.
 
 Use the command line parameter --verbose to make ${my_name} more
 chatty about its progress. Use one -v to output status. Use two or
@@ -362,7 +368,7 @@ if [[ -z "${TO_CART}" ]] ; then
   exit 2
 fi
 if [[ -z "${NWS_LOCATION_CODE}" ]] ; then
-  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing NWS Location Code on the command line."
+  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing NWS Location Code(s) on the command line."
   usage "${0}"
   exit 3
 fi
@@ -400,7 +406,7 @@ fi
 
 ## The complete NWS URL is constructed by simply tacking it onto the
 ## end of the base and adding the extension.
-NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION_CODE}.xml"
+#NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION_CODE}.xml"
 
 ## Make current_time and other variables read-only for the duration of
 ## this run so that we don't risk them changing by some nefarious
@@ -412,17 +418,56 @@ typeset -r current_time="${EPOCHSECONDS}"
 typeset -r hour_minute=$(strftime "%I%M" "${current_time}")
 typeset -r current_minute=$(strftime "%M" "${current_time}")
 
-## Refresh the conditions from the NWS only once per hour.
-## Save this output and use it for all the other minutes in the hour.
+## Refresh the conditions from the NWS only once per hour. Save the
+## output and use it for all the other minutes in the hour.
+##
+## BUG ALERT: this assumes the script is run (at least) at fifteen
+## minutes past the hour. Adjust the conditional statement if your
+## schedule is different.
 if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
-  ((VERBOSE == 1)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Getting data from NWS for location '${NWS_LOCATION_CODE}'."
-  ## Grab the entire output from the NWS for this location.
-  if ! ${WGET} --quiet -O - "${NWS_XML_URL}" |
-      ${XMLSTARLET} c14n --without-comments - > "${LAST_OBSERVATION}" ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} failed to retrieve data for location '${NWS_LOCATION_CODE}'."
-    exit 1
-  fi
+
+  ## Attempt to retrieve observation data from all locations specified
+  ## on the command line. Break out of the loop when we have data.
+  # shellcheck disable=SC2086,SC2116
+  for NWS_LOCATION in $(echo ${NWS_LOCATION_CODE//,/ }) ; do
+    NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION}.xml"
+    ((VERBOSE == 1)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Getting data from NWS for location '${NWS_LOCATION}'."
+    ## Grab the entire output from the NWS for this location.
+    ## This is just the way we want to examine the exit status of wget(1).
+    if ! raw_observation_data=$(${WGET} --quiet --timeout=5 -O - "${NWS_XML_URL}") ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} failed to retrieve data for location '${NWS_LOCATION}'."
+      continue
+    fi
+    wget_exit_status="${?}"
+    ## Exit status messages are from wget(1) version 1.14, shipped
+    ## with CentOS 7.
+    case "${wget_exit_status}" in
+      0) wget_exit_message="" ;;
+      1) wget_exit_message="Generic error." ;;
+      2) wget_exit_message="Parse Error. This should NOT happen." ;;
+      3) wget_exit_message="File I/O Error. This should NOT happen." ;;
+      4) wget_exit_message="Network failure. Hopefully it will be fixed next time." ;;
+      5) wget_exit_message="SSL verification error. This should NOT happen." ;;
+      6) wget_exit_message="Authentication error. This should NOT happen. Authentication is not required." ;;
+      7) wget_exit_message="Protocoal error(s)." ;;
+      8) wget_exit_message="Server error. See returned HTML for details?" ;;
+      *) wget_exit_message="Unknown WGET error code. Please consult the authorities." ;;
+    esac
+    if ((wget_exit_status != 0)) ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} returned exit status '${wget_exit_status}'. ${wget_exit_message}"
+      continue
+    fi
+    if [[ -z "${raw_observation_data}" ]] ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} retrieved empty data for location '${NWS_LOCATION}'."
+      continue
+    fi
+    if ! echo "${raw_observation_data}" | ${XMLSTARLET} c14n --without-comments - > "${LAST_OBSERVATION}" ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to process XML data for location '${NWS_LOCATION}'."
+    fi
+    break
+  done
 fi
+
 ## Read the data from the most recent poll, then set the variable to
 ## read-only.
 current_observation=$(< "${LAST_OBSERVATION}")
