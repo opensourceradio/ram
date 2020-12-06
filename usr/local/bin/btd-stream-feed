@@ -1,4 +1,8 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2154,SC2162
+# SC2016: The single quotes are inside a double-quoted string
+# SC2154: I know about all the referenced but not assigned variables
+# SC2162: I do not care about read and its backslashes
 
 ##############################################################################
 ##
@@ -9,52 +13,54 @@
 ##############################################################################
 
 # Log STDOUT and STDERR to separate files.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+exec 1> "/var/tmp/${0:t}.out"
+exec 2> "/var/tmp/${0:t}.err"
 
-#################  BEGIN shell commands used in this script.  #################
-# This script uses these 8 external commands.
+((VERBOSE)) && setopt xtrace
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 7 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  cut
-  fgrep
-  grep
-  jack_connect
-  jack_lsp
-  liquidsoap
-  logger
-  tail
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+typeset -a our_commands
+our_commands=( cut grep jack_connect jack_lsp liquidsoap logger tail )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands[*]} ; do
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands
+############## END external shell commands used in this script. ##############
 
 ##
-## the liquidsoap script to use for this instance of the stream
+## The liquidsoap script to use for this instance of the stream.
 ##
 streamScript=${1:-${STREAM_SCRIPT:-${ROOT:-/}usr/local/etc/btd/btd-stream-feed.liq}}
 
 ##
-## the stream URL should be of the form
-## http://source:<PASSWORD>@<HOSTNAME-OR-IP-ADDRESS>:<PORT>/<MOUNTPOINT>
+## The stream URL should be of the form
+## http://USERNAME:<PASSWORD>@<HOSTNAME-OR-IP-ADDRESS>:<PORT>/<MOUNTPOINT>
+## where USERNAME is most likely "source".
 ##
 streamURL=${2:?"What stream URL?"}
 
 ## Get zsh functions necessary for this script.
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+# SC1090: don't care about not being able to follow the path to zsh-functions
+# shellcheck disable=SC1090
+[[ -r "${ROOT:-/}usr/local/bin/zsh-functions" ]] && source "${ROOT:-/}usr/local/bin/zsh-functions"
 
 sleepDuration=${SLEEP_DURATION:-5}
 maxAttempts=${MAX_ATTEMPTS:-5}
 
-## parse the pieces out of the stream URL
+## Parse the pieces out of the stream URL.
 streamProtocol=${streamURL%%:*}
 streamUser=${${streamURL#*://}%%:*}
 streamPassword=${${streamURL#*://*:}%%@*}
@@ -62,43 +68,57 @@ streamHost=${${streamURL#*@}%%:*}
 streamPort=${${streamURL##*:}%/*}
 streamMountPoint=${streamURL##*/}
 
-## The default Rivendell production playback port (we tack on the "L"
-## and "R" when we connect the ports below).
-rivendellPlaybackPort=${RIVENDELL_STREAM_PORT:-"rivendell_0:playout_0"}
+## NOTICE: You MUST edit this or pass the JACK source port basename
+##         in the shell environment parameter JACK_SOURCE_PORT!
+## The default source port (we tack on the suffix when we connect the
+## ports).
+##jackSourcePort=${JACK_SOURCE_PORT:-"rivendell_0:playout_0"}
+##jackSourcePort=${JACK_SOURCE_PORT:-"calf:multibandlimiter_out"}
+jackSourcePort=${JACK_SOURCE_PORT:-"calf:multibandlimiter Out"}
+case "${jackSourcePort}" in
+  rivendell*) portSuffix=( "L" "R" ) ;;
+  ##calf*) portSuffix=( "_l" "_r" ) ;;
+  calf*) portSuffix=( " #1" " #2" ) ;;
+  *) portSuffix=( "_0" "_1" ) ;;
+esac
 
-if [[ -r ${streamScript} ]] ; then
+if [[ -r "${streamScript}" ]] ; then
 
-    ## snag the encoder jack client name from the script
-    ## BUG ALERT: this completely depends on the formatting of the "input.jack" lines in that script!
-    ## default to the BTD standard: "encode-in"
-    encoderID=$(${FGREP} -A 1 "input.jack" ${streamScript} | ${TAIL} -n 1 | ${CUT} -d'"' -f2)
-    encoderID=${encoderID:-"encode-in"}
+    ## Snag the encoder JACK client name from the script and the mount
+    ## point.
+    ## BUG ALERT: this completely depends on the formatting of the
+    ## "input.jack" lines in that script!
+    ## Default to the BTD standard, "encode" if we are unable to
+    ## discern it from the liquidsoap script.
+    encoderPrefixName=$(${GREP} -F -A 1 "input.jack" "${streamScript}" | ${TAIL} -n 1 | ${CUT} -d'"' -f2)
+    encoderPrefixName=${encoderID:-"encode"}
+    encoderID="${encoderPrefixName}-${streamMountPoint}"
 
-    if ${LIQUIDSOAP} --daemon ${streamScript} -- ${streamProtocol} ${streamHost} ${streamPort} ${streamMountPoint} "${streamPassword}" ; then
-	${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Started ${streamScript} in liquidsoap."
+    if ${LIQUIDSOAP} --daemon "${streamScript}" -- "${streamProtocol}" "${streamHost}" "${streamPort}" "${streamMountPoint}" "${streamUser}" "${streamPassword}" ; then
+	${LOGGER} -t "${0:t}" -p local7.info -i "INFO: Started ${streamScript} in liquidsoap."
 
-	count=1
-	while (( count <= maxAttempts )) ; do
-	    if ${JACK_LSP} | ${GREP} -q encode-in ; then
-		if ${JACK_LSP} | ${GREP} -q ${rivendellPlaybackPort} ; then
-		    ${JACK_CONNECT} ${encoderID}:in_0 ${rivendellPlaybackPort}L
-		    ${JACK_CONNECT} ${encoderID}:in_1 ${rivendellPlaybackPort}R
-		    ${LOGGER} -t ${0##*/} -p local7.info -i "INFO: Connected liquidsoap ports to ${rivendellPlaybackPort}."
+	typeset -i count=1
+	while ((count <= maxAttempts)) ; do
+	    if ${JACK_LSP} | ${GREP} -q "${encoderID}" ; then
+		if ${JACK_LSP} | ${GREP} -q "${jackSourcePort}" ; then
+		    ${JACK_CONNECT} "${encoderID}:in_0" "${jackSourcePort}${portSuffix[1]}"
+		    ${JACK_CONNECT} "${encoderID}:in_1" "${jackSourcePort}${portSuffix[2]}"
+		    ${LOGGER} -t "${0:t}" -p local7.info -i "INFO: Connected liquidsoap ports to ${jackSourcePort}."
 		    break
 		fi
 	    fi
-	    (( count++ ))
-	    sleep ${sleepDuration}
+	    ((count++))
+	    sleep "${sleepDuration}"
 	done
 
-	if (( count >= maxAttempts )) ; then
-	    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot see liquidsoap ports. Liquidsoap appears to be not running."
+	if ((count >= maxAttempts)) ; then
+	    ${LOGGER} --stderr -t "${0:t}" local7.err -i "ERROR: Cannot see liquidsoap ports. Liquidsoap appears to be not running."
 	fi
     else
-	${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: unable to properly start liquidsoap. Check the configuration and log files."
+	${LOGGER} --stderr -t "${0:t/}" -p local7.err -i "ERROR: unable to properly start liquidsoap. Check the configuration and log files."
     fi
 else
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot read liquidsoap script ${streamScript}."
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read liquidsoap script ${streamScript}."
 fi
 
 exit
