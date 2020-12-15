@@ -7,10 +7,11 @@ use strict;
 use URI::Escape;
 use Data::Dumper;
 
-use constant vMAJOR => 0;
-use constant vMINOR => 1;
-use constant vPATCH => 8;
-use constant vHASH => '$Hash$';
+use Readonly;
+Readonly my $vMAJOR => 0;
+Readonly my $vMINOR => 1;
+Readonly my $vPATCH => 9;
+Readonly my $vHASH => '$Hash: 95836a7$';
 
 package Feed;
 
@@ -278,9 +279,9 @@ sub showVersion {
 
     my $hash = undef;
 
-    ( $hash = vHASH ) =~ s/\$Hash: //;
+    ( $hash = $vHASH ) =~ s/\$Hash: //;
 
-    say STDOUT vMAJOR . "." . vMINOR . "." . vPATCH . "-" . $hash;
+    say STDOUT $vMAJOR . "." . $vMINOR . "." . $vPATCH . "-" . $hash;
 
     exit;
 }
