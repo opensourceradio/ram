@@ -7,7 +7,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 ##############################################################################
@@ -55,10 +55,6 @@ vHash='$Hash$'
 ## synchronization), and the Internet (for current temperature
 ## retrieval).
 ##
-## A Rivendell dropbox folder. Configure this using RDAdmin->Manage
-## Hosts->[hostname]->Dropboxes. The dropbox folder must match the
-## shell parameter RD_DROPBOX_DIR in this script (see below).
-##
 ## zsh(1): needed to run this script. Install it with `sudo yum
 ## install zsh`.
 ##
@@ -68,9 +64,9 @@ vHash='$Hash$'
 ##
 ## ffmpeg(1): The script uses the ffmpeg command to concatenate the
 ## time audio file and the temperature audio file into a single
-## file. It then places that single audio file in the Rivendell
-## dropbox folder. Install it with the command `sudo yum install
-## ffmpeg` (from the nux-dextop repository).
+## file. It then imports that single audio file to the Rivendell
+## library using rdimport(1). Install it with the command `sudo yum
+## install ffmpeg` (from the nux-dextop repository).
 ##
 ##############################################################################
 ##############################################################################
@@ -304,13 +300,6 @@ typeset -i TO_CART=0
 TOP_DIR="${TOP_DIR:-/usr/local/share/time-temp}"
 TEMPERATURE_DIR="${TEMPERATURE_DIR:-${TOP_DIR}/TempAnnounce}"
 TIME_DIR="${TIME_DIR:-${TOP_DIR}/TimeAnnounce}"
-
-## The value of this parameter must match the Rivendell dropbox
-## configuration. Try to look it up in the database, and default to
-## /var/tmp/time-temp if not found.
-RD_DROPBOX_DIR=$(doSQL "select PATH from DROPBOXES where PATH like '%time%temp%'")
-## Strip off the trailing wildcard character(s).
-RD_DROPBOX_DIR=${RD_DROPBOX_DIR%/*}
 
 ## United States National Weather Service current observation URL
 ## base.
