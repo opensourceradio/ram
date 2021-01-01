@@ -16,7 +16,7 @@ zmodload zsh/datetime
 vLibRelease=0
 vLibMajor=0
 vLibMinor=2
-vLibPatch=4
+vLibPatch=5
 vLibHash='$Hash$'
 
 # Use the configured mailer to send email to one or more
@@ -25,38 +25,34 @@ vLibHash='$Hash$'
 # Send no more than one notification for each type in 24 hours (and
 # let the recipients know that they will see no more than one per
 # day).
-sendNotification() {
+function sendNotification() {
   local myName=${1:?"Who am I?"} ; shift
   local MAILTO="${1:?'Need one or more email addresses to send to.'}" ; shift
   local type=${1:?"Need a notification type."} ; shift
   local message=${1:?"Need a message to send for the notification."} ; shift
   local messagefile=${1} # optional text filename to attach
 
-  #################  BEGIN shell commands used in this function.  #################
-  # This function uses these 7 external commands.
+  ############ BEGIN external shell commands used in this function. ############
+  # This function uses these 6 external commands.
   # Look for them in their upper case, parameter expanded form.
-  local C D
-  local -a ourCommands
-  ourCommands=(
-    awk
-    base64
-    cat
-    dos2unix
-    hostname
-    logger
-    uuidgen
-  )
-  # Find the executables we need; this uses a little old fashioned shell and
-  # a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-  # all upper case letters. We will use the command names in upper case as
-  # variables by which to call the external commands used in this function.
-  for C in ${ourCommands} ; do
+  typeset -a our_commands
+  our_commands=( awk base64 cat dos2unix logger uuidgen )
+  # Find the executables we need; this uses some basic shell and a ZSH trick:
+  # the (U) in the eval says to evaluate the parameter as all upper case
+  # letters. This snippet generates shell parameters representing the upper case
+  # equivalent of the command names and sets the parameter values to the full path
+  # of the commands.
+  # Refresh this segment in Emacs by marking the appropriate region (or the whole
+  # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+  for C in ${our_commands[*]} ; do
     for D in ${path} ; do
-      [[ -x ${D}/${C} ]] && { eval local ${(U)C}=${D}/${C} ; break }
+      # shellcheck disable=SC2140,SC2086 # we need the quotes
+      [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
     done
-    [[ -x $(eval echo \$${(U)C}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+    [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
   done
-  ##################  END shell commands used in this function.  ##################
+  unset our_commands
+  ############# END external shell commands used in this function. #############
 
   local MAILER=$(whence msmtp) ; MAILER=${MAILER:-${ROOT:-/}usr/bin/msmtp}
   local MAILER_CONFIG=${MAILER_CONFIG:-${ROOT:-/}usr/local/etc/pmw/conf.msmtp}
@@ -145,7 +141,7 @@ EOF
 }
 
 # Make a record of the type and time of a notification
-notificationSent() {
+function notificationSent() {
   local theirName=${1} ; shift
   local type=${1} ; shift
   local notificationTime=${1}
@@ -207,7 +203,7 @@ notificationSent() {
 # Make mysql calls look a bit more asthetically pleasing. The return
 # value of this shell funtion is the exit value of the mysql command
 # invocation.
-doSQL() {
+function doSQL() {
   local statement="${1:?Need a database query to run.}"
   local useMyCNF=0
   local usableMyCNF=4
@@ -292,11 +288,11 @@ doSQL() {
   fi
 }
 
-rdDatabaseVersion() {
+function rdDatabaseVersion() {
   doSQL "select DB from VERSION"
 }
 
-getMyIPAddresses() {
+function getMyIPAddresses() {
   local -a ipAddresses
   local returnValue=0
 
@@ -335,7 +331,7 @@ getMyIPAddresses() {
 
 # Get this hosts Rivendell STATION name. Return TRUE or FALSE
 # depending on whether we could figure the name out.
-rdGetStationName() {
+function rdGetStationName() {
   local -a myIP
   local stationName foundStationName
   local returnValue=0
@@ -380,7 +376,7 @@ rdGetStationName() {
 }
 
 # Get the Rivendell Web Server (HTTP_STATION) for this computer.
-rdGetWebServer() {
+function rdGetWebServer() {
   local returnValue=1
 
   if ! okDatabaseStructure STATIONS:name+http_station ; then
@@ -405,7 +401,7 @@ rdGetWebServer() {
 # Use the Rivendell Web API to execute a command. Unlike most other
 # functions in this library, the arg 'verbose' *must* be set to either
 # '0' or a positive integer.
-rdWebInvoke() {
+function rdWebInvoke() {
   local verbose=${1} ; shift
   local command=${1} ; shift
   local -a curlArguments
@@ -474,7 +470,7 @@ rdWebInvoke() {
 # Note that as of Rivendell version 2.10.3 ListCarts is broken if you
 # do not provide search parameters to the "query". This is fixed in
 # 2.15.1, but for now we *REQUIRE* a GROUP in which to list all CARTs.
-rdListAllCarts() {
+function rdListAllCarts() {
   local group=${1} ; shift
   local verbose=${1:-0}
 
@@ -495,7 +491,7 @@ rdListAllCarts() {
 
 # Use the Rivendell Web API to list the CART. The second
 # arg, 0 (default) or 1 to list CUTS.
-rdListCart() {
+function rdListCart() {
   local cartNumber=${1} ; shift
   local withCuts=${1:-0}
   local verbose=${2:-0}
@@ -517,7 +513,7 @@ rdListCart() {
 
 # Use the Rivendell Web API to list all the CUTS for the specified
 # CART.
-rdListCuts() {
+function rdListCuts() {
   local cartNumber=${1} ; shift
   local verbose=${1:-0}
 
@@ -539,7 +535,7 @@ rdListCuts() {
 
 # Use the Rivendell Web API to delete the CART, all its CUTS, and the
 # actual audio file for the specified CART.
-rdDropCart() {
+function rdDropCart() {
   local cartNumber=${1} ; shift
   local verbose=${1:-0}
 
@@ -561,7 +557,7 @@ rdDropCart() {
 
 # Use the Rivendell Web API to delete the specified CUT, and the
 # actual audio file.
-rdDropCut() {
+function rdDropCut() {
   local cartNumber=${1} ; shift
   local cutNumber=${1} ; shift
   local verbose=${1:-0}
@@ -588,7 +584,7 @@ rdDropCut() {
 # Use the Rivendell Web API to list all the SERVICES,
 # Optionally, list only services that have a valid
 # VoiceTracking configuration.
-rdListServices() {
+function rdListServices() {
   local -r trackable=${1} ; shift
   local -r verbose=${1:-0}
 
@@ -609,7 +605,7 @@ rdListServices() {
 }
 
 # Use the Rivendell Web API to list all the GROUPS.
-rdListGroups() {
+function rdListGroups() {
   local -r verbose=${1:-0}
 
   local -r command=4
@@ -629,7 +625,7 @@ rdListGroups() {
 }
 
 # Get a Rivendell CART NUMBER from a TITLE (full or partial).
-rdCartNumberFromTitle() {
+function rdCartNumberFromTitle() {
   local title=${1:?"Need a CART TITLE string to search."} ; shift
   local verbose=${1}
 
@@ -637,7 +633,7 @@ rdCartNumberFromTitle() {
 }
 
 # Get a Rivendell CART TITLE from a partial TITLE.
-rdCartTitleFromPartial() {
+function rdCartTitleFromPartial() {
   local title=${1:?"Need a CART TITLE string to search."} ; shift
   local verbose=${1}
 
@@ -645,21 +641,21 @@ rdCartTitleFromPartial() {
 }
 
 # Get a Rivendell CART TITLE from a CART NUMBER.
-rdCartTitleFromNumber() {
+function rdCartTitleFromNumber() {
   local number=${1:?"Need a CART NUMBER to look up."} ; shift
   local verbose=${1}
 
   doSQL "select TITLE from CART where NUMBER = ${number}"
 }
 
-rdCartGroupFromNumber() {
+function rdCartGroupFromNumber() {
   local number=${1:?"Need a CART NUMBER to search."} ; shift
   local verbose=${1}
 
   doSQL "select GROUP_NAME from CART where NUMBER = ${number}"
 }
 
-rdMaxCartNumberForGroup() {
+function rdMaxCartNumberForGroup() {
   local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
   local verbose=${1}
 
@@ -673,7 +669,7 @@ rdMaxCartNumberForGroup() {
   echo ${maxCartNum}
 }
 
-rdGetNextCartNumber() {
+function rdGetNextCartNumber() {
   local group=${1:?"Need a GROUP_NAME from which to get the next CART NUMBER."} ; shift
   local verbose=${1}
 
@@ -766,7 +762,7 @@ rdGetNextCartNumber() {
   return ${returnValue}
 }
 
-rdCreateEmptyCart() {
+function rdCreateEmptyCart() {
   local group=${1:?"Need to specify a GROUP_NAME in which to create the new CART."} ; shift
   local title=${1:?"Need a CART TITLE string to search."} ; shift
   local verbose=${1}
@@ -806,7 +802,7 @@ rdCreateEmptyCart() {
   return ${returnValue}
 }
 
-rdDropboxStatus() {
+function rdDropboxStatus() {
   local myName=${1} ; shift
   local interactive=${1} ; shift
   local verbose=${1}
@@ -941,7 +937,7 @@ rdDropboxStatus() {
 # - a boolean (0 or 1) indicating interactive
 # Returns: true (0) if the database structure is OK, else false
 # (non-zero)
-rdGetDropboxIDFromPath() {
+function rdGetDropboxIDFromPath() {
   local myName=${1} ; shift
   local pathPrefix=${1} ; shift
   local interactive=${1} ; shift
@@ -980,7 +976,7 @@ rdGetDropboxIDFromPath() {
 # Returns: true (0) if the database structure is OK, false (1) if the
 # table does not exist, or false (2) if a column is not found in the
 # table.
-okDatabaseStructure() {
+function okDatabaseStructure() {
   local tablesAndColumns=${1} ; shift
   local verbose=${1}
 
@@ -1020,7 +1016,7 @@ okDatabaseStructure() {
 }
 
 # Convert milliseconds to [HH:]MM:SS.
-ms2HMS() {
+function ms2HMS() {
   local milliseconds="${1:?Need some milliseconds}"
   typeset -Z 2 Hours Minutes Seconds
 
@@ -1034,7 +1030,7 @@ ms2HMS() {
 
 # Log a message to either syslog (non-interactive) or STDOUT
 # (interactive).
-logit() {
+function logit() {
   local caller=${1} ; shift
   local interactive=${1} ; shift
   local message="${1}"
