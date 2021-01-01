@@ -22,6 +22,14 @@ echo "rdDatabaseVersion: \c"
 x=$(rdDatabaseVersion)
 read -q ok\?"Database version is '${x}'. Press a key to continue: "
 
+echo "okDatabaseStructure: expect VALID structure\c" && read -q ok\?"Press a key to continue: "
+x=$(okDatabaseStructure CART:number,CUTS:cart_number+cut_name+length)
+read -q ok\?"database structure is '${x}'. Press a key to continue: "
+
+echo "okDatabaseStructure: expect INVALID structure\c" && read -q ok\?"Press a key to continue: "
+x=$(okDatabaseStructure CART:name+group_name+title,CUTS:number+cut_name+duration)
+read -q ok\?"database structure is '${x}'. Press a key to continue: "
+
 echo "getMyIPAddresses: \c"
 x=( $(getMyIPAddresses) )
 read -q ok\?"My IP address is '${x}'. Press a key to continue: "
@@ -45,83 +53,93 @@ x="$(rdListGroups)"
 echo "${x}"
 read -q ok\?"Press a key to continue: "
 
-echo "rdListAllCarts ${group:-Music} 1: \c"
+echo "rdListAllCarts ${group:-Music} 1 (with line count): \c"
 x="$(rdListAllCarts ${group:-Music} 1)"
+echo "${x}" | wc -l
 read -q ok\?"Press a key to continue: "
 
-echo "rdListCart 960014: \c"
+echo "rdListCart 1002: \c" && read -q ok\?"Press a key to continue: "
 # without cuts, not verbose
-x="$(rdListCart 960014)"
+x="$(rdListCart 1002)"
 # without cuts, not verbose, explicit
-x="$(rdListCart 960014 0 0)"
+x="$(rdListCart 1002 0 0)"
 # with cuts, not verbose
-x="$(rdListCart 960014 1 0)"
+x="$(rdListCart 1002 1 0)"
 # with cuts, verbose
-x="$(rdListCart 960014 1 1)"
+x="$(rdListCart 1002 1 1)"
 # without cuts, verbose
+x="$(rdListCart 1002 0 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "rdListCuts 960014: \c"
-x="$(rdListCuts 960014 1)"
+echo "rdListCuts 1002 (with line count): \c" && read -q ok\?"Press a key to continue: "
+x="$(rdListCuts 1002 1)"
+echo "${x}" | wc -l
 read -q ok\?"Press a key to continue: "
 
-echo "rdCartNumberFromTitle 'Drop this CART': \c"
+echo "rdCartNumberFromTitle 'Drop this CART': \c" && read -q ok\?"Press a key to continue: "
 x=$(rdCartNumberFromTitle "Drop this CART" 1)
 # Case sensitivity?
-echo "rdCartNumberFromTitle 'drop this cart': \c"
+echo "rdCartNumberFromTitle 'drop this cart': \c" && read -q ok\?"Press a key to continue: "
 x="$(rdCartNumberFromTitle "drop this cart" 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "rdCartTitleFromPartial 'drop this': \c"
+echo "rdCartTitleFromPartial 'drop this': \c" && read -q ok\?"Press a key to continue: "
 x="$(rdCartTitleFromPartial "drop this" 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "rdCartTitleFromNumber 999901: \c"
+echo "rdCartTitleFromNumber 999901: \c" && read -q ok\?"Press a key to continue: "
 x="$(rdCartTitleFromNumber 999901 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "rdCartGroupFromNumber 999901: \c"
-x="$(rdCartGroupFromNumber 999901 1)"
+echo "rdCartGroupFromNumber 999901: \c" && read -q ok\?"Press a key to continue: "
+x=$(rdCartGroupFromNumber 999901 1)
 read -q ok\?"Press a key to continue: "
 
-echo "rdMaxCartNumberForGroup ${group:-Music}: \c"
-x="$(rdMaxCartNumberForGroup ${group:-Music} 1)"
-read -q ok\?"Max Cart Number for Group '${group}' is '${x}'. Press a key to continue: "
+echo "rdMaxCartNumberForGroup ${group:-Music}: \c" && read -q ok\?"Press a key to continue: "
+x=$(rdMaxCartNumberForGroup ${group:-Music} 1)
+read -q ok\?"Max Cart Number for Group '${group:-Music}' is '${x}'. Press a key to continue: "
 
-echo "rdGetNextCartNumber ${group:-Music}: \c"
-x="$(rdGetNextCartNumber ${group:-Music} 1)"
-read -q ok\?"Next Cart Number for Group '${group}' is '${x}'. Press a key to continue: "
+echo "rdGetNextCartNumber ${group:-Music}: \c" && read -q ok\?"Press a key to continue: "
+x=$(rdGetNextCartNumber ${group:-Music} 1)
+read -q ok\?"Next Cart Number for Group '${group:-Music}' is '${x}'. Press a key to continue: "
 
-echo "rdDropboxStatus test 1 1: \c"
+echo "rdDropboxStatus test 1 1: \c" && read -q ok\?"Press a key to continue: "
 rdDropboxStatus test 1 1
 read -q ok\?"Press a key to continue: "
 
 # test with a known good prefix
-echo "rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews: \c"
-rdGetDropboxIDFromPath test 1 /var/snd/kuchota/rdimport-dropbox/SynNews/Making-Contact 1
+echo "rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks: \c" && read -q ok\?"Press a key to continue: "
+rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks 1 1
 # test with a known invalid prefix
-echo "rdGetDropboxIDFromPath test /var/tmp: \c"
-x="$(rdGetDropboxIDFromPath test 1 /var/tmp 1)"
+echo "rdGetDropboxIDFromPath test /var/tmp: \c" && read -q ok\?"Press a key to continue: "
+x="$(rdGetDropboxIDFromPath test /var/tmp 1 1)"
 read -q ok\?"Press a key to continue: "
 
-echo "logit test 1 'This is an interactive logit test.': \c"
+echo "logit test 1 'This is an interactive logit test.': \c" && read -q ok\?"Press a key to continue: "
 x=$(logit test 1 "This is an interactive logit test.")
-echo "logit test 0 'This is a non-interactive logit test.': \c"
+echo "logit test 0 'This is a non-interactive logit test.': \c" && read -q ok\?"Press a key to continue: "
 x=$(logit test 0 "This is a non-interactive logit test.")
 read -q ok\?"Press a key to continue: "
 
-echo "rdCreateEmptyCart ${testgroup:-Testing} 'Drop this CART Too': \c"
-x=$(rdCreateEmptyCart ${testgroup:-Testing} "Drop this CART Too" 1)
-echo Created Empty Cart '${x}' in Group '${testgroup}'".
+echo "rdCreateEmptyCart ${testgroup:-TEST} 'Drop this CART Too': \c" && read -q ok\?"Press a key to continue: "
+x=$(rdCreateEmptyCart ${testgroup:-TEST} "Drop this CART Too" 1)
+echo "Created Empty Cart '${x}' in Group '${testgroup:-TEST}'." && read -q ok\?"Press a key to continue: "
 cartNumberToDrop=$(rdCartNumberFromTitle "drop this cart too" 0)
 
 # THIS IS DESTRUCTIVE!
-echo "rdDropCut 999901 1 1: \c"
-rdDropCut  999901 1 1
+echo "rdDropCut 999007 1 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
+rdDropCut  999007 1 1
 read -q ok\?"Press a key to continue: "
 # THIS IS DESTRUCTIVE!
-echo "rdDropCart ${cartNumberToDrop} 1: \c"
+echo "rdDropCart ${cartNumberToDrop} 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
 rdDropCart ${cartNumberToDrop} 1
+
+echo "sendNotification() without attachment. \c" && read -q ok\?"Press a key to continue: "
+x=$(sendNotification test dklann@grunch.org TEST-MESSAGE "This is a test message")
+read -q ok\?"Did you get an email at dklann@grunch.org? Press a key to continue: "
+echo "sendNotification() with attachment. \c" && read -q ok\?"Press a key to continue: "
+x=$(sendNotification test dklann@grunch.org TEST-MESSAGE-ATTACH "This is a test message" /etc/issue.net)
+read -q ok\?"Did you get an email (with attachment) at dklann@grunch.org? Press a key to continue: "
 
 exit
 
