@@ -34,16 +34,11 @@ zmodload zsh/datetime
   vLibHash='$Hash$'
 }
 function zsh_library_version() {
-  # SC2250: "Prefer braces around variable references": this is not a
-  # variable reference.
-  # shellcheck disable=SC2250
-  [[ "${vLibHash}" =~ $Hash$ ]] && local vLibHash='prerelease'
-  printf "%d.%d.%d.%d-%s\n" \
+  printf "%d.%d.%d.%d\n" \
 	 "${vLibRelease}" \
 	 "${vLibMajor}" \
 	 "${vLibMinor}" \
-	 "${vLibPatch}" \
-	 "${vLibHash}"
+	 "${vLibPatch}"
 }
 
 # Use the configured mailer to send email to one or more
