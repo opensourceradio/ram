@@ -30,8 +30,20 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=6
+  vLibPatch=8
   vLibHash='$Hash$'
+}
+function zsh_library_version() {
+  # SC2250: "Prefer braces around variable references": this is not a
+  # variable reference.
+  # shellcheck disable=SC2250
+  [[ "${vLibHash}" =~ $Hash$ ]] && local vLibHash='prerelease'
+  printf "%d.%d.%d.%d-%s\n" \
+	 "${vLibRelease}" \
+	 "${vLibMajor}" \
+	 "${vLibMinor}" \
+	 "${vLibPatch}" \
+	 "${vLibHash}"
 }
 
 # Use the configured mailer to send email to one or more
@@ -73,7 +85,7 @@ function sendNotification() {
   local MAILER=$(whence msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
   local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/pmw/conf.msmtp}"
   local MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
-  local hostName=$("${HOSTNAME:-$(hostname -f)}")
+  local hostName="${HOSTNAME:-$(hostname -f)}"
   local PRETEND="${PRETEND}"
   local startTime="${EPOCHSECONDS}"
   local returnValue=0
@@ -94,6 +106,7 @@ Reply-To: ${MAIL_FROM}
 Subject: Notification from ${myName} (${type})
 Message-ID: <$(${UUIDGEN})-${startTime}@$(${HOSTNAME} -f)>
 X-Script-Name: ${myName}
+X-zsh-library-version: $(zsh_library_version)
 MIME-Version: 1.0
 Content-Type: multipart/mixed;
  boundary="----------${startTime}"
@@ -157,7 +170,6 @@ EOF
 
   return "${returnValue}"
 }
-
 
 # Make a record of the type and time of a notification
 function notificationSent() {
@@ -965,8 +977,6 @@ function rdDropboxStatus() {
 
 }
 
-
-
 # Return a DROPBOX numeric ID from a path.
 # Parameters:
 # - the name of the caller
@@ -1004,6 +1014,35 @@ function rdGetDropboxIDFromPath() {
       echo -1
     fi
   fi
+
+  return "${returnValue}"
+}
+
+# Reset a dropbox by deleting entries in DROPBOX_PATHS. See also
+# rivendell-source-code/rdadmin/edit_dropbox.cpp:EditDropbox::resetData()
+# shellcheck disable=SC2178
+function rdResetDropbox() {
+  local myName="${1}" ; shift
+  local dropbox_id="${1}" ; shift
+  local interactive="${1}" ; shift
+  local verbose="${1}"
+
+  local returnValue=1
+  # SC2178: "Variable was used as an array but is now assigned a string.", but in a *different* function!
+  # shellcheck disable=SC2178
+  local query="delete from DROPBOX_PATHS where DROPBOX_ID = ${dropbox_id}"
+
+  if [[ -z "${dropbox_id}" ]] ; then
+    logit "${myName}" "${interactive}" "Need a dropbox ID number to reset."
+    return "${returnValue}"
+  fi
+
+  if ! okDatabaseStructure DROPBOX_PATHS:dropbox_id "${verbose}" ; then
+    echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
+    return 128
+  fi
+
+  doSQL "${query}" && returnValue=0
 
   return "${returnValue}"
 }

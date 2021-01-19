@@ -1,7 +1,9 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2086,SC2128,SC2162,SC2178
 
 # This script tests all the functions in zsh-functions, one by one.
 
+# shellcheck disable=SC1090
 . ${DIR:-.}/zsh-functions
 
 #echo "Sending two notifications. Please wait... \c"
@@ -11,10 +13,10 @@
 
 echo "doSQL select count(*) from CART: \c"
 x=$(doSQL "select count(*) from CART")
-if ! [[ ${x} =~ '[[:digit:]]+' ]] ; then
-  echo ${x} invalid
+if ! [[ "${x}" =~ [[:digit:]]+ ]] ; then
+  echo "${x}" invalid
 else
-  echo ${x}
+  echo "${x}"
 fi
 read -q ok\?"Press a key to continue: "
 
@@ -31,6 +33,7 @@ x=$(okDatabaseStructure CART:name+group_name+title,CUTS:number+cut_name+duration
 read -q ok\?"database structure is '${x}'. Press a key to continue: "
 
 echo "getMyIPAddresses: \c"
+# shellcheck disable=SC2207
 x=( $(getMyIPAddresses) )
 read -q ok\?"My IP address is '${x}'. Press a key to continue: "
 
@@ -96,11 +99,11 @@ x=$(rdCartGroupFromNumber 999901 1)
 read -q ok\?"Press a key to continue: "
 
 echo "rdMaxCartNumberForGroup ${group:-Music}: \c" && read -q ok\?"Press a key to continue: "
-x=$(rdMaxCartNumberForGroup ${group:-Music} 1)
+x=$(rdMaxCartNumberForGroup "${group:-Music}" 1)
 read -q ok\?"Max Cart Number for Group '${group:-Music}' is '${x}'. Press a key to continue: "
 
 echo "rdGetNextCartNumber ${group:-Music}: \c" && read -q ok\?"Press a key to continue: "
-x=$(rdGetNextCartNumber ${group:-Music} 1)
+x=$(rdGetNextCartNumber "${group:-Music}" 1)
 read -q ok\?"Next Cart Number for Group '${group:-Music}' is '${x}'. Press a key to continue: "
 
 echo "rdDropboxStatus test 1 1: \c" && read -q ok\?"Press a key to continue: "
@@ -108,11 +111,18 @@ rdDropboxStatus test 1 1
 read -q ok\?"Press a key to continue: "
 
 # test with a known good prefix
-echo "rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks: \c" && read -q ok\?"Press a key to continue: "
-rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks 1 1
+echo "rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks: \c" &&
+  read -q ok\?"Press a key to continue: "
+dropbox_id=$(rdGetDropboxIDFromPath test /var/snd/kuchota/rdimport-dropbox/SynNews/2020Talks 1 1)
 # test with a known invalid prefix
-echo "rdGetDropboxIDFromPath test /var/tmp: \c" && read -q ok\?"Press a key to continue: "
+echo "rdGetDropboxIDFromPath test /var/tmp: \c" &&
+  read -q ok\?"Press a key to continue: "
 x="$(rdGetDropboxIDFromPath test /var/tmp 1 1)"
+read -q ok\?"Press a key to continue: "
+
+# reset a dropbox
+echo "rdResetDropbox test ${dropbox_id} 1 1" && read -q ok\?"Press a key to continue: "
+rdResetDropbox test "${dropbox_id}" 1 1 || echo "rdResetDropbox unsuccessful."
 read -q ok\?"Press a key to continue: "
 
 echo "logit test 1 'This is an interactive logit test.': \c" && read -q ok\?"Press a key to continue: "
@@ -122,7 +132,7 @@ x=$(logit test 0 "This is a non-interactive logit test.")
 read -q ok\?"Press a key to continue: "
 
 echo "rdCreateEmptyCart ${testgroup:-TEST} 'Drop this CART Too': \c" && read -q ok\?"Press a key to continue: "
-x=$(rdCreateEmptyCart ${testgroup:-TEST} "Drop this CART Too" 1)
+x=$(rdCreateEmptyCart "${testgroup:-TEST}" "Drop this CART Too" 1)
 echo "Created Empty Cart '${x}' in Group '${testgroup:-TEST}'." && read -q ok\?"Press a key to continue: "
 cartNumberToDrop=$(rdCartNumberFromTitle "drop this cart too" 0)
 
@@ -132,7 +142,7 @@ rdDropCut  999007 1 1
 read -q ok\?"Press a key to continue: "
 # THIS IS DESTRUCTIVE!
 echo "rdDropCart ${cartNumberToDrop} 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
-rdDropCart ${cartNumberToDrop} 1
+rdDropCart "${cartNumberToDrop}" 1
 
 echo "sendNotification() without attachment. \c" && read -q ok\?"Press a key to continue: "
 x=$(sendNotification test dklann@grunch.org TEST-MESSAGE "This is a test message")
