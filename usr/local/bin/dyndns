@@ -11,22 +11,23 @@
 ##############################################################################
 ##############################################################################
 
-declare DOMAIN='btd.support'
-declare HOSTNAME='wcaa-studio'
-declare -r WHATS_MY_IP_URL='https://nxx.grunch.org/h/whatsmyip'
+declare DOMAIN=''
+declare HOSTNAME=''
+declare -r WHATS_MY_IP_URL='https://whatsmyip.grunch.org/'
+
+# See API_BASE_ROUTE below for the API route.
 declare -r API_PROTO='https'
 declare -r API_HOST='api.digitalocean.com'
-declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 # ShellCheck does not seem to know about read-only variables.
 # shellcheck disable=SC2155
-declare -r DO_API_KEY=$([[ -r /home/dklann/.config/doctl/api-access ]] && cat /home/dklann/.config/doctl/api-access)
+declare -r DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && cat ${HOME}/.config/doctl/api-access)
 declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
-declare -r vMinor=1
-declare -r vPatch=3
+declare -r vMinor=2
+declare -r vPatch=1
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -47,6 +48,7 @@ Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
                 [ --help ]
                 [ --domain (-d) <DOMAIN> ]
 		[ --hostname (-h) <HOSTNAME> ]
+                [ --ipv6 (-6) ]
 
 The default domain (if you do not specify one) is "btd.support".
 
@@ -75,10 +77,16 @@ Locally, ${myName} depends on the cache directory /var/cache/public
 being world writable. The file ${IP_ADDRESS_CACHE}
 shall contain the last known public IP address for this site.
 
+${myName} always attempts to update both the IPv4 address record
+('A'), and the IPv6 address record ('AAAA') for the invoking
+host. ${myName} simply skips the 'AAAA' record update if it cannot
+determine the host's IPv6 address.
+
 EOF
 }
 
 # Execute curl(1) against the Digital Ocean API.
+# Returns the address.
 do_curl() {
   local -r method="${1}" ; shift
   local -r route="${1}" ; shift
@@ -97,24 +105,30 @@ do_curl() {
        "${API_PROTO}://${API_HOST}${route}"
 }
 
-# Given a domain record, return the ID value associated with the
-# key/value pair.
+# Given a domain record (aka "zone"), return the ID value associated
+# with the key/value pair.
 get_domain_record_id() {
-  local json_string="${1}" ; shift
+  local -r json_string="${1}" ; shift
+  local -r type="${1}" ; shift
   local -r key="${1}" ; shift
   local -r value="${1}"
 
   local -i x=0
 
+  # 100 is just an arbitrarily high limit on the number of
+  # records. Adjust accordingly.
   while ((x<100)) ; do
     if [[ $(printf '%s' "${json_string}" | jq ".domain_records[${x}].${key}") =~ .*${value}.* ]] ; then
-      printf '%s' "${json_string}" | jq ".domain_records[${x}].id"
+      if [[ $(printf '%s' "${json_string}" | jq ".domain_records[${x}].type") =~ .*${type}.* ]] ; then
+	printf '%s' "${json_string}" | jq ".domain_records[${x}].id"
+      fi
       break
     fi
     ((x++))
   done
   if ((x == 100)) ; then
-    printf '%s: ERROR: unable to get a domain record for key: %s value: %s\n' "${0##*/}" "${key}" "${value}" >&2
+    printf '%s: ERROR: unable to get a domain record type "%s" for key: %s value: %s\n' \
+	   "${0##*/}" "${type}" "${key}" "${value}" >&2
     printf "UNKNOWN\n"
     return 1
   fi
@@ -126,7 +140,7 @@ get_domain_record_id() {
 ##############################################################################
 ##############################################################################
 
-if ! TEMP=$(getopt -o d:h:Vv --long domain:,help,hostname:,version,verbose -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o d:h:Vv --long domain:,hostname:,help,version,verbose -n "${0##*/}" -- "${@}") ; then
   printf 'getopt(1) Fatal Error (%s). Terminating...\n' "${?}" >&2
   exit 1
 fi
@@ -134,8 +148,8 @@ eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
     -d|--domain) DOMAIN="${2}" ; shift 2 ;;
-    --help*) usage "${0##*/}" ; exit ;;
     -h|--host*) HOSTNAME="${2}" ; shift 2 ;;
+    --help*) usage "${0##*/}" ; exit ;;
     -V|--vers*) showVersion=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
@@ -155,51 +169,120 @@ exec 2> "/var/tmp/${0##*/}.err"
 ((VERBOSE)) && set -o xtrace
 ((VERBOSE > 1)) && set -o errtrace functrace
 
-# Our last-known public IP addres is cached in local storage.
-last_ip=$(< "${IP_ADDRESS_CACHE}")
+declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
-# Hit David Klann's personal server to get the current public IP
-# address.
-current_ip=$(curl --silent -o - "${WHATS_MY_IP_URL}")
+# This hostname/domain was the original purpose of this script.
+DOMAIN="${DOMAIN:-btd.support}"
+HOSTNAME="${HOSTNAME:-wcaa-studio}"
 
-if [[ -z "${last_ip}" ]] ; then
-  # Maybe the first time doing this? Make sure /var/cache/public is
+# Our last-known public IP address(es) is(are) cached in local
+# storage. The cache consists of one or (at the most) two lines. The
+# first line shoult be the IPv4 address, the optional second line is
+# the IPv6 address.
+# SC2046: we *want* words to be split.
+# shellcheck disable=SC2046
+mapfile last_ip <<< $(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
+
+# Hit David Klann's personal server to get the current public IPv4
+# and IPv6 addresses.
+current_ipv4=$(curl -4 --silent -o - "${WHATS_MY_IP_URL}")
+current_ipv6=$(curl -6 --silent -o - "${WHATS_MY_IP_URL}")
+
+if [[ -z "${last_ip[0]}" ]] ; then
+  # Maybe the first time doing this? Be sure /var/cache/public is
   # world writeable!
-  if [[ -n "${current_ip}" ]] ; then
-    printf '%s\n' "${current_ip}" > "${IP_ADDRESS_CACHE}"
+  if [[ -n "${current_ipv4}" ]] ; then
+    printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
   else
-    printf '%s: unable to get our current Public IP address, and no known previous IP address. Bad News!\n' "${0##*/}" >&2
+    printf '%s: unable to get our current Public IPv4 address, and no known previous IPv4 address. Bad News!\n' "${0##*/}" >&2
     exit 3
   fi
 fi
+if [[ -z "${last_ip[1]}" ]] ; then
+  # Save the inet6 address if we have one. I *think* we do not care if
+  # current_ipv6 is not set. It depends on whether the invoking host
+  # *has* an inet6 address.
+  if [[ -n "${current_ipv6}" ]] ; then
+    typeset -r temp_file="$(mktemp)"
+    # SC2064: I *want* this parameter expanded now.
+    # shellcheck disable=SC2064
+    trap "rm -f ${temp_file} ; exit ;" 0
+    (
+      head -n 1 "${IP_ADDRESS_CACHE}"
+      printf '%s\n' "${current_ipv6}"
+    ) > "${temp_file}" && mv "${temp_file}" "${IP_ADDRESS_CACHE}"
+  fi
+fi
 
-if [[ "${last_ip}" != "${current_ip}" ]] ; then
+# Get the entire domain record (zone) from Digital Ocean.
+if ! DOMAIN_JSON=$(do_curl GET "${API_BASE_ROUTE}?page=1&per_page=100") ; then
+  curl_exit_value="${?}"
+  printf '%s: unable to get domain records.\n' "${0##*/}" >&2
+  exit "${curl_exit_value}"
+fi
+
+# Check the first cached value against the just-retrieved IPv4
+# address.
+if [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
 
   # Save this new IP address in the cache.
-  printf '%s\n' "${current_ip}" >! /usr/local/etc/last-know-public-ip
+  printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
 
-  if ! DOMAIN_JSON=$(do_curl GET "${API_BASE_ROUTE}") ; then
-    curl_exit_value="${?}"
-    printf '%s: unable to get domain records.\n' "${0##*/}" >&2
-    exit "${curl_exit_value}"
-  fi
-
-  # Get the record ID from D.O.
+  # Get the 'A' record ID from D.O. This is a fatal error because we
+  # only know how to *update* existing records (as of this version of
+  # the script).
+  # TODO: create a new A record if it does not exist.
   # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
-  if ! RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'name' "${HOSTNAME}") ||
-     [[ -z "${RECORD_ID}" ]] ; then
-    printf '%s: unable to get domain record ID.\n' "${0##*/}" >&2
+  if ! A_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'A' 'name' "${HOSTNAME}") ||
+     [[ -z "${A_RECORD_ID}" ]] ; then
+    printf '%s: FATAL: unable to get domain "A" record ID.\n' "${0##*/}" >&2
     exit 1
   fi
 
-  # Update the record for this hostname.
+  # Update the 'A' record for this hostname.
   # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
-  if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${RECORD_ID}" '{"data":"'"${current_ip}"'"}') ||
-     ! [[ "${RESPONSE}" =~ .*${RECORD_ID}.* ]] ; then
+  if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${A_RECORD_ID}" '{"data":"'"${current_ipv4}"'"}') ||
+     ! [[ "${RESPONSE}" =~ .*${A_RECORD_ID}.* ]] ; then
     curl_exit_value="${?}"
-    printf '"%s: unable to update domain record %s (%d).\n' "${0##*/}" "${RECORD_ID}" "${curl_exit_value}" >&2
-    printf 'response: %s\n' "${RESPONSE}" >&2
+    ((VERBOSE)) && printf '"%s: unable to update domain record %s (%d).\n' \
+			  "${0##*/}" "${A_RECORD_ID}" "${curl_exit_value}" >&2
+    ((VERBOSE)) && printf 'response: %s\n' "${RESPONSE}" >&2
     exit "${curl_exit_value}"
+  fi
+fi
+# Check the for a second cached value against the just-retrieved IPv6
+# address.
+if [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
+
+  # Save this new IPv6 address in the cache.
+  typeset -r temp_file="$(mktemp)"
+  # SC2064: I *want* this parameter expanded now.
+  # shellcheck disable=SC2064
+  trap "rm -f ${temp_file} ; exit ;" 0
+  (
+    head -n 1 "${IP_ADDRESS_CACHE}"
+    printf '%s\n' "${current_ipv6}"
+  ) > "${temp_file}" && mv "${temp_file}" "${IP_ADDRESS_CACHE}"
+
+  # Get the 'AAAA' record ID from D.O. This is not a fatal problem.
+  # TODO: create a new AAAA record if we have an IPv6 address.
+  # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
+  if ! AAAA_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'AAAA' 'name' "${HOSTNAME}") ||
+     [[ -z "${AAAA_RECORD_ID}" ]] ; then
+    printf '%s: WARNING: unable to get domain "AAAA" record ID.\n' "${0##*/}" >&2
+  fi
+
+  # Update the 'AAAA' record for this hostname if we have an existing one.
+  # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
+  if [[ -n "${AAAA_RECORD_ID}" ]] ; then
+    if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${AAAA_RECORD_ID}" '{"data":"'"${current_ipv6}"'"}') ||
+	! [[ "${RESPONSE}" =~ .*${AAAA_RECORD_ID}.* ]] ; then
+      curl_exit_value="${?}"
+      ((VERBOSE)) && printf '"%s: unable to update domain record %s (%d).\n' \
+			    "${0##*/}" "${AAAA_RECORD_ID}" "${curl_exit_value}" >&2
+      ((VERBOSE)) && printf 'response: %s\n' "${RESPONSE}" >&2
+      exit "${curl_exit_value}"
+    fi
   fi
 fi
 
