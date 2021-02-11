@@ -27,7 +27,7 @@ declare -i VERBOSE=0
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=1
+declare -r vPatch=2
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -250,6 +250,8 @@ if [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
     ((VERBOSE)) && printf 'response: %s\n' "${RESPONSE}" >&2
     exit "${curl_exit_value}"
   fi
+else
+  ((VERBOSE)) && printf '%s: No change in IPv4 address %s\n' "${0##*/}" "${current_ipv4}" >&2
 fi
 # Check the for a second cached value against the just-retrieved IPv6
 # address.
@@ -285,6 +287,8 @@ if [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
       exit "${curl_exit_value}"
     fi
   fi
+else
+  ((VERBOSE)) && printf '%s: No change in IPv6 address %s\n' "${0##*/}" "${current_ipv6}" >&2
 fi
 
 exit
