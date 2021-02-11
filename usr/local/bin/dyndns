@@ -173,7 +173,7 @@ declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
 # This hostname/domain was the original purpose of this script.
 DOMAIN="${DOMAIN:-btd.support}"
-HOSTNAME="${HOSTNAME:-wcaa-studio}"
+HOSTNAME="${HOSTNAME:-changeme}"
 
 # Our last-known public IP address(es) is(are) cached in local
 # storage. The cache consists of one or (at the most) two lines. The
@@ -181,7 +181,8 @@ HOSTNAME="${HOSTNAME:-wcaa-studio}"
 # the IPv6 address.
 # SC2046: we *want* words to be split.
 # shellcheck disable=SC2046
-mapfile last_ip <<< $(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
+declare -a last_ip
+mapfile -t last_ip <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
 
 # Hit David Klann's personal server to get the current public IPv4
 # and IPv6 addresses.
