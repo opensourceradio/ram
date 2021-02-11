@@ -1,4 +1,9 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2034,SC2064,SC2069,SC2207
+# SC2034: Ignore unused parameters (mainly version number)
+# SC2064: I *want* parameters to expand at the time of setting the trap
+# SC2069: ZSH handles redirection specifiers differentley from BASH
+# SC2207: ZSH mapfile is different from BASH
 
 ##############################################################################
 ##
@@ -17,54 +22,52 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=5
+vPatch=6
+# The '$' is not a parameter expansion here.
+# shellcheck disable=SC2016
 vHash='$Hash$'
 
 # Log STDOUT and STDERR of this script and all commands called by this
 # script to separate files.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+exec 1> "/var/tmp/${0:t}.out"
+exec 2> "/var/tmp/${0:t}.err"
 
-#################  BEGIN shell commands used in this script.  #################
+############# BEGIN external shell commands used in this script. #############
 # This script uses these 10 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  find
-  grep
-  logger
-  mkdir
-  mktemp
-  mysql
-  mysqldump
-  rm
-  rsync
-  tar
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+typeset -a our_commands
+our_commands=( find grep logger mkdir mktemp mysql mysqldump rm rsync tar )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands
+############## END external shell commands used in this script. ##############
 
-if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
-  source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t ${0:t} -p local7.err -i "ERROR: Cannot read '/usr/local/bin/zsh-functions' support library. Cannot continue."
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read '/usr/local/bin/zsh-functions' support library. Cannot continue."
   exit
 fi
 
 # Current date and time.
-TODAY=$(strftime '%Y-%m-%d-%H%M%S' ${EPOCHSECONDS})
+TODAY=$(strftime '%Y-%m-%d-%H%M%S' "${EPOCHSECONDS}")
 
 TMPDIR=${ROOT:-/}var/tmp
 DUMPDIR=${DUMPDIR:-${TMPDIR}/mysql}
-DUMP_OUTPUT=$(${MKTEMP} --tmpdir=${TMPDIR} mysqldump-output.XXXXXXXXXX)
+DUMP_OUTPUT=$(${MKTEMP} --tmpdir="${TMPDIR}" mysqldump-output.XXXXXXXXXX)
 
 # Optional: specify the name of an additional backup directory in
 # which to rsync(1) the backup tarball. It is best if this directory
@@ -84,13 +87,13 @@ trap "${RM} -f ${DUMP_OUTPUT}; exit" 0 1 2 3
 KEEP=${KEEP:-31}
 
 # Neither of these is fatal if they break.
-test -d ${DUMPDIR} || ${MKDIR} -p ${DUMPDIR}
-test -n "${BACKUP_DIR}" && { test -d ${BACKUP_DIR} || ${MKDIR} -p ${BACKUP_DIR} }
+test -d "${DUMPDIR}" || ${MKDIR} -p "${DUMPDIR}"
+test -n "${BACKUP_DIR}" && { test -d "${BACKUP_DIR}" || ${MKDIR} -p "${BACKUP_DIR}" ; }
 
 # Get a list of all the databases.
-databases=( $(${MYSQL} --defaults-file=${MY_CNF} -s -N -e 'show databases') )
+databases=( $(${MYSQL} --defaults-file="${MY_CNF}" -s -N -e 'show databases') )
 # Dump master data only if binary logging is enabled.
-masterData=$(${MYSQL} --defaults-file=${MY_CNF} -s -N -e 'show master status' | ${GREP} -F -q 'mysqld-bin.' && echo '--master-data')
+masterData=$(${MYSQL} --defaults-file="${MY_CNF}" -s -N -e 'show master status' | ${GREP} -F -q 'mysqld-bin.' && echo '--master-data')
 
 # Make the ouput files readable only by the owner.
 # u=r,g=,o=
@@ -98,72 +101,72 @@ umask 0377
 
 # Dump each database into two separate files: one with data and one
 # without (to recreate an empty database).
-for database in ${databases} ; do
+for database in ${databases[*]} ; do
   # Skip these databases.
-  [[ "${database}" =~ '(information|performance)_schema' ]] && continue
+  [[ "${database}" =~ (information|performance)_schema ]] && continue
 
   # Dump the database.
-  ${MYSQLDUMP} --defaults-file=${MY_CNF} --comments --dump-date ${masterData} --single-transaction --add-drop-database --add-drop-table --databases ${database} > ${DUMPDIR}/${database}-${TODAY}.sql
+  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date "${masterData}" --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${DUMPDIR}/${database}-${TODAY}.sql"
   dbDumpVal=${?}
   # Dump just the database schema.
-  ${MYSQLDUMP} --defaults-file=${MY_CNF} --comments --dump-date --no-data --databases ${database} > ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql
+  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date --no-data --databases "${database}" > "${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql"
   schemaDumpVal=${?}
 
   # Sanity checks for the output files.
   if [[ -f ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
     if ! [[ -s ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
-      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql exists but is empty (${dbDumpVal})."
+      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql exists but is empty (${dbDumpVal})."
     fi
   else
-    ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql was not created (${dbDumpVal})."
+    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql was not created (${dbDumpVal})."
   fi
   if [[ -f ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
     if ! [[ -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
-      ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql exists but is empty (${schemaDumpVal})."
+      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql exists but is empty (${schemaDumpVal})."
     fi
   else
-    ${LOGGER} -t ${0:t} -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql was not created (${schemaDumpVal})."
+    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql was not created (${schemaDumpVal})."
   fi
-done 2>&1 > ${DUMP_OUTPUT}
+done 2>&1 > "${DUMP_OUTPUT}"
 
 # Do not proceed if there is output in $DUMP_OUTPUT (we had errors if
 # there is).
-if [[ -s ${DUMP_OUTPUT} ]] ; then
-  sendNotification "${0:t}" "${MAILTO}" DBDUMP-OUTPUT "Unexpectedly found messages in database dump log. See attached." ${DUMP_OUTPUT}
+if [[ -s "${DUMP_OUTPUT}" ]] ; then
+  sendNotification "${0:t}" "${MAILTO}" DBDUMP-OUTPUT "Unexpectedly found messages in database dump log. See attached." "${DUMP_OUTPUT}"
   exit 1
 fi
 
-if ! ${TAR} --create --bzip2 --atime-preserve --directory=${TMPDIR} --file ${TMPDIR}/mysql-backup-${TODAY}.tar.bz2 mysql ; then
+if ! ${TAR} --create --bzip2 --atime-preserve --directory="${TMPDIR}" --file "${TMPDIR}/mysql-backup-${TODAY}.tar.bz2" mysql ; then
   returnValue=${?}
   sendNotification "${0:t}" "${MAILTO}" DBDUMP-TARBALL "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${returnValue})."
-  exit ${returnValue}
+  exit "${returnValue}"
 fi
 
 # clean up after archiving the database dumps
-if ! ${RM} -rf ${DUMPDIR} ; then
+if ! ${RM} -rf "${DUMPDIR}" ; then
   returnValue=${?}
   sendNotification "${0:t}" "${MAILTO}" DBDUMP-CLEANUP "Error removing '${DUMPDIR}' (ERROR CODE ${returnValue})."
-  exit ${returnValue}
+  exit "${returnValue}"
 fi
 
 # remove backup archives that are more than ${KEEP} days old
-if ! ${FIND} ${TMPDIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -print -delete ; then
+if ! ${FIND} "${TMPDIR}" -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +"${KEEP}" -print -delete ; then
   returnValue=${?}
   sendNotification "${0:t}" "${MAILTO}" DBDUMP-AGING "Trouble removing backup archives (ERROR CODE ${returnValue})."
-  exit ${returnValue}
+  exit "${returnValue}"
 fi
 
 # successful purge, (optionally) make a backup of the backup (if
 # BACKUP_DIR is set).
 if [[ -n "${BACKUP_DIR}" ]] ; then
-  if ! [[ -d ${BACKUP_DIR} ]] ; then
-    if ! ${MKDIR} -p ${BACKUP_DIR} ; then
+  if ! [[ -d "${BACKUP_DIR}" ]] ; then
+    if ! ${MKDIR} -p "${BACKUP_DIR}" ; then
       returnValue=${?}
       sendNotification "${0:t}" "${MAILTO}" DBDUMP-BACKUP_DIR "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${returnValue})."
-      exit ${returnValue}
+      exit "${returnValue}"
     fi
   fi
-  ${RSYNC} --archive --temp-dir=${TMPDIR} --partial-dir=temp --delay-updates ${TMPDIR}/mysql-backup-* ${BACKUP_DIR}
+  ${RSYNC} --archive --temp-dir="${TMPDIR}" --partial-dir=temp --delay-updates "${TMPDIR}"/mysql-backup-* "${BACKUP_DIR}"
   rsyncReturnValue=${?}
   if (( rsyncReturnValue == 0 || rsyncReturnValue == 23 || rsyncReturnValue == 24 )) ; then
     # We cannot use the --delete option to
@@ -171,16 +174,16 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
     # individual files. Delete the backups
     # "manually".
     # As above: remove backup archives that are more than ${KEEP} days old
-    if ! ${FIND} ${BACKUP_DIR} -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +${KEEP} -delete ; then
+    if ! ${FIND} "${BACKUP_DIR}" -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +"${KEEP}" -delete ; then
       returnValue=${?}
       sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC-CLEAN "Trouble deleting files from ${BACKUP_DIR} (${returnValue}). Seek professional help!"
-      exit ${returnValue}
+      exit "${returnValue}"
     fi
   else
     # These error messages are straight from the
     # rsync(1) manual page (for rsync version
     # 3.1.1).
-    case ${rsyncReturnValue} in
+    case "${rsyncReturnValue}" in
       1) message="Syntax or usage error" ;;
       2) message="Protocol incompatibility" ;;
       3) message="Errors selecting input/output files, dirs" ;;
@@ -202,12 +205,12 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
       35) message="Timeout waiting for daemon connection" ;;
       *) message="Unknown rsync(1) return code" ;;
     esac
-    if [[ ${message} =~ '.*\(quiet\)$' ]] ; then
-      ${LOGGER} -t ${0:t} -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue}."
+    if [[ "${message}" =~ .*\(quiet\)$ ]] ; then
+      ${LOGGER} -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue}."
     else
       sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC "Trouble with making a backup of the backup of the database (rsync ERROR ${rsyncReturnValue} - ${message})."
     fi
-    ${LOGGER} -t ${0:t} -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue} (${message})."
+    ${LOGGER} -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue} (${message})."
   fi
 fi
 
