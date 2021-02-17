@@ -1,0 +1,186 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2079,SC2154,SC2162
+# SC2016: The single quotes are inside a double-quoted string
+# SC2079: ZSH (( )) does support decimals
+# SC2154: I know about all the referenced but not assigned variables
+# SC2162: I do not care about read and its backslashes
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri vMajor=0
+declare -ri vMinor=1
+declare -ri vPatch=1
+declare -r vHash='$Hash$'
+
+##############################################################################
+##############################################################################
+##
+## btd-gain-set
+##
+## Taking input from a file generated with 'bs1770gain --ebu --xml ...', set
+## the cut gain in the Rivendell database (CUTS.PLAY_GAIN) to the recommended
+## values, plus or minus an additional amount.
+##
+##############################################################################
+##############################################################################
+##
+## REQUIREMENTS
+##
+## zsh(1): needed to run this script. Install it with `sudo yum
+## install zsh` or equivalent.
+##
+## xmlstarlet(1): this is used to parse the XML from the NWS
+## website. Install it with the command `sudo yum install xmlstarlet`
+## (from the epel repository) or equivalent.
+##
+##############################################################################
+##############################################################################
+##
+## LOCALLY DEFINED SUBROUTINES
+##
+##############################################################################
+##############################################################################
+
+## Tell them how to use this command.
+usage() {
+  local my_name=${1:t}
+
+  ${CAT} << EOF >&2
+${my_name}: Set the PLAY_GAIN column for cuts based on the output of bs1770gain(1)
+
+SUMMARY
+
+${my_name} [ --verbose ... (-v) ] [ --dry-run (-d) ]
+             [ --additional (-a) <FLOAT> ]
+             XML-file
+
+DESCRIPTION
+
+Taking input from a file generated with
+
+    bs1770gain --ebu --xml /var/snd
+
+set the cut gain in the Rivendell database (CUTS.PLAY_GAIN) to the
+recommended values, plus or minus an optional additional amount.
+
+${my_name} reads the XML file, extracting file names and gain change
+values (represented as floating point numbers) and sets the
+CUTS.PLAY_GAIN column for each Cut.
+
+Specify --dry-run to show what the script would do.
+
+Specify --verbose to make ${my_name} be chatty about its operation.
+
+Specify an additional value to add to or subtract from the value
+recommended by bs1770gain.
+
+EOF
+}
+
+declare -i DRY_RUN=0
+declare -i VERBOSE=0
+declare -i GAIN
+declare -F 2 ADJ
+
+# Get zsh functions necessary for this script.
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+else
+  exit "$(error 'Cannot read support library /usr/bin/zsh-functions. Please consult your tarot card reader!')"
+fi
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 3 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat getopt xmlstarlet )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands
+############## END external shell commands used in this script. ##############
+
+if ! TEMP=$(${GETOPT} -o a:dhVv --long additional:,dry-run,help,version,verbose -n "${0##*/}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -a|--addi*) ADJ="${2}" ; shift 2 ;;
+    -d|--dry-run) DRY_RUN=1 ; shift ;;
+    -h|--help*) usage "${0}" ; exit ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    --) shift ; break ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
+
+if ((showVersion)) ; then
+  printf "%s: version %d.%d.%d-%s\n" "${0:t}" ${vMajor} ${vMinor} ${vPatch} ${${vHash#\$Hash: }%$}
+  exit 0
+fi
+
+bs1770_xml_file=${1:?"Please name an XML file containing the output of 'bs1770gain --ebu --xml /var/snd'"}
+
+# Use this to indicate to both the running instance of ZSH and to
+# xmlstarlet(1) the field separator.
+IFS=':'
+
+# Select values from the XML file using "templates" shown in the
+# --match parameters and the values in the --value-of
+# parameters. Essentially, extract the filename, the overall LUFS
+# value and the delta value. It is the delta value that we use to
+# update CUTS.PLAY_GAIN.
+${XMLSTARLET} select --template \
+	      --match 'bs1770gain/album/track' --value-of '@file' --output "${IFS}" \
+	      --match 'integrated' --value-of '@lufs' --output "${IFS}" --value-of '@lu' --nl "${bs1770_xml_file}" |
+  while read basename lufs change ; do
+    cut_name="${basename%.wav}"
+    GAIN=$(((change + ADJ) * 100))
+    ((VERBOSE)) && printf "For /var/snd/%s at %f adjust %f (actual: %.2f)\n" "${basename}" "${lufs}" "${change}" $((GAIN / 100))
+    # SC2140: the quoting is correct, just unusual
+    # shellcheck disable=SC2140
+    ((DRY_RUN)) && printf 'doSQL "update CUTS set PLAY_GAIN = %d where CUT_NAME = '"'"%s"'"'"\n' "${GAIN}" "${cut_name}"
+    ((DRY_RUN)) || doSQL "update CUTS set PLAY_GAIN = ${GAIN} where CUT_NAME = '${cut_name}'"
+  done
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
