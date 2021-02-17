@@ -1,0 +1,31 @@
+#!/bin/zsh
+
+######################################################################
+##
+## This script is started by Rivendell caed when the Rivendell daemons
+## are launched.
+## See mysql Rivendell2018 -e "SELECT name,jack_command_line from STATIONS"
+##
+######################################################################
+
+## Get zsh functions necessary for this script.
+[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+
+## log STDOUT and STDERR of this script and all commands called by this script to separate files
+exec 1> /var/tmp/${0##*/}.out
+exec 2> /var/tmp/${0##*/}.err
+
+(( VERBOSE )) && setopt xtrace
+
+# Get Rivendell's sample rate, we will use that for JACK.
+system_sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
+
+export LANG=en_US.UTF-8
+export TERM=xterm
+export QTDIR=/usr/lib64/qt-3.3
+export PATH=/sbin:/bin:/usr/bin:/usr/sbin:/opt/bin:/usr/local/bin:/home/wdrt/bin
+export XDG_DATA_DIRS=/usr/local/share/:/usr/share/
+export XDG_RUNTIME_DIR=/run/user/1010
+export QT_GRAPHICSSYSTEM_CHECKED=1
+
+exec /usr/bin/jackd --realtime --name default -d dummy -r "${system_sample_rate}" 2>&1 > /var/tmp/jackd.log
