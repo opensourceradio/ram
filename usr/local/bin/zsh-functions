@@ -30,7 +30,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=8
+  vLibPatch=9
   vLibHash='$Hash$'
 }
 function zsh_library_version() {
@@ -1051,7 +1051,7 @@ function rdResetDropbox() {
 # table.
 function okDatabaseStructure() {
   local tablesAndColumns="${1}" ; shift
-  local verbose="${1}"
+  local verbose="${1:-0}"
 
   local schema
 
@@ -1069,14 +1069,14 @@ function okDatabaseStructure() {
 
     if ! schema=$(doSQL "SHOW CREATE TABLE \`${table}\`\\G" 2>/dev/null) ; then
       IFS="${oIFS}"
-      echo "okDatabaseStructure: ERROR: unable to get a schema for table '${table}'" >&2
+      ((verbose)) && echo "okDatabaseStructure: ERROR: unable to get a schema for table '${table}'" >&2
       return 1
     fi
 
     for column in $(echo ${tables[${table}]//+/ }) ; do
       if ! echo "${schema}" | grep --quiet --perl-regexp --ignore-case "\s+\`${(U)column}\`\s+" ; then
 	IFS="${oIFS}"
-	echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
+	((verbose)) && echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
 	return 2
       fi
     done
