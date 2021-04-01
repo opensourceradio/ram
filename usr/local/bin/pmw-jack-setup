@@ -1,4 +1,8 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2030,SC2031,SC2181
+# SC2030: ZSH implements pipelines in the current shell, not a subshell
+# SC2031: ZSH implements loops in the current shell, not a subshell
+# SC2181: checking $? due to multiple condition branches
 
 ##########################################################################################
 ##########################################################################################
@@ -7,226 +11,285 @@
 ##
 ## Set up jack environment for Rivendell and off-board (add-on) audio adapter(s).
 ##
-## This is expected to be called per-host from the Rivendell "Jack
-## Clients" list.
+## This is expected to be called per-host and per-device from
+## Rivendell "Jack Clients".
 ##
 ##########################################################################################
 ##########################################################################################
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=2
-vPatch=3
-vHash='$Hash$'
-
-#################  BEGIN shell commands used in this script.  #################
-# This script uses these 13 external commands.
-# Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  alsa_in
-  alsa_out
-  aplay
-  awk
-  cat
-  fmt
-  getopt
-  grep
-  jack_load
-  logger
-  sort
-  zita-a2j
-  zita-j2a
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
-  for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
-  done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
-done
-##################  END shell commands used in this script.  ##################
+v_major=0
+v_minor=2
+v_patch=4
+# SC2016: Hash is not a shell variable.
+# shellcheck disable=SC2016
+v_hash='$Hash$'
 
 ## How does this work again?
-usage() {
-    myName=${1:t}
+function usage() {
+    my_name="${1:t}"
 
     ${CAT} << EOF
-${myName}: add audio device to the JACK connection graph
+SUMMARY
 
-$(version ${myName})
+${my_name}: add audio device to the JACK connection graph
 
-Summary:
+SYNOPSIS
 
-${myName} [ --in (-i) ] [ --out (-o) ] \\
+${my_name} [ --help (-h) ] [ --verbose (-v) ] [ --version (-V) ] \\
+               [ --in (-i) ] [ --out (-o) ] \\
                [ --device <Numeric Device ID> ] \\
-               [ --subdevice <Numeric Subdevice ID> (-s) ] \\
+               [ --ci <Number>  ] [ --co <Number> ] \\
                ALSA-Device-Name Jack-Client-Name
 
-$( ${FMT} <<<'This script loads the audio device "ALSA-Device-Name" into the currently-running jackd process and names the device "Jack-Client-Name". The script requires the ALSA-Device-Name to be an exact match to a "card" name as shown with the "aplay -l" command.' )
+DESCRIPTION
 
-$( ${FMT} <<<'With no options, both input and output ports are made available. With the --in option, only input ports are added. With only the --out option, only output ports are added.' )
+$(${FMT} <<<'This script loads the audio device "ALSA-Device-Name" into the currently-running jackd graph and names the device "Jack-Client-Name". The script requires the ALSA-Device-Name to be an exact match to a "card" name as shown with the "aplay -l" command.')
 
-$( ${FMT} <<<'Use the "--device <ID>" option to load a specific "major" ALSA device (the default if you do not specify a device is Device ID 0).' )
+$(${FMT} <<<'With no options, both input and output ports are made available. With the --in option, only input ports are added. With only the --out option, only output ports are added.')
 
-$( ${FMT} <<<'UNSUPPORTED, NOT WORKING: Use the "--subdevice <ID>" option to load a "device within a device" (e.g., HDMI on-board audio).' )
+$(${FMT} <<<'Use the "--device <ID>" option to load a specific "major" ALSA device (the default if you do not specify a device is Device ID 0).')
 
-See Also
+$(${FMT} <<<"${my_name} queries the ALSA subsystem with amixer(1) to determine the number of input (record, capture, etc.) ports and output (playback, playout, etc.) channels. You may override this autodetection functionality by specifying --ci <Number> and/or --co <Number> for input and output channels respectively.")
 
-    aplay(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)
+See also
 
-    /etc/modprobe.d/sound.conf (or similar) for the order in
-    which sound cards are (or should be) loaded.
+    aplay(1), amixer(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)
+
+    /etc/modprobe.d/sound.conf (or similar) for the order in which
+    sound cards are (or should be) loaded.
 
 EOF
 }
 
-version() {
-    myName=${1}
-    echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+function version() {
+    my_name="${1}"
+    echo "${my_name}: version ${v_major}.${v_minor}.${v_patch}-${${v_hash#\$Hash: }%$}"
 }
 
+############ BEGIN external shell commands used in this function. ############
+# This function uses these 13 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+#our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort zita_a2j zita_j2a )
+our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands
+############# END external shell commands used in this function. #############
+
+typeset -i VERBOSE=0
+
 ## Get zsh functions necessary for this script.
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ ! -r /usr/local/bin/zsh-functions ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+	      "ERROR: Unable to read /usr/local/bin/zsh-functions. Unable to continue."
+    exit 1
+fi
+source /usr/local/bin/zsh-functions
 
 ## Assume they want to connect both input AND output ports.
-direction=both
+typeset direction=both
 
 ## Assume that we are working on ALSA "major" device 0.
-device=0
+typeset -i device=0
 
-## Assume that we are not working on a subdevice (pass -s on the
-## command line if so).
-subdevice=
-
-## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o hd:ios:v --long help,device:,in,out,subdevice:,version -n ${0:t} -- "${@}")
-if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
-## Note the quotes around "$TEMP": they are essential!
+if ! TEMP=$(getopt -o hd:ioVv --long help,ci:,co:,device:,in,out,verbose,version -n "${0:t}" -- "${@}") ; then
+  echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
 eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-      -h|--help) usage ${0} ; exit ;;
       -d|--dev*) device=${2} ; shift 2 ;;
+      --ci) channels_input=${2} ; shift 2 ;;
+      --co) channels_output=${2} ; shift 2 ;;
       -i|--in*) direction=in ; shift ;;
       -o|--out*) direction=out ; shift ;;
-      -s|--sub*) subdevice=${2} ; shift 2 ;;
-      -v|--ver*) showVersion=1 ; shift ;;
+      -h|--help) usage "${0}" ; exit ;;
+      -v|--vers*) show_version=1 ; shift ;;
+      -V|--verb*) VERBOSE=1 ; shift ;;
       --) shift ; break ;;
       *) echo 'Internal error!' ; exit 1 ;;
   esac
 done
 unset TEMP
 
-if (( showVersion )) ; then
-  version ${0##*/}
+if ((show_version)) ; then
+  version "${0:t}"
   exit 0
 fi
 
 ## log STDOUT and STDERR of this script and all commands called by this script to separate files
-exec 1> /var/tmp/${0##*/}${1:+"-${1}"}.out
-exec 2> /var/tmp/${0##*/}${1:+"-${1}"}.err
+exec 1> "/var/tmp/${0:t}${1:+-${1}}.out"
+exec 2> "/var/tmp/${0:t}${1:+-${1}}.err"
+((VERBOSE)) && setopt xtrace
 
 ## JACK settings.
-RATE=${RATE:-48000}
-PERIODS=${PERIODS:-1024}
-NPERIODS=${NPERIODS:-2}
+## See also (/usr/local/bin/) jackd-start
+typeset -ir RATE=$(doSQL "select SAMPLE_RATE from SYSTEM")
+typeset -ir PERIODS="${JACK_PERIODS:-1024}"
+typeset -ir NPERIODS="${JACK_NPERIODS:-2}"
 
 ## Log errors if insufficient arguments.
 if [[ -z "${1}" ]] ; then
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing ALSA device name specification. Cannot continue without an ALSA device name on the command line."
-    exit 1
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+	      "ERROR: Missing ALSA device name specification. Cannot continue without an ALSA device name on the command line."
+    exit 2
 fi
 if [[ -z "${2}" ]] ; then
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Missing Jack Client Name as the second argument on the command line. Cannot continue."
-    exit 2
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+	      "ERROR: Missing Jack Client Name as the second argument on the command line. Cannot continue."
+    exit 3
 fi
 
 ## Invocation requires both an ALSA device name and a JACK client name.
-cardPattern=${1}
-jackClientName=${2}
+card_pattern="${1}"
+jack_client_name="${2}"
 
-## Find the card in the output from aplay(1). We need to look at
-## different output sections when adding a subdevice.
-if (( subdevice )) ; then
-    ## THIS IS NOT WORKING. DO NOT USE --subdevice!
-    cardIndexAndName=$(${APLAY} -l | ${AWK} "/ subdevice #${subdevice}/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
-else
-    cardIndexAndName=$(${APLAY} -l | ${AWK} "/^card .* ${cardPattern} .*, device ${device}:/{print \$2 \$3}" | ${SORT} -u | ${GREP} ${cardPattern})
-fi
+## Find the card in the output from aplay(1).
+typeset -r card_index_and_name=$(${APLAY} -l |
+				  ${AWK} "/^card .* ${card_pattern} .*, device ${device}:/{print \$2 \$3}" |
+				  ${SORT} -u |
+				  ${GREP} "${card_pattern}")
 
 ## Set up the JACK configuration if we found an audio device that
 ## matches the CLI argument.
-if [[ -n "${cardIndexAndName}" ]] ; then
-    cardIndex=${cardIndexAndName%:*}
-    cardName=${cardIndexAndName#*:}
-
-    alsaOutLog=${VARTMP:-/var/tmp}/alsa-output-${cardName}.log
-    alsaInLog=${VARTMP:-/var/tmp}/alsa-input-${cardName}.log
-
-    case ${direction} in
-
-	both)
-	    # Load the audio card into the running instance of
-	    # jackd. This sets up input and output ports.
-	    if ${JACK_LOAD} -i "-d alsa -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS}" ${jackClientName} audioadapter ; then
-		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: loaded ${cardIndex}:${cardName} as ${jackClientName}."
-	    else
-		${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to load ${cardIndex}:${cardName} as ${jackClientName}."
-	    fi
-	    ;;
-
-	in)
-	    # Use the card for audio input. Prefer zita-a2j over alsa_in.
-	    # Note that these must be put into the background in
-	    # order to keep running while jackd is running.
-	    if [[ -x ${ZITA_A2J} ]] ; then
-		nohup ${ZITA_A2J} -j ${jackClientName} -d hw:${cardIndex},${device} &
-		appName=zita-a2j
-	    else
-		nohup ${ALSA_IN} -j ${jackClientName} -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} &
-		appName=alsa_in
-	    fi &> ${alsaInLog}
-	    if (( ${?} == 0 )) ; then
-		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: ${appName} added '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for INPUT."
-	    else
-		${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${appName} failed to add '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for INPUT."
-	    fi
-	    ;;
-
-	out)
-	    # Use the card for audio output. Prefer zita-j2a over alsa_out.
-	    # Note that these must be put into the background in
-	    # order to keep running while jackd is running.
-	    if [[ -x ${ZITA_J2A} ]] ; then
-		nohup ${ZITA_J2A} -j ${jackClientName} -d hw:${cardIndex},${device} &
-		appName=zita-j2a
-	    else
-		nohup ${ALSA_OUT} -j ${jackClientName} -d hw:${cardIndex},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} &
-		appName=alsa_out
-	    fi &> ${alsaOutLog}
-	    if (( ${?} == 0 )) ; then
-		${LOGGER} -t ${0##*/} -p local7.info -i "INFO: ${appName} added '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for OUTPUT."
-	    else
-		${LOGGER} -t ${0##*/} -p local7.err -i "ERROR: ${appName} failed to add '${cardName}' (hw:${cardIndex},${device}) as ${jackClientName} for OUTPUT."
-	    fi
-	    ;;
-
-    esac
-
-else
-
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Unable to find audio device matching '${cardPattern}'. Cannot continue."
-
+if [[ -z "${card_index_and_name}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+	      "ERROR: Unable to find audio device matching '${card_pattern}'. Cannot continue."
+    exit 4
 fi
+
+typeset -r card_index="${card_index_and_name%:*}"
+typeset -r card_name="${card_index_and_name#*:}"
+
+typeset -r alsa_out_log="${VARTMP:-/var/tmp}/alsa-output-${card_name}.log"
+typeset -r alsa_in_log="${VARTMP:-/var/tmp}/alsa-input-${card_name}.log"
+
+## Get the number of input (capture, record, etc.) and output
+## (playback, playout, etc.) channels. Use an associative array to
+## store; key: role, value: channel count
+typeset -A channels
+
+## The possible values for channel "roles"; capture (record) and
+## playback.
+typeset -l mixer_role role
+typeset -r rec="capture"
+typeset -r pla="playback"
+
+## Did they specify number of channels on the command line? I guess if
+## they specify the number of input channels, they should also specify
+## number of output channels.
+if [[ -n "${channels_input}" ]] && [[ -n "${channels_output}" ]] ; then
+    channels[${rec}]="${channels_input}"
+    channels[${pla}]="${channels_output}"
+else
+    ## Attempt to discern the number of input and output channels on this
+    ## device.
+    ${AMIXER} -c "${card_index}" controls | while read -r amixer_control_line ; do
+	[[ "${amixer_control_line}" =~ .*iface=PCM.* ]] || continue
+	## e.g.: numid=1,iface=PCM,name='Playback Channel Map'
+	mixer_role="${${amixer_control_line#*name=\'}% Channel Map\'}"
+	case "${mixer_role}" in
+	    capture) role="${mixer_role}" ;;
+	    playback) role="${mixer_role}" ;;
+	    *) role="UNKNOWN_ROLE_${mixer_role}" ;;
+	esac
+	## e.g.: ; type=INTEGER,access=r----R--,values=4,min=0,max=36,step=0
+	## This extracts the number of channels (values=???)
+	channels[${role}]=$(${AMIXER} -c "${card_index}" cget "${amixer_control_line}" | awk -F, '/type=INTEGER/{split($3,ch,/=/); print ch[2]}')
+	((VERBOSE)) && ${LOGGER} -t "${0:t}" -p local7.info -i \
+				 "INFO: '${card_name}' (hw:${card_index},${device}) claims to have ${channels[${role}]} ${mixer_role} channels."
+    done
+    unset amixer_control_line role mixer_role
+fi
+
+case "${direction}" in
+    both)
+	# Load the audio card into the running instance of
+	# jackd. This sets up input and output ports.
+	if ${JACK_LOAD} \
+	       -i "-d alsa -d hw:${card_index},${device} -r ${RATE} -p ${PERIODS} -n ${NPERIODS} -i ${channels[${rec}]} -o ${channels[${pla}]}" \
+	       "${jack_client_name}" audioadapter ; then
+	    ${LOGGER} -t "${0:t}" -p local7.info -i \
+		      "INFO: loaded ${card_index}:${card_name} as ${jack_client_name} (${channels[${rec}]} input channels, ${channels[${pla}]} output channels)."
+	else
+	    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+		      "ERROR: Unable to load ${card_index}:${card_name} as ${jack_client_name}."
+	fi
+	;;
+    in)
+	# Use the card for audio input. Prefer zita-a2j over alsa_in
+	# (but the zita tools are not packaged for Red Hat/CentOS).
+	# Note that these must be put into the background in order to
+	# keep running while jackd is running.
+	#
+	# The command output is saved in the named log file(s).
+	if [[ -x ${ZITA_A2J} ]] ; then
+	    nohup "${ZITA_A2J}" -j "${jack_client_name}" -d "hw:${card_index},${device}" &
+	    typeset -r app_name=zita-a2j
+	else
+	    nohup "${ALSA_IN}" -j "${jack_client_name}" \
+		  -d "hw:${card_index},${device}" \
+		  -r "${RATE}" \
+		  -p "${PERIODS}" \
+		  -n "${NPERIODS}" \
+		  -c "${channels[${rec}]}" &
+	    typeset -r app_name=alsa_in
+	fi &> "${alsa_in_log}"
+	if ((${?} == 0)) ; then
+	    ${LOGGER} -t "${0:t}" -p local7.info -i \
+		      "INFO: ${app_name} added '${card_name}' (hw:${card_index},${device}) as ${jack_client_name} for INPUT with ${channels[${rec}]} channels."
+	else
+	    ${LOGGER} -t "${0:t}" -p local7.err -i \
+		      "ERROR: ${app_name} failed to add '${card_name}' (hw:${card_index},${device}) as ${jack_client_name} for INPUT."
+	fi
+	;;
+    out)
+	# Use the card for audio output. Prefer zita-j2a over alsa_out.
+	# Note that these must be put into the background in
+	# order to keep running while jackd is running.
+	if [[ -x "${ZITA_J2A}" ]] ; then
+	    nohup "${ZITA_J2A}" -j "${jack_client_name}" -d "hw:${card_index},${device}" &
+	    typeset -r app_name=zita-j2a
+	else
+	    nohup "${ALSA_OUT}" -j "${jack_client_name}" \
+		  -d "hw:${card_index},${device}" \
+		  -r "${RATE}" \
+		  -p "${PERIODS}" \
+		  -n "${NPERIODS}" \
+		  -c "${channels[${pla}]}" &
+	    typeset -r app_name=alsa_out
+	fi &> "${alsa_out_log}"
+	if ((${?} == 0)) ; then
+	    ${LOGGER} -t "${0:t}" -p local7.info -i \
+		      "INFO: ${app_name} added '${card_name}' (hw:${card_index},${device}) as ${jack_client_name} for OUTPUT with ${channels[${pla}]} channels."
+	else
+	    ${LOGGER} -t "${0:t}" -p local7.err -i \
+		      "ERROR: ${app_name} failed to add '${card_name}' (hw:${card_index},${device}) as ${jack_client_name} for OUTPUT."
+	fi
+	;;
+esac
 
 exit
 
 ## Example (contrived) output of aplay -l
-cat << EOF
+${CAT} << EOF
 **** List of PLAYBACK Hardware Devices ****
 card 0: PCH [HDA Intel PCH], device 0: ALC662 rev1 Analog [ALC662 rev1 Analog]
   Subdevices: 0/1
