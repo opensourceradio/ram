@@ -30,6 +30,7 @@ function usage() {
     my_name="${1:t}"
 
     ${CAT} << EOF
+
 SUMMARY
 
 ${my_name}: add audio device to the JACK connection graph
@@ -52,12 +53,11 @@ $(${FMT} <<<'Use the "--device <ID>" option to load a specific "major" ALSA devi
 
 $(${FMT} <<<"${my_name} queries the ALSA subsystem with amixer(1) to determine the number of input (record, capture, etc.) ports and output (playback, playout, etc.) channels. You may override this autodetection functionality by specifying --ci <Number> and/or --co <Number> for input and output channels respectively.")
 
-See also
+SEE ALSO
 
-    aplay(1), amixer(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)
+$(${FMT} <<<"aplay(1), amixer(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)")
 
-    /etc/modprobe.d/sound.conf (or similar) for the order in which
-    sound cards are (or should be) loaded.
+$(${FMT} <<<"/etc/modprobe.d/sound.conf (or similar) for the order in which sound cards are (or should be) loaded.")
 
 EOF
 }
