@@ -1,10 +1,19 @@
 #!/bin/zsh
+# shellcheck shell=bash
+
+# This script complies with Semantic Versioning: http://semver.org/
+vMajor=0
+vMinor=2
+vPatch=1
+# SC2016: $Hash is not a shell variable.
+# shellcheck disable=SC2016
+vHash='$Hash$'
 
 # Based on sage_endec_rwt.sh in the Rivendell source distribution
 #
 # Run a Required Weekly Test on a Sage Digital ENDEC
 #
-#   (C) Copyright 2016 David Klann <dxklann@riseup.net>
+#   (C) Copyright 2021 David Klann <dklann@broadcasttool.com>
 #   (C) Copyright 2012 Fred Gleason <fredg@paravelsystems.com>
 #
 #      $Id: sage_endec_rwt.sh,v 1.1.2.1 2012/10/11 19:16:27 cvs Exp $
@@ -37,14 +46,14 @@
 # Returns null
 ##############################################################################
 function usage() {
-  local myName=${1:t}
+  local myName="${1:t}"
 
   ${CAT} << EOF
 
 ${myName}: issue a required weekly test (RWT) on the specified EAS
 device
 
-Summary: ${myName##*/} <hostname or IP address> <username> <password>
+Summary: ${myName} <hostname or IP address> <username> <password>
 
 Set the shell environment variable DEBUG to 'echo' to run this script
 without actually triggering the EAS test.
@@ -70,86 +79,106 @@ EOF
 ##############################################################################
 ##############################################################################
 
-#################  BEGIN shell commands used in this script.  #################
+############# BEGIN external shell commands used in this script. #############
 # This script uses these 4 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  cat
-  curl
-  logger
-  ping
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+typeset -a our_commands
+our_commands=( cat curl logger ping )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands C D
+############## END external shell commands used in this script. ##############
 
-## Get zsh functions necessary for this script.
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+if ! TEMP=$(getopt -o hVv --long help,version,verbose -n "${0:t}" -- "${@}") ; then
+  echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -h|--help*) usage "${0}" ; exit ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    -V|--vers*) showVersion=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
 
+if ((showVersion)) ; then
+  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
+## Ensure we have all three command line parameters.
 if [[ -z "${1}" ]] ; then
-  usage ${0}
-  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing host." 2>&1
-  exit 256
+  usage "${0}"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i  "ERROR: Missing host." 2>&1
+  exit 125
 fi
 if [[ -z "${2}" ]] ; then
-  usage ${0}
-  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing the device username." 2>&1
-  exit 255
+  usage "${0}"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i  "ERROR: Missing the device username." 2>&1
+  exit 126
 fi
 if [[ -z "${3}" ]] ; then
-  usage ${0}
-  ${LOGGER} --stderr -t ${0:t} -p local7.err -i  "ERROR: Missing the device password." 2>&1
-  exit 254
+  usage "${0}"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i  "ERROR: Missing the device password." 2>&1
+  exit 127
 fi
 
-DEBUG=echo
+#DEBUG=echo
 
-SAGEHOST=${1}
-SAGEUSER=${2}
-SAGEPASS=${3}
+SAGEHOST="${1}"
+SAGEUSER="${2}"
+SAGEPASS="${3}"
 
-CURL_OUTPUT=${CURL_OUTPUT:-${ROOT:-/}var/tmp/${0:t}-curl.out}
+CURL_OUTPUT="${CURL_OUTPUT:-/var/tmp/${0:t}-curl.out}"
 
 # Log STDOUT and STDERR of this script and all commands called by this script to
 # separate files.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+exec 1> "/var/tmp/${0:t}.out"
+exec 2> "/var/tmp/${0:t}.err"
+# And enable ZSH script tracing (to stderr)
+setopt xtrace
 
-if [[ -x ${CURL} ]] ; then
-
-  if ${PING} -q -c 1 -w 1 ${SAGEHOST} 2>&1 > /dev/null ; then
-
-    ${LOGGER} -t ${0##*/} -p local7.info -i -- "INFO: Running curl(1) to ${SAGEHOST}."
-    ${DEBUG} ${CURL} \
-	     --silent \
-	     --output ${CURL_OUTPUT} \
-	     --anyauth \
-	     --user ${SAGEUSER}:${SAGEPASS} \
-	     --data 'rwt=1\&handle=1' \
-	     "http://${SAGEHOST}/cgi-bin/pend.cgi"
-
-  else
-
-    ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: cannot ping '${SAGEHOST}', cannot continue." 2>&1
-    exit 3
-
-  fi
-
-else
-
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i  "ERROR: Cannot find curl app." 2>&1
+if ! [[ -x ${CURL} ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i  "ERROR: Cannot find curl command line app." 2>&1
   exit 2
-
 fi
 
+# SC2069: ZSH redirection is a little different than BASH
+# shellcheck disable=SC2069
+if ! ${PING} -q -c 1 -w 1 "${SAGEHOST}" 2>&1 > /dev/null ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i  "ERROR: cannot ping '${SAGEHOST}', will not continue." 2>&1
+  exit 3
+fi
+
+${LOGGER} -t "${0:t}" -p local7.info -i -- "INFO: Running curl(1) to ${SAGEHOST}."
+# SC2086 CURL is simply the full path to the executable, no quotes needed.
+# shellcheck disable=SC2086
+${DEBUG} ${CURL} \
+	 --silent \
+	 --output "${CURL_OUTPUT}" \
+	 --anyauth \
+	 --user "${SAGEUSER}:${SAGEPASS}" \
+	 --data 'rwt=1\&handle=1' \
+	 "http://${SAGEHOST}/cgi-bin/pend.cgi"
 exit
 
 ##############################################################################
