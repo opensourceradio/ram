@@ -1,277 +1,366 @@
-#!/bin/bash
-# shellcheck disable=SC2162,SC2046
+#!/usr/bin/perl -w
 
 ##############################################################################
-#
-# Originally posted to rivendell-dev by
-# Wayne Merricks <waynemerricks@thevoiceasia.com>
-# with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
-#
-# This is meant to be run interactively from a terminal or
-# non-interactively if log name and station name are passed as command
-# line parameters.
-#
+##############################################################################
+##
+## load-log-skip-to-current-time
+##
+## Load the named Log, advance to the Event line closest to the
+## current time of day.
+##
+## Originally posted to rivendell-dev by
+## Wayne Merricks <waynemerricks@thevoiceasia.com>
+## with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
+##
+##############################################################################
 ##############################################################################
 
-myName=${0##*/}
+package main;
 
-# This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=3
-vPatch=5
-# shellcheck disable=SC2016
-vHash='$Hash$'
+use strict;
+use v5.16;
 
-usage() {
-    cat <<EOF
+use constant vMAJOR => 0;
+use constant vMINOR => 3;
+use constant vPATCH => 1;
+use constant vHASH => '$Hash$';
 
-${myName}: Usage: ${myName} [ --immediately (-i) ]
-        [ --service <Service-Name> (-s) ]
-        [ --dry-run (-d) ]
-        [ --help (-h) ]
-        [ --version (-v) ]
-        [ <Log-Name> ]
-        [ <Station-Name> ]
-	[ <Log-Machine> ]
+use Getopt::Long qw(:config no_ignore_case);
+use Pod::Usage;
+use Time::localtime qw(localtime);
+use Data::Dumper;
 
-$(fmt <<<"${myName} loads the specified Log-Name into RDAirPlay on <Station-Name> and positions the next line number to the approximate time of day.")
+sub show_version;
+sub look_ahead;
+sub main;
 
-$(fmt <<<"${myName} prompts you interactively for the log name and the station name if you do not specify them on the command line.")
+use constant MAIN_LOG => 1;
+use constant AUX_LOG1 => 2;
+use constant AUX_LOG2 => 3;
 
-$(fmt <<<"You may specify a <Log-Machine> into which the log should be loaded. This enables using Virtual Log Machines in recent versions of Rivendell.")
+main;
 
-$(fmt <<<"You may limit the list of logs displayed for selection by specifying the --service option. Note that it is perfectly legal to load logs from any Service on any running instance of RDAirPlay.")
+1;
 
-$(fmt <<<"By default ${myName} loads the log and sets the nearest log line to the current time to play next. You may interrupt playout by using the --immediately option. The currently playing track will be terminated and playout will continue with the freshly-loaded Log.")
+sub show_version {
+    my $program_name = shift;
 
-$(fmt <<<"Use the --dry-run (-d) option to show what ${myName} would do without actually doing it.")
+    my $hash = undef;
 
-EOF
+    ($hash = vHASH) =~ s/\$Hash: //;
+    # Handle "prerelease" versions.
+    $hash =~ s/\$Hash\$/prerelease/;
+
+    my $version_string =
+	vMAJOR . "." .
+	vMINOR . "." .
+	vPATCH . "-" .
+	$hash;
+
+    $program_name =~ s{.*/}{};
+
+    say STDOUT "$program_name: version $version_string";
+
+    exit;
 }
 
-# Emulate the ZSH function by the same name. Default to YYYY-MM-DD
-# date since the current time in seconds.
-strftime() {
-    fmtString=${1:-%F}
-    epochSeconds=${2:-$(date +%s)}
+# Look ahead in the Log from the candidate position to see if we hit a
+# "Hard Start" time, at which point Event start times may "warp" back
+# in time. This is expected when a Clock is over-filled and we
+# encounter an Event with a Timed Start.
+#
+# Return the new Log line_id (which will be zero if time did not
+# "warp").
+sub look_ahead {
+    my $log_lines = shift;
+    my $candidate_line_index = shift;
+    my $current_seconds_past_midnight = shift;
+    my $verbose = shift;
 
-    date --date="@${epochSeconds}" "+${fmtString}"
+    my ($time_warp, $new_line_id) = (0, 0);
+
+    my ($line_id, $start_time, $rest_of_line) = (undef, undef, undef);
+    my ($next_line_id, $next_start_time, $next_rest_of_line) = (undef, undef, undef);
+
+    # Consider Log lines starting with the line after our candidate
+    # line. Iterate until we either a) find a time greater than the
+    # candidate *after* a time less than the candidate, or b) have
+    # looked ahead more than ten minutes (which is kind of an
+    # arbitrary amount of time).
+    #
+    # We do this in order to handle overfilled Clocks in which there
+    # are one or more Timed Start Events. We need to see if the start
+    # time of an Event *after* a Timed Start is close to the current
+    # time.
+    for (my $i = $candidate_line_index + 1; $i < scalar @$log_lines; $i++) {
+	($line_id, $start_time, $rest_of_line) = split(' ', $log_lines->[$i]);
+	if ($start_time =~ m/T/) {
+	    # Found a timed start event. Start times may now be
+	    # earlier than previous.
+	    printf STDERR "look_ahead: got a Timed Event (%s): line_id:%4d (index:%4d)\n",
+		$start_time, $line_id, $i if ($verbose);
+	    $time_warp = 1;
+	    $start_time =~ s/T//;
+	}
+	my ($hh, $mm, $ss) = split(/:/, $start_time);
+	my $start_time_seconds = ($hh * 3600) + ($mm * 60) + $ss;
+
+	# Stop iterating if we have looked ahead more than ten minutes.
+	if ($start_time_seconds > ($current_seconds_past_midnight + 600)) {
+	    # We have looked 10 minutes forward, time may or may not
+	    # have warped.
+	    if ($verbose) {
+		my $warp_msg = "did not warp)";
+		$warp_msg = "warped)" if ($time_warp);
+		printf STDERR "look_ahead: looked 10 minutes ahead of line index %d (time %s\n",
+		    $candidate_line_index, $warp_msg;
+	    }
+	    last;
+	}
+
+	# Get the *next* Log Line. We check its start time for being
+	# later than the current wall-clock time.
+	($next_line_id, $next_start_time, $next_rest_of_line) = split(' ', $log_lines->[$i + 1]);
+	$next_start_time =~ s/T//;
+	($hh, $mm, $ss) = split(/:/, $next_start_time);
+	my $next_start_time_seconds = ($hh * 3600) + ($mm * 60) + $ss;
+
+	if ($time_warp) {
+	    if ($next_start_time_seconds > $current_seconds_past_midnight) {
+		$new_line_id = $line_id;
+		printf STDERR "look_ahead: Time warped: NEW line ID: %d\n", $new_line_id if ($verbose);
+		last;
+	    }
+	}
+    }
+    return $new_line_id;
 }
 
-# Convert milliseconds to HH:MM:SS with the hours and minutes zero-filled.
-ms2HMS() {
-    local milliseconds=${1:?"Need some milliseconds"}
+sub main {
+    my ($dry_run, $log_machine, $immediate, $verbose, $version, $man, $help) =
+	(undef, MAIN_LOG, undef, 0, undef, undef, undef);
 
-    (( Hours=milliseconds / 1000 / 60 / 60 ))
-    (( Minutes=milliseconds / 1000 / 60 % 60 ))
-    (( Seconds=milliseconds / 1000 % 60 ))
+    my $now = localtime();
+    my $current_seconds_past_midnight = ($now->hour() * 3600) + ($now->min() * 60) + $now->sec();
 
-    printf "%02d:%02d:%02d" ${Hours:-0} ${Minutes:-0} ${Seconds:-0}
+    my $log_name = undef;
+    my @complete_log_lines = ();
+    my $line_index = 0;
+    my ($last_line_id, $last_start_time) = (undef, undef);
+    my $immediate_macro = undef;
+
+    GetOptions(
+	'dry-run|d'       => \$dry_run,
+	'log-machine|l=i' => \$log_machine,
+	'immediate|i'     => \$immediate,
+        'help|?|h'        => \$help,
+        'man|m'           => \$man,
+        'verbose|v+'      => \$verbose,
+	'version|V'       => \$version,
+        ) || pod2usage( 2 );
+
+    pod2usage(-verbose => 0, -output  => \*STDERR) if ($help);
+    pod2usage(-verbose => 3, -output  => \*STDERR) if ($man);
+    show_version($0) if ($version);
+
+    $log_name = shift(@ARGV);
+    unless ($log_name) {
+	say STDERR "Missing Log name. Please name a Log to load.";
+	pod2usage(-verbose => 0, -output =>\*STDERR);
+    }
+
+    if ($log_machine > 0) {
+	if ($log_machine > 3) {
+	    say STDERR "Valid values for Log Machine are 1, 2, and 3.";
+	    pod2usage(1);
+	}
+    }
+
+    if ($verbose) {
+	my $right_now = sprintf("%02d:%02d:%02d", $now->hour, $now->min, $now->sec);
+	printf STDERR "Current time: %s, %d seconds past midnight\n",
+	    $right_now, $current_seconds_past_midnight;
+    }
+
+    # This results in @complete_log_lines containing lines like:
+    #   0 T00:00:00  SEGUE  000002   Legal         :07  Welcome to RAM
+    #   1  00:00:06  SEGUE  010249   Music        6:08  Deja Voodoo
+    #   2  00:06:10  SEGUE  010084   Music        3:12  Cataracts
+    #   3  00:08:57  SEGUE  010292   Music        4:01  Wrote a Song for Everyone
+    #   4  00:12:50  SEGUE  010481   Music        3:46  That's All Right
+    # ...
+    @complete_log_lines = `echo "load $log_name\nlist\nquit" | rdclilogedit --silent`;
+    if (scalar @complete_log_lines == 0) {
+	printf STDERR "Unable to load Log '%s'\n", $log_name;
+	exit;
+    }
+    chomp @complete_log_lines;
+    # Turns out we sometimes see blank lines in rdlogedit(1) output .
+    @complete_log_lines = grep {!/^$/} @complete_log_lines;
+    print STDERR Dumper @complete_log_lines if ($verbose > 2);
+
+    my ($line_id, $start_time, $rest_of_line) = (undef, undef, undef);
+    my $hhmmss = undef;
+    my ($next_line_id, $next_start_time, $next_rest_of_line) = (undef, undef, undef);
+    my $new_line_id = 0;
+
+    # Iterate over the entire Log, looking for Event start times later
+    # than the current wall-clock time. Our candidate is the Event
+    # just before that which is scheduled to start later than the
+    # current time.
+    foreach my $log_line (@complete_log_lines) {
+	printf STDERR "\t%s\n", $log_line if ($verbose > 1);
+	($line_id, $start_time, $rest_of_line) = split(' ', $log_line);
+	($next_line_id, $next_start_time, $next_rest_of_line) = split(' ', $complete_log_lines[$line_index + 1]);
+	($hhmmss = $start_time) =~ s/T//;
+	$next_start_time =~ s/T//;
+	my ($hh, $mm, $ss) = split(/:/, $hhmmss);
+	my $start_time_seconds = ($hh * 3600) + ($mm * 60) + $ss;
+	($hh, $mm, $ss) = split(/:/, $next_start_time);
+	my $next_start_time_seconds = ($hh * 3600) + ($mm * 60) + $ss;
+
+	# If the next Event is scheduled to start after the current
+	# wall-clock time, *this* Event (Log Line) is our candidate.
+	last if ($next_start_time_seconds > $current_seconds_past_midnight);
+
+	$line_index++;
+    }
+    printf STDERR "main: (before look ahead) Candidate line %4d (index:%4d): %s\n",
+	$line_id, $line_index, $complete_log_lines[$line_index] if ($verbose);
+
+    # Look ahead for a time warp only if the candidate Log Line is not
+    # a timed start.
+    if ($start_time =~ m/^\d/) {
+	if (($new_line_id = look_ahead(\@complete_log_lines, $line_index, $current_seconds_past_midnight, $verbose)) > $line_id) {
+	    $line_id = $new_line_id;
+	}
+    }
+
+    printf STDERR "main: Chose line ID %4d\n", $line_id if ($verbose);
+
+    # Load the Log, and skip to the current time.
+    # Detailed explanation:
+    # PW $log_machine!               Set the RDAirPlay right-hand widget to display
+    #                                the requested Log Machine (1: Main Log, 2: AuxLog 1,
+    #                                3: AuxLog 2).
+    # LL $log_machine $log_name -1!  Load Log $log_name into $log_machine and set the
+    #                                start line to -1 (nothing).
+    # MN $log_machine $line_id!      Make $line_id in $log_machine the next line to play.
+    # PN $log_machine!               Play Next line (see previous step) in $log_machine
+    #                                (only if --immediate was specified on the command line).
+    # PM 2 $log_machine!             Set the Log Machine Play Mode to 'Automatic'.
+    my @macros = (
+	qq(PW $log_machine!),
+	qq(LL $log_machine $log_name -1!),
+	qq(MN $log_machine $line_id!),
+	);
+    push(@macros, qq(PN $log_machine!)) if ($immediate);
+    push(@macros, qq(PM 2!));
+
+    if ($verbose or $dry_run) {
+	print qq(Would have run the following command:\n) if ($dry_run);
+	print qq(rmlsend --from-file=-\n);
+	print join(qq(\n), @macros), qq(\n);
+	return if ($dry_run);
+    }
+
+    open(my $ph, "|-", "rmlsend --from-file=-")
+	or die "Cannot open pipe to rmlsend --from-file=- ($!). Stopped";
+    print $ph join(qq(\n), @macros, qq(\n));
+    close($ph);
 }
 
-# Simplify calls to the mysql command.
-doSQL() {
-    local statement="${1:?Need a database query to run.}"
-    local useMyCNF=0
-    local usableMyCNF=4
-    local rdconfig=${RD_CONFIG:-${ROOT:-/}etc/rd.conf}
+1;
 
-    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
-    # else get credentials from rd.conf if it exists, else from the
-    # environment, else use defaults here.
-    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
-    # to the Rivendell database.
-    if [[ -r ~/.my.cnf ]] && [[ $(grep -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
-        mapfile myCnfLines < ~/.my.cnf
+__END__;
 
-        # Need to check for each of these parameters in .my.cnf in
-        # order to be able to use it.
-        for parm in database host password user ; do
-            if [[ "${myCnfLines[*]}" =~ ${parm} ]] ; then
-                (( useMyCNF++ ))
-            fi
-        done
-    else
-        # Horribly insecure, but this is the "Rivendell Way".
-        if [[ -r "${rdconfig}" ]] ; then
-            DB_HOST=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Hostname=/{print $2}')
-            DB_USER=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Loginname=/{print $2}')
-            DB_PASSWORD=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Password=/{print $2}')
-            DB_DATABASE=$(sed -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | awk -F'=' '/^Database=/{print $2}')
-        else
-            # Last ditch effort to set the MySQL access credentials.
-            # These are the "conventional" defaults that might otherwise
-            # exist in /etc/rd.conf (and friends).
-            DB_HOST=${RD_DB_HOST:-"localhost"}
-            DB_USER=${RD_DB_USER:-"rduser"}
-            DB_PASSWORD=${RD_DB_PASS:-"letmein"}
-            DB_DATABASE=${RD_DB_DATABASE:-"Rivendell"}
-        fi
-    fi
+=head1 NAME
 
-    if (( _USE_MYCNF == usableMyCNF )) ; then
-        mysql -s -N -e "${statement}"
-    else
-        mysql -s -N -B -u "${DB_USER}" -p"${DB_PASSWORD}" -h "${DB_HOST}" "${DB_DATABASE}" -e "${statement}"
-    fi
-}
+load-log-skip-to-current-time - Load the named Log and play starting at the current time of day
 
-# Process command line options.
-if ! TEMP=$(getopt -o dhis:Vv --long dry-run,help,immediately,service:,verbose,version -n "${0##*/}" -- "${@}") ; then
-    echo "getopt(1) Error: Terminating..." >&2 ; exit 1
-fi
-# Note the quotes around ${TEMP}: they are essential!
-eval set -- "${TEMP}"
-while : ; do
-    case "${1}" in
-        -d|--dry*) DRY_RUN=1 ; shift ;;
-        -h|--help*) usage "${myName}" ; exit ;;
-        -i|--imme*) START_IMMEDIATELY=1 ; shift ;;
-        -s|--service) SERVICE=${2} ; shift 2 ;;
-        -v|--verb*) VERBOSE=1 ; shift ;;
-        -V|--vers*) showVersion=1 ; shift ;;
-        --) shift ; break ;;
-        *) echo "${0##*/}: getopt internal error!" >&2 ; return 1 ;;
-    esac
-done
+=head1 SYNOPSIS
 
-if (( showVersion )) ; then
-    justHash=${vHash#\$Hash* }
-    echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${justHash%$\}}"
-    exit 0
-fi
+  load-log-skip-to-current-time [ --help (-h) ]
+                                [ --man (-m) ]
+                                [ --version (-V) ]
+                                [ --verbose (-v) ]
+                                [ --dry-run (-d) ]
+                                [ --log-machine (-l) <LogMachine> ]
+                                E<lt>LogNameE<gt>
 
-dbVersion=$(doSQL "SELECT db FROM VERSION")
+ --dry-run (-d)       show what would happen without actually doing it
+ --log-machine (-l)   load the named Log in the specified Log Machine
+                      (1, 2, or 3)
+ --immediate (-i)     immediately start playing the chosen Event,
+                      possibly interrupting current playout
+ --help (-h)          show a brief help message
+ --man (-m)           display the full documentation for this command
+ --version (-V)       show the program version and exit
+ --verbose (-v)       run in 'verbose' mode
 
-# Use them if they were passed on the command line, otherwise we will
-# prompt for them at the right time.
-logName=${1}
-stationHostname=${2}
-logMachine=${3:-1}
+=head1 OPTIONS
 
-# Rivendell versions lower than 3 (database version less than 300) use
-# dedicated Log tables.
-if (( dbVersion < 300 )) ; then
-    tableSuffix=_LOG
-else
-    tableSuffix=
-fi
+=over 8
 
-# Get the "current time" as milliseconds past midnight.
-timeNow=$(date +%s)
-H=$(( $(strftime "%H" "${timeNow}") * 3600000 ))
-M=$(( $(strftime "%M" "${timeNow}") * 60000 ))
-S=$(( $(strftime "%S" "${timeNow}") * 1000 ))
-millisecondsPastMidnight=$(( H + M + S ))
-unset H M S timeNow
+=item B<--help (-h)>
 
-# Assume the user knows the exact name of the log if they passed it on
-# the command line. Otherwise list available logs and prompt them.
-if [[ -z "${logName}" ]] ; then
-    # Prompt the user for which log to load
-    # shellcheck disable=SC2016
-    read -a logs <<< $(doSQL "SELECT name FROM LOGS${SERVICE:+ WHERE service = '${SERVICE}'}")
+Display a brief help message and exit.
 
-    x=1; while : ; do
-             for log in ${logs[*]} ; do printf "%2d: %s\n" $((x++)) "${log}"; done
-             read -e -p "Please select a log by entering the number from above: " choice
-             (( choice > 0 && choice < x )) && break
-             x=1
-         done
-    # BASH arrays are Zero-based.
-    (( choice -= 1 ))
-    tableName=${logs[choice]}${tableSuffix}
-    logName=${logs[choice]}
-    unset choice log logs
-else
-    tableName=${logName}${tableSuffix}
-fi
+=item B<--man (-M)>
 
-# Get the line number nearest to (but earlier than) the current time
-# of day in the specified Log.
-if (( dbVersion < 300 )) ; then
-    read -a LOG_LINE <<<$(doSQL "SELECT id,cart_number,start_time FROM \`${tableName}\` WHERE start_time > 0 AND start_time <= ${millisecondsPastMidnight} ORDER BY count DESC LIMIT 1")
-else
-    read -a LOG_LINE <<<$(doSQL "SELECT line_id,cart_number,start_time FROM LOG_LINES WHERE start_time > 0 AND start_time <= ${millisecondsPastMidnight} ORDER BY count DESC LIMIT 1")
-fi
+Display the complete manual page and exit.
 
-if (( VERBOSE )) ; then
-    printf "Chose log line %05d (Cart %s) scheduled to start at %s.\n" "${LOG_LINE[0]}" "${LOG_LINE[1]}" $(ms2HMS "${LOG_LINE[2]}")
-fi
+=item B<--verbose (-v)>
 
-if [[ -z "${LOG_LINE[0]}" ]] ; then
-    echo "ERROR: Could not determine current location at which to position the log (${?})." >&2
-    exit 1
-fi
+Run in verbose mode. Use multiple times for more verbosity. Verbose
+messages are directed to STDERR.
 
-if [[ -z "${stationHostname}" ]] ; then
-    # Determine the host running RDairplay
-    # BUG ALERT! This assumes that hostnames in the Rivendell database
-    # match DNS names on the network.
-    read -a stations <<< $(doSQL "SELECT name FROM STATIONS")
-    x=1; while : ; do
-             for station in ${stations[*]} ; do printf "%2d: %s\n" $((x++)) "${station}"; done
-             read -e -p "Please enter the number for the host on which RDAirplay is running: " choice
-             (( choice > 0 && choice < x )) && break
-             x=1
-         done
-    # BASH arrays are Zero-based.
-    (( choice -= 1 ))
-    station=${stations[choice]}
-    unset choice
-else
-    station=${stationHostname}
-fi
+=item B<--version (-V)>
 
-# Tell them what we would do, but do not actually do it.
-if (( DRY_RUN )) ; then
-    ((START_IMMEDIATELY)) && startImmediately="" || startImmediately="NOT "
-    # Disable quoting complaint because the whole string is already quoted, and the value is just a single number.
-    # shellcheck disable=SC2086
-    cat <<EndOfDryRun
+Display this program's version and exit.
 
-$(fmt <<<"Would have loaded Log '${logName}' on '${station}', skipped to log line ${LOG_LINE[0]} (scheduled time: $(ms2HMS ${LOG_LINE[2]})), and ${startImmediately}started the new log immediately.")
+=item B<--dry-run (-d)>
 
-The command would have been:
+Display what would happen, but do not actually load a Log.
 
-rmlsend --to-host="${station}" --from-file=- <<EOF
-PW 1!
-LL 1 ${logName} -1!
-MN 1 ${LOG_LINE[0]}!
-${START_IMMEDIATELY:+PN 1!}
-PM 2!
-EOF
+=item B<--log-machine (-l) E<lt>LogMachineE<gt>>
 
-EndOfDryRun
-    exit
-fi
+Load the named Log in the Main Log (1, the default), AuxLog 1 (2), or
+AuxLog 2 (3) position.
 
-# Try to ping the workstation by name, then by IP address.
-if ! ping -w 1 -c 1 -q "${station}" > /dev/null 2>&1 ; then
-    stationIPAddress=$(doSQL "SELECT ipv4_address FROM STATIONS WHERE name='${station}'")
-    if [[ "${stationIPAddress}" =~ 127\..* ]] ; then
-        echo "ERROR: Could not ping host ${station}. Not attempting to use ${station}'s IP Address '${stationIPAddress}'. Is this the correct host?" >&2
-        exit 2
-    fi
-    if ! ping -w 1 -c 1 -q "${stationIPAddress}" > /dev/null 2>&1 ; then
-        echo "ERROR: Could not ping ${station} at ${stationIPAddress}. Is this the correct host? Is the workstation running?" >&2
-        exit 1
-    fi
-fi
+=item B<--immediate (-i)>
 
-# Load the log, and skip to the correct time.
-# Detailed explanation:
-# PW 1!                                   Set the RDAirPlay right-hand widget to display Log Machine 1 (Main Log).
-# LL ${logMachine} ${logName} -1!         Load Log ${logName} into Log Machine 1 and set the start line to -1 (nothing).
-# MN ${logMachine} ${LOG_LINE[0]}!        Make ${LOG_LINE[0]} in Log Machine 1 the next line to play.
-# ${START_IMMEDIATELY:+PN ${logMachine}!} Play Next line (see previous step) in Log Machine 1 if --immediately was specified on the command line.
-# PM 2 ${logMachine}!                     Set the Log Machine Play Mode to 'Automatic'.
-rmlsend --to-host="${station}" --from-file=- <<EOF
-PW 1!
-LL ${logMachine} ${logName} -1!
-MN ${logMachine} ${LOG_LINE[0]}!
-${START_IMMEDIATELY:+PN ${logMachine}!}
-PM 2 ${logMachine}!
-EOF
+Start the Log immediately after loading. The chosen Log line is simply
+"made next" if this option is not specified.
 
-exit
+=item B<E<lt>LogNameE<gt>>
+
+Load the specified Rivendell Log.
+
+=back
+
+=head1 DESCRIPTION
+
+B<load-log-skip-to-current-time> loads the named Log and starts
+playing at the nearest line not later than the current time of day.
+
+After choosing a "candidate" Log Line,
+B<load-log-skip-to-current-time> looks ahead in the Log for Timed
+Events. If a Timed Event is found within ten minutes of the
+"candidate", B<load-log-skip-to-current-time> looks further ahead for
+an event that starts later than the current time.
+
+The Event chosen is the Event immediately preceeding the Event with a
+Start Time later than the current time of day.
+
+=head1 SEE ALSO
+
+=over 8
+
+=item B<rdclilogedit(1)>
+
+=item B<rdlogedit(1)>
+
+=item B<rdairplay(1)>
+
+=back
