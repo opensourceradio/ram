@@ -18,7 +18,7 @@
 package main;
 
 use strict;
-use v5.16;
+use v5.10;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 3;
