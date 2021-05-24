@@ -1,0 +1,93 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2034,SC2190,SC2207
+# SC2034: shellcheck does not know about ZSH param expansions.
+# SC2190: ZSH associative arrays work differently from Bash associative arrays.
+# SC2207: I do not prefer mapfile or read -a.
+
+if [[ -f /usr/local/bin/zsh-functions ]] ; then
+    source /usr/local/bin/zsh-functions
+else
+    print "Missing zsh-functions."
+    exit 1
+fi
+
+typeset -r oIFS="${IFS}"
+typeset -r station=$(hostname -s)
+typeset -r myFS='^:^'
+
+# Get the count of both dropboxes and processes.
+typeset -ri box_count=$(doSQL "select count(*) from DROPBOXES where station_name='${station}'")
+typeset -ri pid_count=$(pidof rdimport | wc -w)
+
+if ((box_count > pid_count)) ; then
+    printf "%d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
+elif ((pid_count > box_count)) ; then
+    printf "%d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
+fi
+
+# procs is an associative array containing the full command line,
+# indexed by the PID.
+typeset -A procs
+IFS=$'\n\t'
+# NOTE: the whitespace between %p and %a is a single <TAB>
+# SC2009: I want a <TAB> separating the PID from the args.
+# shellcheck disable=SC2009
+procs=($(PS_PERSONALITY=aix ps -eo '%p	%a' | grep -v grep | grep rdimport | sed -e 's/^  *//'))
+
+# path_specs is an associative array containing the dropbox cart number
+# (may be 0) and the path spec, indexed by the dropbox ID.
+typeset -A path_specs
+path_specs=($(doSQL "select ID,concat(TO_CART,'${myFS}',PATH) from DROPBOXES where STATION_NAME='${station}' order by TO_CART"))
+
+# Check if all defined dropbox processes are running.
+for id in ${(k)path_specs[*]} ; do
+    path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
+    to_cart="${path_specs[${id}]%${myFS}*}"
+
+    if ! grep -F -q "${path_specs[${id}]#*${myFS}}" <<<"${(v)procs[*]}" ; then
+	printf "Missing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+	dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
+	if ((dropbox_path_count > 0)) ; then
+	    printf "\tReset with 'delete from DROPBOX_PATHS where DROPBOX_ID = %d'\n" "${id}" >&2
+	else
+	    # SC2016: I do not want anything to expand in this string
+	    # shellcheck disable=SC2016
+	    printf '\tMight want to `sendusr1 $(pidof rdservice)`.\n' >&2
+	fi
+    fi
+done
+
+# Other way around: check if all running processes have a dropbox
+# defined.
+for proc in ${(v)procs[*]} ; do
+    process_path_spec="${proc/* \///}"
+    if ! grep -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
+	printf "Missing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
+    fi
+done
+
+# Check for existence of dropbox directories.
+for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
+    path_spec_dir=${path_spec%/*}
+    if ! [[ -d ${path_spec_dir} ]] ; then
+	printf "Missing directory for dropbox PATH specifier: %s\n" "${path_spec}" >&2
+    fi
+done
+
+# Check for Cart Numbers as needed (some dropboxes create new Carts
+# for all new imports).
+for id in ${(k)path_specs[*]} ; do
+    to_cart=${path_specs[${id}]%${myFS}*}
+    if (( to_cart > 0 )) ; then
+	cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
+	if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
+	    printf "Missing TITLE for dropbox ID %d, PATH '%s' (Cart # %d)\n" "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+	fi
+	cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
+	if ((cut_count < 1)) ; then
+	    printf "No CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+	fi
+    fi
+done	    
+
+exit
