@@ -88,6 +88,6 @@ for id in ${(k)path_specs[*]} ; do
 	    printf "No CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	fi
     fi
-done	    
+done
 
 exit
