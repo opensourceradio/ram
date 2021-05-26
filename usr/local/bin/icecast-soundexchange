@@ -2,117 +2,129 @@
 
 use 5.012; # so readdir assigns to $_ in a lone while test
 use strict;
-no strict "refs";
+use warnings;
+
+use constant vMAJOR => 0;
+use constant vMINOR => 2;
+use constant vPATCH => 2;
+use constant vHASH => '$Hash$';
 
 use Data::Dumper;
 use Time::Local;
 use Time::Piece;
 use Date::Parse;
-use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
+use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 
 use Getopt::Long;
-Getopt::Long::Configure ( "bundling" );
+Getopt::Long::Configure ("bundling");
 use Pod::Usage;
 
 use constant ICECASTLOGDIR => $ENV{ICECASTLOGDIR} || q(/var/log/icecast);
 use constant OUTPUTDIR => $ENV{OUTPUTDIR} || q(/var/tmp);
-use constant DEFAULT_MOUNTPOINTS => ( '', 'high', 'low', );
+use constant DEFAULT_MOUNTPOINTS => ('high', 'low',);
 use constant ONE_DAY => 60 * 60 * 24;
 
 # Pattern is DD/Mon/YYYY
 use constant DATE_PATTERN => qr(\d{2}/[A-Z][a-z]{2}/\d{4});
 
-sub getLogFiles( $$$$ );
-sub inDateRange( $$$$ );
-sub mon ( $$ );
-sub main ();
+sub main;
+sub showVersion;
+sub getLogFiles;
+sub inDateRange;
+sub mon;
 
 main;
 1;
 
-sub main () {
-
+sub main() {
     my $retVal = undef;
-
-    my ( $result, $logDirectory, $startDate, $endDate, $outputDir, $zipFile, $verbose, $debug, $help, $man ) = ( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 );
-
-    my ( @logContents ) = ();
-    my @mountpoints = undef;
+    my($result, $logDirectory, $startDate, $endDate, $outputDir, $mount_points, $zipFile, $version, $verbose, $debug, $help, $man) =
+	(0, undef, undef, undef, undef, undef, undef, undef, 0, 0, undef, undef);
+    my @logContents = ();
+    my $mountpoints = undef;
     my $zip = undef;
 
-    $result = GetOptions (
-	"start-date|s=s" => \$startDate,
-	"end-date|e=s" => \$endDate,
+    $result = GetOptions(
+	"start-date|s=s"    => \$startDate,
+	"end-date|e=s"      => \$endDate,
 	"log-directory|l=s" => \$logDirectory,
-	"output-dir|o=s" => \$outputDir,
-	"mount-points|m=s" => \@mountpoints,
-	"zip-file|z=s" => \$zipFile,
-	"verbose|v+" => \$verbose,
-	"debug|d+" => \$debug,
-	"help|h" => \$help,
-	"man|M" => \$man,
+	"output-dir|o=s"    => \$outputDir,
+	"mount-points|m=s"  => \$mount_points,
+	"zip-file|z=s"      => \$zipFile,
+	"verbose|v+"        => \$verbose,
+	'version|V'         => \$version,
+	"debug|d+"          => \$debug,
+	"help|h"            => \$help,
+	"man|M"             => \$man,
 	);
-    die "GetOptions returned " . $result . ". Stopped" if ( ! $result );
+    die "GetOptions returned " . $result . ". Stopped" if (! $result);
 
-    pod2usage( 1 )             if ( defined( $help ) && $help );
-    pod2usage( -verbose => 2 ) if ( defined( $man ) && $man );
+    pod2usage(1)             if (defined($help) && $help);
+    pod2usage(-verbose => 2) if (defined($man) && $man);
+    showVersion($0) if ($version);
 
-    if ( ! $startDate || ! $endDate ) {
+    if (! $startDate || ! $endDate) {
 	say STDERR "Please specify a starting date and an ending date for this report.";
     }
 
-    $verbose = $debug if ( $debug );
+    $verbose = $debug if ($debug);
 
-    if ( $#mountpoints == 1 ) {
-	@mountpoints = split( /, */, join( ',', @mountpoints ));
+    if ($mount_points) {
+	foreach my $m (split(/, */, $mount_points)) {
+	    $mountpoints->{$m} = ();
+	}
     } else {
-	@mountpoints = DEFAULT_MOUNTPOINTS;
+	foreach my $m (DEFAULT_MOUNTPOINTS) {
+	    $mountpoints->{$m} = ();
+	}
     }
+    say Dumper $mountpoints if ($debug);
 
     $logDirectory = $logDirectory || ICECASTLOGDIR;
 
-    if ( $zipFile ) {
+    if ($zipFile) {
 	$zip = Archive::Zip->new();
     }
 
-    my $mountpointRE = join( '|', @mountpoints );
-    $mountpointRE =~ s,\|,,;
+    my $mountpointRE = join('|', sort(keys(%{$mountpoints})));
+    say STDERR "mountpointRE: ", $mountpointRE if ($debug);
 
-    my $start = str2time( $startDate );
-    my $end = str2time( $endDate );
+    my $start = str2time($startDate);
+    my $end = str2time($endDate);
     $end += ONE_DAY;
 
-    say STDERR "Start date: ", $startDate, ": ", $start, ", End date: ", $endDate, ": ", $end if ( $verbose );
+    say STDERR "Start date: ", $startDate, ": ", $start, ", End date: ", $endDate, ": ", $end if ($verbose);
 
-    # TODO: finish this (as of 2018-09-21)
-    my $logLines = getLogFiles( $startDate, $endDate, $logDirectory, $verbose );
+    my $logLines = getLogFiles($startDate, $endDate, $logDirectory, $verbose);
 
     $outputDir = $outputDir || OUTPUTDIR;
 
     #207.190.123.196 - - [05/Mar/2013:22:09:36 -0600] "GET /high HTTP/1.0" 200 134755 "-" "WinampMPEG/5.63, Ultravox/2.1" 4
     #166.228.136.249 - - [05/Mar/2013:22:11:55 -0600] "GET /high HTTP/1.1" 200 1002080 "-" "BREW-Applet/0x010950A6 (BREW/3.1.5.189; DeviceId:  1388; Lang: en)" 92
-
-    foreach my $logLine ( sort {
-	#                            Log line item:      day     month   year    hour   minute  second
-	#                           Array elements:       0       1       2       3       4       5
-	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+-\s+-\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+-\s+-\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+    foreach my $logLine (sort {
+	#                                      Log line item:      day     month   year    hour   minute  second
+	#                                     Array elements:       0       1       2       3       4       5
+	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+	say q($a: ), $a if ($debug);
+	say q($b: ), $b if ($debug);
+	say q(@a: ), @a, q( @b: ), @b if ($debug);
 	$a[2] <=> $b[2] ||
 	    mon($a[1], 0) <=> mon($b[1], 0) ||
 	    $a[0] <=> $b[0] ||
 	    $a[3] <=> $b[3] ||
 	    $a[4] <=> $b[4] ||
 	    $a[5] <=> $b[5]
-			  } @$logLines ) {
-	next unless ( $logLine =~ m#get\s+/($mountpointRE)\s+#i );
-	say STDERR $logLine if ( $debug > 1 );
+			  } @{$logLines}) {
+	next unless ($logLine =~ m#get\s+/($mountpointRE)\s+#i);
+	say STDERR $logLine if ($debug > 1);
 
 	# Bug Alert: the sub-expression "(\d{2})00" represents the
 	# timezone offset in the date/time field. It currently assumes
 	# an integral number of hours offset from GMT (UTC).
-	if ( $logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i ) {
+	if ($logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i) {
 	    my $ipAddress = $1;
-	    my ( $date, $hour, $minute, $second ) = split( /:/, $2);
+	    my ($date, $hour, $minute, $second) = split(/:/, $2);
 	    my $tzOffset = $3;
 	    my $loggedMountPoint = $4;
 	    my $statusCode = $5;
@@ -120,7 +132,7 @@ sub main () {
 	    my $referer = $7;
 	    my $client = $8;
 	    my $duration = $9;
-	    my ( $mday, $mon, $year ) = split( /\//, $date );
+	    my ($mday, $mon, $year) = split(/\//, $date);
 
 	    say STDERR "ipAddress: $ipAddress + referer: $referer + client: $client" if ($debug);
 
@@ -128,11 +140,11 @@ sub main () {
 	    # from the stream. We need to calculate the time at
 	    # which they connected to the stream by subtracting
 	    # the duration from this 'end time'
-	    my $time = timelocal( $second, $minute, $hour, $mday, mon( $mon, $verbose ), $year );
+	    my $time = timelocal($second, $minute, $hour, $mday, mon($mon, $verbose), $year);
 	    $time -= $duration;
 
-	    my $connectTime = gmtime( $time );
-	    next unless ( $connectTime >= $start && $connectTime <= $end );
+	    my $connectTime = gmtime($time);
+	    next unless ($connectTime >= $start && $connectTime <= $end);
 
 	    say STDERR
 		$ipAddress, " ",
@@ -140,7 +152,7 @@ sub main () {
 		$connectTime->hms, " ",
 		$loggedMountPoint, " ", $duration, " ", $statusCode,
 		" ->", $referer, "<- ->", $client, "<-"
-		if ( $verbose > 2);
+		if ($verbose > 2);
 
 	    my $entry = sprintf
 		"%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s",
@@ -155,46 +167,70 @@ sub main () {
 		;
 
 	    # collect the entries per-mountpoint
-	    push( @$loggedMountPoint, $entry );
+	    push(@{$mountpoints->{$loggedMountPoint}}, $entry);
 	} else {
 	    say STDERR "Regex match failed for logLine:\n\t", $logLine;
 	}
     }
 
     # write per-mountpoint files with all collected entries
-    for my $mount ( @mountpoints ) {
-	next unless ( $mount );
+    for my $mount (sort(keys(%{$mountpoints}))) {
+	next unless ($mount);
 
 	# Stash the per-mountpoint files into the zip archive if so requested.
-	if ( $zipFile ) {
+	if ($zipFile) {
 	    # Note the <Tab> characters in the string.
-	    my $zipString = join( "\r\n", ( "IPAddress	Date	Time	Stream	Duration	Status	Referrer", @$mount, '' ));
+	    my $zipString = join("\r\n", ("IPAddress	Date	Time	Stream	Duration	Status	Referrer",
+					  @{$mountpoints->{$mount}}, ''));
 
-	    my $stringMember = $zip->addString( $zipString, "$mount.txt" );
-	    $stringMember->desiredCompressionMethod( COMPRESSION_DEFLATED );
-	    say STDERR "Added $mount.txt to '$zipFile'." if ( $verbose );
+	    my $stringMember = $zip->addString($zipString, "$mount.txt");
+	    $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
+	    say STDERR "Added $mount.txt to '$zipFile'." if ($verbose);
 	} else {
-	    open( OUT, ">", "$outputDir/$mount.txt" ) || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
+	    my $outFH = undef;
+	    open($outFH, ">", "$outputDir/$mount.txt") || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
 	    # Again, note the <Tab> characters in the string.
-	    print OUT "IPAddress	Date	Time	Stream	Duration	Status	Referrer\r\n";
-	    foreach my $line ( @$mount ) {
-		print OUT $line, "\r\n";
+	    print $outFH "IPAddress	Date	Time	Stream	Duration	Status	Referrer\r\n";
+	    foreach my $line (@{$mountpoints->{$mount}}) {
+		print $outFH $line, "\r\n";
 	    }
-	    close( OUT );
+	    close($outFH);
 	}
     }
 
-    if ( $zipFile ) {
-	unless ( $zip->writeToFileNamed( $zipFile ) == AZ_OK ) {
+    if ($zipFile) {
+	unless ($zip->writeToFileNamed($zipFile) == AZ_OK) {
 	    die "Error writing to Zip archive '$zipFile'. Stopped";
 	}
     }
 }
 
+sub showVersion {
+    my $program_name = shift;
+
+    my $hash = undef;
+
+    ($hash = vHASH) =~ s/\$Hash: //;
+    # Handle "prerelease" versions.
+    $hash =~ s/\$Hash\$/prerelease/;
+
+    my $version_string =
+	vMAJOR . "." .
+	vMINOR . "." .
+	vPATCH . "-" .
+	$hash;
+
+    $program_name =~ s{.*/}{};
+
+    say STDOUT "$program_name: version $version_string";
+
+    exit;
+}
+
 # Get the contents of the log files that contain entries in the range
 # of our start and end dates.
 # Returns an array ref containing all relevant log file entries.
-sub getLogFiles( $$$$ ) {
+sub getLogFiles() {
     my $startDate = shift;
     my $endDate = shift;
     my $logDirectory = shift;
@@ -204,42 +240,45 @@ sub getLogFiles( $$$$ ) {
     my @validLogLines = ();
 
     # strptime() returns this array: ($ss,$mm,$hh,$day,$month,$year,$zone)
-    my @start = strptime( $startDate );
-    my $startYYYYMMDD = sprintf( "%04d%02d%02d", $start[5] + 1900, $start[4] + 1, $start[3]);
-    my @end = strptime( $endDate );
-    my $endYYYYMMDD = sprintf( "%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
+    my @start = strptime($startDate);
+    my $startYYYYMMDD = sprintf("%04d%02d%02d", $start[5] + 1900, $start[4] + 1, $start[3]);
+    my @end = strptime($endDate);
+    my $endYYYYMMDD = sprintf("%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
 
-    opendir( my $dirH, $logDirectory ) ||
+    opendir(my $dirH, $logDirectory) ||
 	die "Cannot open icecast log directory '$logDirectory'. Stopped";
 
-    while ( readdir $dirH ) {
-	next unless ( /^access/ );
+    while (readdir $dirH) {
+	next unless (/^access/);
 	my $lf = undef;
 	my $lfDate = undef;
+	my $lfFH = undef;
 
 	# Log filename may end with a timestamp suffix, or simply
 	# ".log". Skip log files with timestamps outside our date
 	# range. We always want to examine "access.log".
-	( $lfDate = $_ ) =~ s/^access\.log(\.(\d{8})_\d+)*/$2/;
-	next if ( $lfDate && ( $lfDate < $startYYYYMMDD || $lfDate > $endYYYYMMDD ));
+	if (m/^access\.log(\.(\d{8})_\d+)/) {
+	    ($lfDate = $_) =~ s/^access\.log(\.(\d{8})_\d+)*/$2/;
+	    next if ($lfDate && ($lfDate < $startYYYYMMDD || $lfDate > $endYYYYMMDD));
+	}
 
-	say STDERR "Looking at $_" if ( $verbose );
+	say STDERR "getLogFiles: Looking at $_" if ($verbose);
 
-	open( LF, $logDirectory . "/" . $_ ) ||
+	open($lfFH, "<", $logDirectory . "/" . $_) ||
 	    die "Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped";
-	my @lines = <LF>;
-	close( LF );
-	say STDERR $_, " has ", $#lines, " lines" if ( $verbose > 1 );
+	my @lines = <$lfFH>;
+	close($lfFH);
+	say STDERR $_, " has ", $#lines, " lines" if ($verbose > 1);
 
-	if ( inDateRange( \@lines, $startDate, $endDate, $verbose )) {
-	    push( @validLogLines, @lines );
+	if (inDateRange(\@lines, $startDate, $endDate, $verbose)) {
+	    push(@validLogLines, @lines);
 	}
     }
 
     closedir $dirH;
 
-    say STDERR Dumper @logFileNames if ( $verbose );
-    say STDERR "Found ", $#validLogLines, " log lines." if ( $verbose );
+    say STDERR Dumper @logFileNames if ($verbose);
+    say STDERR "Found ", $#validLogLines, " log lines." if ($verbose);
 
     \@validLogLines;
 }
@@ -247,21 +286,21 @@ sub getLogFiles( $$$$ ) {
 # Determine whether the list of lines is within the startDate and
 # endDate range.
 # Returns true if so, otherwise false.
-sub inDateRange( $$$$ ) {
+sub inDateRange() {
     my $lines = shift;
     my $startDate = shift;
     my $endDate = shift;
     my $verbose = shift;
 
-    my $s = str2time( $startDate );
-    my $e = str2time( $endDate );
+    my $s = str2time($startDate);
+    my $e = str2time($endDate);
     $e += ONE_DAY;
 
-    foreach my $line ( @$lines ) {
-	my ($j1, $dateTime, $j2) = split( /[\[\]]/, $line );
-	my $lineDate = str2time( $dateTime );
-	say STDERR "$lineDate in date range $s - $e" if (( $verbose > 1 ) && ($lineDate >= $s && $lineDate <= $e ));
-	return 1 if ( $lineDate >= $s && $lineDate <= $e );
+    foreach my $line (@$lines) {
+	my ($j1, $dateTime, $j2) = split(/[\[\]]/, $line);
+	my $lineDate = str2time($dateTime);
+	say STDERR "$lineDate in date range $s - $e" if (($verbose > 1) && ($lineDate >= $s && $lineDate <= $e));
+	return 1 if ($lineDate >= $s && $lineDate <= $e);
     }
 
     0;
@@ -269,7 +308,7 @@ sub inDateRange( $$$$ ) {
 
 # Return the zero-based decimal month number for the month name
 # passed.
-sub mon ( $$ ) {
+sub mon() {
     my $monthName = shift;
     my $verbose = shift;
 
