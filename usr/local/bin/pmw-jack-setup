@@ -191,6 +191,8 @@ typeset -A channels
 typeset -l mixer_role role
 typeset -r rec="capture"
 typeset -r pla="playback"
+channels[rec]=0
+channels[pla]=0
 
 ## Did they specify number of channels on the command line? I guess if
 ## they specify the number of input channels, they should also specify
