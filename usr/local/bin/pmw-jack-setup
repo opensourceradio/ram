@@ -20,7 +20,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=4
+v_patch=5
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -67,8 +67,8 @@ function version() {
     echo "${my_name}: version ${v_major}.${v_minor}.${v_patch}-${${v_hash#\$Hash: }%$}"
 }
 
-############ BEGIN external shell commands used in this function. ############
-# This function uses these 13 external commands.
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 13 external commands.
 # Look for them in their upper case, parameter expanded form.
 typeset -a our_commands
 #our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort zita_a2j zita_j2a )
@@ -80,6 +80,7 @@ our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger s
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
 # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
@@ -88,8 +89,9 @@ for C in ${our_commands[*]} ; do
   done
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-unset our_commands
-############# END external shell commands used in this function. #############
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
 
 typeset -i VERBOSE=0
 
@@ -203,8 +205,37 @@ if [[ -n "${channels_input}" ]] && [[ -n "${channels_output}" ]] ; then
 else
     ## Attempt to discern the number of input and output channels on this
     ## device.
+
+    ## TODO: Deal properly with device numbers greater than
+    ## Zero. After fiddling with this I have learned that the number
+    ## of channels for all the higher-numbered devices is the same as
+    ## for device 0 (at least for the Intel PCH device).
+    ## For now, we simply look for the first device, e.g.:
+    ##
+    ## card 1: PCH [HDA Intel PCH], device 0: ALC887-VD Analog [ALC887-VD Analog]
+    ##   Subdevices: 0/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 1: ALC887-VD Digital [ALC887-VD Digital]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 3: HDMI 0 [HDMI 0]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 7: HDMI 1 [HDMI 1]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 8: HDMI 2 [HDMI 2]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 9: HDMI 3 [HDMI 3]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ## card 1: PCH [HDA Intel PCH], device 10: HDMI 4 [HDMI 4]
+    ##   Subdevices: 1/1
+    ##   Subdevice #0: subdevice #0
+    ##
     ${AMIXER} -c "${card_index}" controls | while read -r amixer_control_line ; do
-	[[ "${amixer_control_line}" =~ .*iface=PCM.* ]] || continue
+	[[ "${amixer_control_line}" =~ ".*iface=PCM.*'(Capture|Playback) Channel Map'$" ]] || continue
 	## e.g.: numid=1,iface=PCM,name='Playback Channel Map'
 	mixer_role="${${amixer_control_line#*name=\'}% Channel Map\'}"
 	case "${mixer_role}" in
@@ -214,7 +245,8 @@ else
 	esac
 	## e.g.: ; type=INTEGER,access=r----R--,values=4,min=0,max=36,step=0
 	## This extracts the number of channels (values=???)
-	channels[${role}]=$(${AMIXER} -c "${card_index}" cget "${amixer_control_line}" | awk -F, '/type=INTEGER/{split($3,ch,/=/); print ch[2]}')
+	channels[${role}]=$(${AMIXER} -c "${card_index}" cget "${amixer_control_line}" |
+				${AWK} -F, '/type=INTEGER/{split($3,channel_count,/=/); print channel_count[2]}')
 	((VERBOSE)) && ${LOGGER} -t "${0:t}" -p local7.info -i \
 				 "INFO: '${card_name}' (hw:${card_index},${device}) claims to have ${channels[${role}]} ${mixer_role} channels."
     done
