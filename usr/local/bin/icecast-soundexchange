@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 2;
+use constant vPATCH => 3;
 use constant vHASH => '$Hash$';
 
 use Data::Dumper;
@@ -78,7 +78,7 @@ sub main() {
 	    $mountpoints->{$m} = ();
 	}
     }
-    say Dumper $mountpoints if ($debug);
+    say STDERR Dumper $mountpoints if ($debug);
 
     $logDirectory = $logDirectory || ICECASTLOGDIR;
 
@@ -93,7 +93,7 @@ sub main() {
     my $end = str2time($endDate);
     $end += ONE_DAY;
 
-    say STDERR "Start date: ", $startDate, ": ", $start, ", End date: ", $endDate, ": ", $end if ($verbose);
+    say STDERR sprintf("main: Start date: %s: %s End date: %s: %s", $startDate, $start, $endDate, $end) if ($verbose);
 
     my $logLines = getLogFiles($startDate, $endDate, $logDirectory, $verbose);
 
@@ -106,9 +106,8 @@ sub main() {
 	#                                     Array elements:       0       1       2       3       4       5
 	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
 	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-	say q($a: ), $a if ($debug);
-	say q($b: ), $b if ($debug);
-	say q(@a: ), @a, q( @b: ), @b if ($debug);
+	say STDERR q($a: ), $a if ($debug);
+	say STDERR q($b: ), $b if ($debug);
 	$a[2] <=> $b[2] ||
 	    mon($a[1], 0) <=> mon($b[1], 0) ||
 	    $a[0] <=> $b[0] ||
@@ -140,18 +139,16 @@ sub main() {
 	    # from the stream. We need to calculate the time at
 	    # which they connected to the stream by subtracting
 	    # the duration from this 'end time'
-	    my $time = timelocal($second, $minute, $hour, $mday, mon($mon, $verbose), $year);
+	    my $time = timelocal($second, $minute, $hour, $mday, mon($mon), $year);
 	    $time -= $duration;
 
 	    my $connectTime = gmtime($time);
 	    next unless ($connectTime >= $start && $connectTime <= $end);
 
-	    say STDERR
-		$ipAddress, " ",
-		$connectTime->ymd, " ",
-		$connectTime->hms, " ",
-		$loggedMountPoint, " ", $duration, " ", $statusCode,
-		" ->", $referer, "<- ->", $client, "<-"
+	    say STDERR sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-",
+			       $ipAddress, $connectTime->ymd, $connectTime->hms,
+			       $loggedMountPoint, $duration, $statusCode,
+			       $referer, $client)
 		if ($verbose > 2);
 
 	    my $entry = sprintf
@@ -185,7 +182,7 @@ sub main() {
 
 	    my $stringMember = $zip->addString($zipString, "$mount.txt");
 	    $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
-	    say STDERR "Added $mount.txt to '$zipFile'." if ($verbose);
+	    say STDERR "main: Added $mount.txt to '$zipFile'." if ($verbose);
 	} else {
 	    my $outFH = undef;
 	    open($outFH, ">", "$outputDir/$mount.txt") || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
@@ -268,7 +265,7 @@ sub getLogFiles() {
 	    die "Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped";
 	my @lines = <$lfFH>;
 	close($lfFH);
-	say STDERR $_, " has ", $#lines, " lines" if ($verbose > 1);
+	say STDERR sprintf("getLogFiles: %s has %d lines", $_, $#lines) if ($verbose > 1);
 
 	if (inDateRange(\@lines, $startDate, $endDate, $verbose)) {
 	    push(@validLogLines, @lines);
@@ -277,8 +274,8 @@ sub getLogFiles() {
 
     closedir $dirH;
 
-    say STDERR Dumper @logFileNames if ($verbose);
-    say STDERR "Found ", $#validLogLines, " log lines." if ($verbose);
+    say STDERR Dumper @logFileNames if ($verbose > 1);
+    say STDERR sprintf("getLogFiles: found %d log lines", $#validLogLines) if ($verbose);
 
     \@validLogLines;
 }
@@ -299,7 +296,7 @@ sub inDateRange() {
     foreach my $line (@$lines) {
 	my ($j1, $dateTime, $j2) = split(/[\[\]]/, $line);
 	my $lineDate = str2time($dateTime);
-	say STDERR "$lineDate in date range $s - $e" if (($verbose > 1) && ($lineDate >= $s && $lineDate <= $e));
+	say STDERR "inDateRange: $lineDate in date range $s - $e" if (($verbose > 1) && ($lineDate >= $s && $lineDate <= $e));
 	return 1 if ($lineDate >= $s && $lineDate <= $e);
     }
 
@@ -310,7 +307,6 @@ sub inDateRange() {
 # passed.
 sub mon() {
     my $monthName = shift;
-    my $verbose = shift;
 
     my $months = {
 	Jan => 0,
