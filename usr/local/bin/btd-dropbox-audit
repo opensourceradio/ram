@@ -90,4 +90,16 @@ for id in ${(k)path_specs[*]} ; do
     fi
 done
 
+# Check for "stranded files": those that have been downloaded and not
+# imported.
+for id in ${(k)path_specs[*]} ; do
+    path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
+    to_cart="${path_specs[${id}]%${myFS}*}"
+    group_name=$(doSQL "select GROUP_NAME from DROPBOXES where ID = ${id}")
+    find "${path_dir}" -type f -print | sort | while read -r line ; do
+	[[ "${line}" =~ \.log ]] && continue
+	echo "Might want to: rdimport --verbose --delete-source --delete-cuts --to-cart=${to_cart} ${group_name} ${line}"
+    done
+done
+
 exit
