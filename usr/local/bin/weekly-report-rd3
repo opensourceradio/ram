@@ -18,32 +18,34 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=6
+vPatch=7
 vHash='$Hash$'
 
 VERBOSE=0
 
-#################  BEGIN shell commands used in this script.  #################
-# This script uses these 5 external commands.
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 6 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  cat
-  column
-  getopt
-  sort
-  tr
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+typeset -a our_commands
+our_commands=( cat column getopt hostname sort tr )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands C D
+############## END external shell commands used in this script. ##############
 
 # Tell them how to use this command.
 usage() {
@@ -62,6 +64,7 @@ Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
                        [ --group (-g) <Group Name> (or "list") ]
                        [ --all ]
                        [ --service (-s) <Service Name> (or "list") ]
+                       [ --workstation (-w) <Workstation Name> ]
 		       [ --version (-V) ] [ --verbose (-v) ]
 
 The start date defaults to one week ago; the end date defaults to
@@ -72,6 +75,9 @@ You will be prompted for a Group if you do not provide one using the
 
 The --service (-s) parameter is required unless only one Service is
 configured. In that case the sole Service is chosen for you.
+
+You may limit the search to a specific Rivendell workstation name
+with the --workstation option.
 
 Adding the --schedcodes option causes ${myName:t} to include Carts
 that have any of the Scheduler Codes "<Code>,..." assigned (separate
@@ -151,6 +157,8 @@ maxLength() {
 				AND
 				elr.service_name = '${service}'
 				AND
+				elr.station_name = '${stationName}'
+				AND
 				elr.event_datetime > '${reportStartDate}'
 				AND
 				elr.event_datetime <= '${reportEndDate}'
@@ -187,7 +195,7 @@ INCLUDE_CUTS=0
 PROdata=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o acChg:s:S:e:pVv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,version,verbose -n ${0:t} -- "${@}")
+TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n ${0:t} -- "${@}")
 if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "${TEMP}"
@@ -203,9 +211,10 @@ do
     -S|--star*) startDate=${2} ; shift 2 ;;
     -e|--end*) endDate=${2} ; shift 2 ;;
     -p|--pro*) PROdata=4 ; shift ;;
+    -w|--work*) stationName="${2}" ; shift 2 ;;
     -h|--help) usage ${0} ; exit ;;
     -V|--vers*) showVersion=1 ; shift ;;
-    -v|--verb*) VERBOSE=1 ; shift ;;
+    -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
     *) echo "Internal error, cannot continue!" ; exit 1 ;;
   esac
@@ -231,7 +240,7 @@ fi
 # containing embedded <Space>s.
 typeset -a rivendellGroupList
 oIFS="${IFS}"
-IFS="	"
+IFS=$'\t'
 rivendellGroupList=( $(doSQL "SELECT name FROM GROUPS" | ${TR} '\012' '\t') )
 IFS="${oIFS}"
 unset oIFS
@@ -239,6 +248,10 @@ unset oIFS
 # Snag the SERVICES list for future use. SERVICES may not contain whitespace.
 typeset -a rivendellServiceList
 rivendellServiceList=( $(doSQL "SELECT name FROM SERVICES") )
+
+# Snag the list of workstations from STATIONS.
+typeset -a rivendellStations
+rivendellStations=( $(doSQL "select NAME from STATIONS") )
 
 # Snag the SCHED_CODES list for future use. Rivendell does not permit
 # whitespace in CODE names.
@@ -328,6 +341,20 @@ if [[ -z "${service}" ]] || [[ "${service}" =~ 'list' ]] ; then
   fi
 fi
 
+# List the STATION names if there are more than one, otherwise use the
+# lone STATION_NAME.
+if [[ -z "${stationName}" ]] || [[ "${stationName}" = 'list' ]] ; then
+  if (( ${#rivendellStations} > 1 )) ; then
+    echo "Stations:"
+    echo ${(F)rivendellStations} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    read stationName\?"Enter a Station for which to report: "
+  else
+    stationName=${rivendellStations[1]}
+  fi
+else
+  stationName=$(${HOSTNAME} -s)
+fi
+
 # List the Scheduler Codes and prompt for one (or more) to use in this report.
 if [[ "${schedCodes}" =~ 'list' ]] ; then
   echo "Current Scheduler Codes:"
@@ -361,16 +388,20 @@ selectCountStatement="SELECT
   (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
   AND elr.service_name = '${service}'
   AND
+  elr.station_name = '${stationName}'
+  AND
   elr.event_datetime > '${reportStartDate}'
   AND
   elr.event_datetime <= '${reportEndDate}'
   ORDER BY elr.event_datetime"
+((VERBOSE > 2)) &&
+  print "${0:t}: eventCount SELECT: ${selectCountStatement}" >&2
 eventCount=$(doSQL "${selectCountStatement}")
 
 # The report title.
 groupClause="$([[ ${group} =~ ^%$ ]] && print all Groups || print Group ${group})"
 reportTitleText="Service: ${service}: ${eventCount} Event$(((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
-(( CSV )) || print "${reportTitleText}\n"
+((CSV)) || print "${reportTitleText}\n"
 
 # Get the maximum length of each of these columns.
 fwTitle=$(maxLength title)
@@ -382,43 +413,47 @@ fwPub=$(maxLength publisher)
 # The report header with optional column headings, based on invocation
 # options.
 if (( CSV )) ; then
-  printf "\"%s\",\"%s\"$(((INCLUDE_CUTS)) && echo ,%s),%s,\"%s\"$(((${PROdata})) && echo ,%s,%s,%s,%s)$(((${SCHEDCODES})) && echo ,%s)\n" \
-	 "Air Date" \
-	 "Cart #" \
-	 $(((INCLUDE_CUTS)) && echo "Cut #") \
+  typeset header='"Air Date","Cart #"'
+  ((INCLUDE_CUTS)) && header=${header}',"Cut #"'
+  header=${header}',"Len","Title"'
+  ((PROdata)) && header=${header}',"Artist","Album","Label","Publisher"'
+  ((SCHEDCODES)) && header=${header}',"SchedCodes"'
+  print "${header}"
+else
+  typeset headerFormat="%19s${fs}%6s"
+  ((INCLUDE_CUTS)) && headerFormat="${headerFormat}${fs}%5s"
+  headerFormat="${headerFormat}${fs}%5s${fs}%${fwTitle}s"
+  ((PROdata)) && headerFormat="${headerFormat}${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s"
+  ((SCHEDCODES)) && headerFormat="${headerFormat}${fs}%s"
+  printf "${headerFormat}\n" \
+	 "Air Date" "Cart #" \
+	 $(((INCLUDE_CUTS)) && print "Cut #") \
 	 "Len" \
 	 "Cart Title" \
-	 $(((${PROdata})) && echo "Artist\nAlbum\nLabel\nPublisher") \
-	 $(((SCHEDCODES)) && echo "SchedCodes")
-else
-  printf "%19s${fs}%6s${fs}$(((INCLUDE_CUTS)) && echo %5s${fs})%5s${fs}%${fwTitle}s\n" \
-	 "Air Date" \
-	 "Cart #" \
-	 $(((INCLUDE_CUTS)) && echo Cut) \
-	 "Len" \
-	 "Cart Title"
+	 $(((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
+	 $(((SCHEDCODES)) && print "SchedCodes")
 fi
 
 # Find all matching events in ELR_LINES.
-if okDatabaseStructure ELR_LINES:event_datetime+cut_number+artist+album+title+length,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
-  selectStatement="SELECT
-    elr.event_datetime, elr.title, c.number, elr.length/1000
-    $(((INCLUDE_CUTS)) && echo , elr.cut_number)
-    $(((PROdata)) && echo ', elr.artist, elr.album, elr.label, elr.publisher')
-    $(((SCHEDCODES)) && echo ', csch.sched_code')
-    FROM ELR_LINES AS elr
-    LEFT JOIN CART AS c on (elr.cart_number = c.number)
-    ${schedCodesJoinClause}
-    WHERE elr.cart_number IN
-    (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
-    AND elr.service_name = '${service}'
-    AND
-    elr.event_datetime > '${reportStartDate}'
-    AND
-    elr.event_datetime <= '${reportEndDate}'
-    ORDER BY elr.event_datetime"
+if okDatabaseStructure ELR_LINES:event_datetime+cut_number+artist+album+title+length+station_name,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
+  selectStatement="SELECT elr.event_datetime, elr.title, c.number, elr.length/1000"
+  ((INCLUDE_CUTS)) && selectStatement="${selectStatement}, elr.cut_number"
+  ((PROdata)) && selectStatement="${selectStatement}, elr.artist, elr.album, elr.label, elr.publisher"
+  ((SCHEDCODES)) && selectStatement="${selectStatement}, csch.sched_code"
+  selectStatement="${selectStatement} FROM ELR_LINES AS elr"
+  selectStatement="${selectStatement} LEFT JOIN CART AS c on (elr.cart_number = c.number)"
+  selectStatement="${selectStatement} ${schedCodesJoinClause}"
+  selectStatement="${selectStatement} WHERE elr.cart_number IN"
+  selectStatement="${selectStatement} (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})"
+  selectStatement="${selectStatement} AND elr.service_name = '${service}'"
+  selectStatement="${selectStatement} AND elr.station_name = '${stationName}'"
+  selectStatement="${selectStatement} AND elr.event_datetime > '${reportStartDate}'"
+  selectStatement="${selectStatement} AND elr.event_datetime <= '${reportEndDate}'"
+  selectStatement="${selectStatement} ORDER BY elr.event_datetime"
+  ((VERBOSE > 1)) &&
+    print "${0:t}: selectStatement: '${selectStatement}'" >&2
 else
-  echo "${0:t}: Unknown database structure (multiple tables). Seek professional help." >&2
+  print "${0:t}: Unknown database structure (multiple tables). Seek professional help." >&2
   exit 4
 fi
 
@@ -426,7 +461,7 @@ typeset -A artist album label publisher
 
 # Change input field separator (IFS) to just <Tab>.
 oIFS="${IFS}"
-IFS="	"
+IFS=$'\t'
 # Output fields are <Tab>-separated.
 doSQL "${selectStatement}" | while read line ; do
   # Because some fields might be the "empty string" and we don't like
@@ -478,12 +513,17 @@ doSQL "${selectStatement}" | while read line ; do
 	   $(((${PROdata})) && quote "${cartPublisher}") \
 	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   else
-    printf "%20s${fs}%06d$(((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s\n" \
+    printf "%20s${fs}%06d$(((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
 	   $(((INCLUDE_CUTS)) && print "${cutNumber}") \
 	   ${cartMinSec} \
-	   $(quote "${cartTitle}")
+	   $(quote "${cartTitle}") \
+	   $(((${PROdata})) && quote "${cartArtist}") \
+	   $(((${PROdata})) && quote "${cartAlbum}") \
+	   $(((${PROdata})) && quote "${cartLabel}") \
+	   $(((${PROdata})) && quote "${cartPublisher}") \
+	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   fi
 
   # Save the meta data and the maximum field widths (we already know it for Title).
@@ -516,8 +556,7 @@ if ! (( CSV )) ; then
 	 $(((SCHEDCODES)) && print SchedCodes)
 
   # set IFS back to a single <TAB> and a single newline
-  IFS='
-'
+  IFS=$'\t\n'
 
   for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
 
