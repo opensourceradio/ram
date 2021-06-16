@@ -195,7 +195,7 @@ sub main {
 	exit;
     }
     chomp @complete_log_lines;
-    # Turns out we sometimes see blank lines in rdlogedit(1) output .
+    # Turns out we sometimes see blank lines in rdclilogedit(1) output .
     @complete_log_lines = grep {!/^$/} @complete_log_lines;
     print STDERR Dumper @complete_log_lines if ($verbose > 2);
 
