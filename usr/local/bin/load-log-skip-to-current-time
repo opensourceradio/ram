@@ -11,6 +11,7 @@
 ## Originally posted to rivendell-dev by
 ## Wayne Merricks <waynemerricks@thevoiceasia.com>
 ## with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
+## http://caspian.paravelsystems.com/pipermail/rivendell-dev/2015-November/023621.html
 ##
 ##############################################################################
 ##############################################################################
@@ -22,7 +23,7 @@ use v5.10;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 3;
-use constant vPATCH => 1;
+use constant vPATCH => 2;
 use constant vHASH => '$Hash$';
 
 use Getopt::Long qw(:config no_ignore_case);
