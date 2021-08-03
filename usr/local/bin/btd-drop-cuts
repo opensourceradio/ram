@@ -28,7 +28,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri vMajor=0
 declare -ri vMinor=3
-declare -ri vPatch=1
+declare -ri vPatch=2
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
 declare -r vHash='$Hash$'
@@ -36,8 +36,10 @@ declare -r vHash='$Hash$'
 # Get zsh functions necessary for this script.
 if [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
+elif [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
 else
-  exit $(error "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+  exit $(error "Cannot find support library 'zsh-functions'. Please consult your tarot card reader!")
 fi
 
 ##########################################################################################
@@ -58,6 +60,7 @@ ${myName} [ --verbose (-v) ] [ --version (-V) ] [ --dry-run (-d) ]
               { --all (-a) |
                 --played (-p) |
                 --shorter (-s) <seconds> |
+                --longer (-L) <seconds> |
                 --import-time (-i) "{older|newer} than <Time Spec>" |
                 --last-played (-l) "{older|newer} than <Time Spec>" }
               <Cart Number>
@@ -68,24 +71,25 @@ ${myName} uses the Rivendell Web API to delete some or all Cuts in
 Cart <Cart Number> according to one of the five required
 options. Options are:
 
-    --all - drop all Cuts
-    --played - drop Cuts with a play count greater than Zero
-    --shorter <seconds> - drop Cuts shorter than <seconds> in duration
-    --import-time "{older|newer} than <Time Spec>" - drop Cuts imported
+    --all (-a) - drop all Cuts
+    --played (-p) - drop Cuts with a play count greater than Zero
+    --shorter <seconds> (-s) - drop Cuts shorter than <seconds> in duration
+    --longer <seconds> (-L) - drop Cuts longer than <seconds> in duration
+    --import-time "{older|newer} than <Time Spec>" (-i) - drop Cuts imported
       longer ago (older) or more recently than (newer) <Time Spec>
-    --last-played "{older|newer} than <Time Spec>" - drop Cuts played longer
-      ago (older) or more recently than (newer) <Time Spec>)
+    --last-played "{older|newer} than <Time Spec>" (-l) - drop Cuts played
+      longer ago (older) or more recently than (newer) <Time Spec>)
 
 Note the time comparisons. You must specify a date/time acceptable to
 the date(1) command and must specify a comparison that includes one of
 the phrases "older than", "more than", "newer than", or "less than".
 
-Use --keep-evergreen (-k) to avoid dropping Cuts explicitely marked
-"Evergreen".
+Use the --keep-evergreen (-k) switch to avoid dropping Cuts
+explicitely marked "Evergreen".
 
-The --verbose (-v) option enables more chattiness in the operation.
+The --verbose (-v) switch enables more chattiness in the operation.
 
-The --dry-run option performs everything except actually dropping the
+The --dry-run switch performs everything except actually dropping the
 Cuts in the specified Cart.
 
 ${myName} sends diagnostic and verbose output to the standard error
@@ -112,7 +116,7 @@ error() {
 ${RED}ERROR:${NORM} ${message}
 
 EOF
-  echo 254
+  print 254
   return 254
 }
 
@@ -148,12 +152,13 @@ declare -i DRYRUN=0
 declare -i KEEP_EVERGREEN=0
 declare DROP_SPEC=
 declare MINIMUM_DURATION=
+declare MAXIMUM_DURATION=
 declare IMPORT_DATETIME=
 declare IMPORT_OP=
 declare LAST_PLAY_DATETIME=
 declare LAST_PLAY_OP=
 
-if ! TEMP=$(${GETOPT} -o adhi:kl:ps:Vv --long help,all,dry-run,import-time:,keep-evergreen,last-played:,played,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o adhi:kL:l:ps:Vv --long help,all,dry-run,import-time:,keep-evergreen,last-played:,longer:,played,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -166,6 +171,7 @@ while : ; do
     -i|--impor*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}importDatetime ; IMPORT_DATETIME="${2}" ; shift 2 ;;
     -k|--keep*) KEEP_EVERGREEN=1 ; shift ;;
     -l|--last*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}lastPlayDatetime ; LAST_PLAY_DATETIME="${2}" ; shift 2 ;;
+    -L|--long*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}longer ; MAXIMUM_DURATION="${2}" ; shift 2 ;;
     -d|--dry*) DRYRUN=1 ; shift ;;
     -h|--help*) usage ${0:t} ; exit ;;
     -v|--verb*) VERBOSE=1 ; shift ;;
@@ -177,7 +183,7 @@ done
 unset TEMP
 
 if ((showVersion)) ; then
-  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  print "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -207,13 +213,13 @@ if [[ -n "${LAST_PLAY_DATETIME}" ]] ; then
   LAST_PLAY_DATETIME=${LAST_PLAY_DATETIME##*than }
 fi
 
-echo "Preparing to drop cuts in CART ${targetCart}."
+print "Preparing to drop cuts in CART ${targetCart}."
 
 declare cutListXML
 declare -A cutList
 cutListXML=$(rdListCuts "${targetCart}")
-((VERBOSE)) && cutCount=$(echo "${cutListXML}" | ${XMLSTARLET} select --template --value-of 'count(/cutList/cut/cutName)')
-((VERBOSE)) && echo "Considering ${cutCount} Cut$( ((cutCount == 0 || cutCount > 1)) && echo 's' ) from Cart '${targetCart}'" >&2
+((VERBOSE)) && cutCount=$(print "${cutListXML}" | ${XMLSTARLET} select --template --value-of 'count(/cutList/cut/cutName)')
+((VERBOSE)) && print "Considering ${cutCount} Cut$( ((cutCount == 0 || cutCount > 1)) && print 's' ) from Cart '${targetCart}'" >&2
 if [[ -n "${cutListXML}" ]] ; then
   # cutList is an associative array keyed by Cut Number, with values
   # containing the colon-separated fields "length" (int), "originDatetime"
@@ -224,7 +230,7 @@ if [[ -n "${cutListXML}" ]] ; then
   # SC2207: ZSH does not prefer "mapfile" or "read -a"
   # shellcheck disable=SC2034,SC2190,2207
   cutList=(
-    $(echo "${cutListXML}" |
+    $(print "${cutListXML}" |
 	${XMLSTARLET} select --template \
 		      --match 'cutList/cut' \
 		      --value-of 'cutNumber' -o ' ' \
@@ -245,7 +251,7 @@ if [[ -n "${cutListXML}" ]] ; then
 		      -v 'evergreen' \
 		      --nl)
   )
-  ((VERBOSE && cutCount > 10)) && echo >&2
+  ((VERBOSE && cutCount > 10)) && print >&2
 
   # ZSH DEPENDENCY: The variable expansion ${(knO)cutList} yields a
   # list of associative array keys (k) (Cut Numbers), sorted in
@@ -265,19 +271,19 @@ if [[ -n "${cutListXML}" ]] ; then
     cutPlayCount=${cutColumnList[4]}
     evergreen=${cutColumnList[5]}
 
-    if eval "${evergreen}" && (( KEEP_EVERGREEN )) ; then
-       ((VERBOSE)) && echo "Keeping evergreen Cut '${cut}' in CART '${targetCart}'" >&2
+    if eval "${evergreen}" && ((KEEP_EVERGREEN)) ; then
+       ((VERBOSE)) && print "Keeping evergreen Cut '${cut}' in CART '${targetCart}'" >&2
        continue
     fi
 
     # This loop enables to specify more than one drop option with a
     # single command invocation. It results in logical OR of all the
     # drop options.
-    for SPEC in $(eval echo ${DROP_SPEC//,/ }) ; do
+    for SPEC in $(eval print ${DROP_SPEC//,/ }) ; do
       case "${SPEC}" in
 	all)
 	  dropThisCut=1
-	  ((VERBOSE)) && echo "Dropping Cut '${cut}' from Cart '${targetCart}' (dropping all Cuts)." >&2
+	  ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (dropping all Cuts)." >&2
 	  ;;
 	importDatetime)
 	  case "${(L)IMPORT_COMPARE}" in
@@ -293,8 +299,8 @@ if [[ -n "${cutListXML}" ]] ; then
 	  if ! dropDatetime=$(${DATE} --date="${IMPORT_DATETIME}" "+%s") ; then
 	    exit $(error "Unable to parse date/time '${IMPORT_DATETIME}'. Not dropping cut '${cut}'")
 	  fi
-	  if (( cutImportDate ${IMPORT_OP} dropDatetime )) ; then
-	    ((VERBOSE)) && echo "Dropping Cut '${cut}' from Cart '${targetCart}' (import Datetime $(${DATE} --date=@${cutImportDate})) is ${IMPORT_COMPARE} than $(${DATE} --date=@${dropDatetime})." >&2
+	  if ((cutImportDate ${IMPORT_OP} dropDatetime)) ; then
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (import Datetime $(${DATE} --date=@${cutImportDate})) is ${IMPORT_COMPARE} than $(${DATE} --date=@${dropDatetime})." >&2
 	    dropThisCut=1
 	  fi
 	  ;;
@@ -315,22 +321,29 @@ if [[ -n "${cutListXML}" ]] ; then
 	  # SC2210: the > is not a redirect, shellcheck seems to not
 	  # know about arithmetic expressions inside (())
 	  # shellcheck disable=SC2210
-	  if (( ( cutPlayCount > 0 ) && ( cutLastPlayDate ${LAST_PLAY_OP} dropDatetime ) )) ; then
-	    ((VERBOSE)) && echo "Dropping Cut '${cut}' from Cart '${targetCart}' (last-played Datetime $(${DATE} --date=@${cutLastPlayDate}) is ${LAST_PLAY_COMPARE} than $(${DATE} --date=@${dropDatetime}))." >&2
+	  if (((cutPlayCount > 0) && (cutLastPlayDate ${LAST_PLAY_OP} dropDatetime))) ; then
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (last-played Datetime $(${DATE} --date=@${cutLastPlayDate}) is ${LAST_PLAY_COMPARE} than $(${DATE} --date=@${dropDatetime}))." >&2
 	    dropThisCut=1
 	  fi
 	  ;;
 	played)
-	  if (( cutPlayCount > 0 )) ; then
-	    ((VERBOSE)) && echo "Dropping Cut '${cut}' from Cart '${targetCart}' (previously played ${cutPlayCount} times)." >&2
+	  if ((cutPlayCount > 0)) ; then
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (previously played ${cutPlayCount} times)." >&2
 	    dropThisCut=1
 	  fi
 	  ;;
 	# MINIMUM_DURATION is in seconds, Cut length in the database
 	# is in milliseconds.
 	shorter)
-	  if (( cutLength < ( MINIMUM_DURATION * 1000 ) )) ; then
-	    ((VERBOSE)) && echo "Dropping Cut '${cut}' from Cart '${targetCart}' ($(( cutLength / 1000.)) is shorter than ${MINIMUM_DURATION})." >&2
+	  if ((cutLength < (MINIMUM_DURATION * 1000))) ; then
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' ($((cutLength / 1000.0)) is shorter than ${MINIMUM_DURATION})." >&2
+	    dropThisCut=1
+	  fi
+	  ;;
+	# Same as above for MAXIMUM_DURATION.
+	longer)
+	  if ((cutLength > (MAXIMUM_DURATION * 1000))) ; then
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' ($((cutLength / 1000.0)) is longer than ${MAXIMUM_DURATION})." >&2
 	    dropThisCut=1
 	  fi
 	  ;;
@@ -340,18 +353,18 @@ if [[ -n "${cutListXML}" ]] ; then
       esac
     done
 
-    if (( dropThisCut )) ; then
-      if (( DRYRUN )) ; then
-	echo "Would have dropped Cut '${cut}' from Cart '${targetCart}'."
+    if ((dropThisCut)) ; then
+      if ((DRYRUN)) ; then
+	print "Would have dropped Cut '${cut}' from Cart '${targetCart}'."
       else
 	if ! response=$(rdDropCut "${targetCart}" "${cut}" ${VERBOSE}) ; then
 	  warning "${0:t}: Error in dropping Cut '${cut}' from Cart '${targetCart}' (${response}). Please check the Cart with RDLibrary."
 	else
-	  echo "Successfully dropped Cut '${cut}' from Cart '${targetCart}'."
+	  print "Successfully dropped Cut '${cut}' from Cart '${targetCart}'."
 	fi
       fi
     else
-      ((VERBOSE)) && echo "Not dropping Cut '${cut}' from Cart '${targetCart}'." >&2
+      ((VERBOSE)) && print "Not dropping Cut '${cut}' from Cart '${targetCart}'." >&2
     fi
   done
 else
