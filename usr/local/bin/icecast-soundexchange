@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 3;
+use constant vPATCH => 4;
 use constant vHASH => '$Hash$';
 
 use Data::Dumper;
@@ -38,18 +38,19 @@ main;
 
 sub main() {
     my $retVal = undef;
-    my($result, $logDirectory, $startDate, $endDate, $outputDir, $mount_points, $zipFile, $version, $verbose, $debug, $help, $man) =
-	(0, undef, undef, undef, undef, undef, undef, undef, 0, 0, undef, undef);
+    my($result, $logDirectory, $startDate, $endDate, $outputDir, $mount_points, $rawOutput, $zipFile, $version, $verbose, $debug, $help, $man) =
+	(0,     undef,         undef,      undef,    undef,      undef,         0,          undef,    undef,    0,        0,      undef, undef);
     my @logContents = ();
     my $mountpoints = undef;
     my $zip = undef;
 
     $result = GetOptions(
-	"start-date|s=s"    => \$startDate,
 	"end-date|e=s"      => \$endDate,
 	"log-directory|l=s" => \$logDirectory,
-	"output-dir|o=s"    => \$outputDir,
 	"mount-points|m=s"  => \$mount_points,
+	"output-dir|o=s"    => \$outputDir,
+	"raw|r"             => \$rawOutput,
+	"start-date|s=s"    => \$startDate,
 	"zip-file|z=s"      => \$zipFile,
 	"verbose|v+"        => \$verbose,
 	'version|V'         => \$version,
@@ -61,7 +62,7 @@ sub main() {
 
     pod2usage(1)             if (defined($help) && $help);
     pod2usage(-verbose => 2) if (defined($man) && $man);
-    showVersion($0) if ($version);
+    showVersion($0) if (defined($version));
 
     if (! $startDate || ! $endDate) {
 	say STDERR "Please specify a starting date and an ending date for this report.";
@@ -99,6 +100,33 @@ sub main() {
 
     $outputDir = $outputDir || OUTPUTDIR;
 
+    # From icecast-kh/src/logging.h:
+    # /* this is the logging call to write entries to the access_log
+    # ** the combined log format is:
+    # ** ADDR USER AUTH DATE REQUEST CODE BYTES REFERER AGENT [TIME]
+    # ** ADDR = ip address of client
+    # ** USER = username if authenticated
+    # ** AUTH = auth type, not used, and set to "-"
+    # ** DATE = date in "[30/Apr/2001:01:25:34 -0700]" format
+    # ** REQUEST = request, ie "GET /live.ogg HTTP/1.0"
+    # ** CODE = response code, ie, 200 or 404
+    # ** BYTES = total bytes of data sent (other than headers)
+    # ** REFERER = the refering URL
+    # ** AGENT = the user agent
+    # **
+    # ** for icecast, we add on extra field at the end, which will be 
+    # ** ignored by normal log parsers
+    # **
+    # ** TIME = seconds that the connection lasted
+    # ** 
+    # ** this allows you to get bitrates (BYTES / TIME)
+    # ** and figure out exact times of connections
+    # **
+    # ** it should be noted also that events are sent on client disconnect,
+    # ** so the DATE is the timestamp of disconnection.  DATE - TIME is the 
+    # ** time of connection.
+    # */
+    #ADDR            U A DATE                         REQUEST              CODE BYTES REF AGENT
     #207.190.123.196 - - [05/Mar/2013:22:09:36 -0600] "GET /high HTTP/1.0" 200 134755 "-" "WinampMPEG/5.63, Ultravox/2.1" 4
     #166.228.136.249 - - [05/Mar/2013:22:11:55 -0600] "GET /high HTTP/1.1" 200 1002080 "-" "BREW-Applet/0x010950A6 (BREW/3.1.5.189; DeviceId:  1388; Lang: en)" 92
     foreach my $logLine (sort {
@@ -114,7 +142,7 @@ sub main() {
 	    $a[3] <=> $b[3] ||
 	    $a[4] <=> $b[4] ||
 	    $a[5] <=> $b[5]
-			  } @{$logLines}) {
+			 } @{$logLines}) {
 	next unless ($logLine =~ m#get\s+/($mountpointRE)\s+#i);
 	say STDERR $logLine if ($debug > 1);
 
