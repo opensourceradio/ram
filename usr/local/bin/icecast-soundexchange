@@ -126,12 +126,13 @@ sub main() {
     # ** so the DATE is the timestamp of disconnection.  DATE - TIME is the 
     # ** time of connection.
     # */
-    #ADDR            U A DATE                         REQUEST              CODE BYTES REF AGENT
+    #ADDR            U A DATE                         REQUEST              CODE BYTES REF AGENT                           TIME
     #207.190.123.196 - - [05/Mar/2013:22:09:36 -0600] "GET /high HTTP/1.0" 200 134755 "-" "WinampMPEG/5.63, Ultravox/2.1" 4
     #166.228.136.249 - - [05/Mar/2013:22:11:55 -0600] "GET /high HTTP/1.1" 200 1002080 "-" "BREW-Applet/0x010950A6 (BREW/3.1.5.189; DeviceId:  1388; Lang: en)" 92
     foreach my $logLine (sort {
 	#                                      Log line item:      day     month   year    hour   minute  second
 	#                                     Array elements:       0       1       2       3       4       5
+	#                ADDR                 USER     AUTH
 	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
 	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
 	say STDERR q($a: ), $a if ($debug);
@@ -149,6 +150,7 @@ sub main() {
 	# Bug Alert: the sub-expression "(\d{2})00" represents the
 	# timezone offset in the date/time field. It currently assumes
 	# an integral number of hours offset from GMT (UTC).
+	#                   ADDR                  U   A    DATE                                                       REQUEST                                CODE      BYTES   REFERER     AGENT    TIME
 	if ($logLine =~ m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i) {
 	    my $ipAddress = $1;
 	    my ($date, $hour, $minute, $second) = split(/:/, $2);
