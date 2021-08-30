@@ -1,11 +1,13 @@
 #!/bin/env zsh
+# shellcheck shell=bash disable=SC2046
+# SC2046: We do not care about the word splitting in unquoted $() expansion
 
 ##############################################################################
 ##############################################################################
 ##
 ## sched-codes-report
 ##
-## Report on SCHED_CODES usage in carts
+## Report on SCHED_CODES usage in Carts
 ##
 ##############################################################################
 ##############################################################################
@@ -19,11 +21,14 @@ autoload colors
 colors
 
 # This script complies with Semantic Versioning: http://semver.org/
-vRelease=0
-vMajor=0
-vMinor=1
-vPatch=1
-vHash='$Hash$'
+# SC2016: $Hash is not a shell parameter, don't want it expanded.
+# shellcheck disable=SC2016,SC2034
+{
+  v_major=0
+  v_minor=2
+  v_patch=0
+  v_hash='$Hash$'
+}
 
 ##############################################################################
 ##############################################################################
@@ -34,13 +39,13 @@ vHash='$Hash$'
 ##############################################################################
 ## Tell them how to use this script.
 usage() {
-  local myName=${1:t}
+  local my_name=${1:t}
 
   cat <<EndOfUsage
-${myName} [ --help (-h) ] [ --version (-v) ]
+${my_name} [ --help (-h) ] [ --version (-v) ]
                    [ --code (-c) <SCHED_CODE> ]"
 
-$(${FMT} <<<"${myName} reports on Scheduler Code usage in the Rivendell Library")
+$(${FMT} <<<"${my_name} reports on Scheduler Code usage in the Rivendell Library")
 
 $(${FMT} <<<"Use the --code (-c) <CODE> option to report on a specific Scheduler Code.")
 
@@ -48,16 +53,18 @@ EndOfUsage
 }
 
 ##############################################################################
-# function validSchedCode()
+# function valid_sched_code()
 # Check the passed code for validity
 # Returns true or false
 ##############################################################################
-validSchedCode() {
-  local definedCodes=${1} ; shift
-  local requestedCode=${1} ; shift
+valid_sched_code() {
+  local defined_codes=${1} ; shift
+  local requested_code=${1} ; shift
 
-  for schedCode in $(echo ${definedCodes}) ; do
-  [[ "${requestedCode}" = ${schedCode} ]] && return 0
+  # SC2086: the print is required in order to get defined_codes to expand correctly
+  # shellcheck disable=SC2086
+  for sched_code in $(print "${defined_codes}") ; do
+    [[ "${requested_code}" = "${sched_code}" ]] && return 0
   done
 
   return 1
@@ -81,72 +88,92 @@ validSchedCode() {
 ##############################################################################
 ##############################################################################
 
-#################  BEGIN shell commands used in this script.  #################
+############# BEGIN external shell commands used in this script. #############
 # This script uses these 3 external commands.
 # Look for them in their upper case, parameter expanded form.
-ourCommands=(
-  fmt
-  getopt
-  logger
-)
-# Find the executables we need; this uses a little old fashioned shell and
-# a ZSH trick -- the (U) in the eval(1) says to evaluate the parameter as
-# all upper case letters. We will use the command names in upper case as
-# variables by which to call the external commands used in this script.
-for C in ${ourCommands} ; do
+typeset -a our_commands
+our_commands=( fmt getopt logger )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-  [[ -x ${D}/${C} ]] && { eval ${(U)C//-/_}=${D}/${C} ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval echo \$${(U)C//-/_}) ]] || { echo "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-##################  END shell commands used in this script.  ##################
+unset our_commands C D
+############## END external shell commands used in this script. ##############
 
 if [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
   exit 7
 fi
 
-## Use getopt to parse the command line arguments.
-TEMP=$(${GETOPT} -o c:hv --long code:,help,version -n ${0:t} -- "${@}")
-if [ ${?} != 0 ] ; then echo "getopt(1) failed (${?}). Terminating..." >&2 ; exit 1 ; fi
-## Note the quotes around "$TEMP": they are essential!
+if ! TEMP=$(${GETOPT} -o c:hv --long code:,help,version -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
 eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
-  -c|--code) schedCode=${2} ; shift 2 ;;
-  -h|--help) usage ${0} ; exit ;;
-  -v|--ver*) showVersion=1 ; shift ;;
-  --) shift ; break ;;
-  *) echo 'Unknown option: Internal error, I quit!' ; exit 1 ;;
+    -c|--code) sched_code="${2}" ; shift 2 ;;
+    -h|--help) usage "${0}" ; exit ;;
+    -v|--ver*) show_version=1 ; shift ;;
+    --) shift ; break ;;
+    *) exit $(error "${0:t}: Trouble making sense of options processing. This should not happen. Contact Support.") ;;
   esac
 done
 unset TEMP
 
-if ((showVersion)) ; then
-  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#$Hash: }%$}"
+if ((show_version)) ; then
+  print "${0##*/}: version ${v_major}.${v_minor}.${v_patch}-${${v_hash#$Hash: }%$}"
+  # SC2154: these parameters are defined in zsh-functions.
+  # shellcheck disable=SC2154
   [[ -n "${vLibRelease}" ]] &&
-  echo "tLibrary version ${vLibRelease}.${vLibMajor}.${vLibMinor}${vLibPatch}-${${vLibHash#$Hash: }%$}"
+    print "tLibrary version ${vLibRelease}.${vLibMajor}.${vLibMinor}${vLibPatch}-${${vLibHash#$Hash: }%$}"
   exit 0
 fi
 
-
-# these depends on having ~/.my.cnf or /etc/rd.conf configured with
-# valid credentials for accessing the Rivendell database
-rivendellSchedCodes=( $(doSQL "SELECT code FROM SCHED_CODES") )
+typeset -a rivendell_schedcodes
+if okDatabaseStructure "SCHED_CODES:code" 0 ; then
+  # SC2207: Zsh does not prefer mapfile
+  # shellcheck disable=SC2207
+  rivendell_schedcodes=( $(doSQL "SELECT code FROM SCHED_CODES") )
+else
+  print "Unable to continue with this unknown database schema."
+  exit 2
+fi
 
 printf "%12s %6s %s\n" " Sched Code" " Count" "  Code Description"
 
+typeset -i code_count=0
+typeset result
+typeset code
+
 # Loop over a) just the specified code, or b) all existing scheduler codes.
-for code in ${schedCode:-${rivendellSchedCodes}} ; do
-  codeCount=$(doSQL "SELECT COUNT(*) FROM CART WHERE sched_codes REGEXP '.*[[:space:]]?${code}[[:space:]].*'")
-  result=$(doSQL "SELECT code, '${codeCount}', description FROM SCHED_CODES WHERE code = '${code}'")
-  printf "%-12s %6d %s\n" ${result%%	*} ${${result%	*}#*	} ${result##*	}
+# Note the <Tab> characters in the printf arguments.
+for code in ${sched_code:-${rivendell_schedcodes[*]}} ; do
+  if okDatabaseStructure CART:sched_codes,SCHED_CODES:code+description 0 ; then
+    code_count=$(doSQL "select count(*) from CART where SCHED_CODES regexp '.*[[:space:]]?${code}[[:space:]].*'")
+    result=$(doSQL "select CODE, '${code_count}', DESCRIPTION from SCHED_CODES where CODE = '${code}'")
+  elif okDatabaseStructure SCHED_CODES:code+description,CART_SCHED_CODES:sched_code 0 ; then
+    code_count=$(doSQL "select count(*) from CART_SCHED_CODES where SCHED_CODE = '${code}'")
+    result=$(doSQL "select CODE, '${code_count}', DESCRIPTION from SCHED_CODES where CODE = '${code}'")
+  fi
+  printf "%-12s %6d %s\n" "${result%%	*}" "${${result%	*}#*	}" "{${result##*	}"
 done
 
 exit
-
 ##############################################################################
 ##############################################################################
 ##
