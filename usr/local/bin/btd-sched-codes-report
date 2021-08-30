@@ -170,7 +170,7 @@ for code in ${sched_code:-${rivendell_schedcodes[*]}} ; do
     code_count=$(doSQL "select count(*) from CART_SCHED_CODES where SCHED_CODE = '${code}'")
     result=$(doSQL "select CODE, '${code_count}', DESCRIPTION from SCHED_CODES where CODE = '${code}'")
   fi
-  printf "%-12s %6d %s\n" "${result%%	*}" "${${result%	*}#*	}" "{${result##*	}"
+  printf "%-12s %6d %s\n" "${result%%	*}" "${${result%	*}#*	}" "${result##*	}"
 done
 
 exit
