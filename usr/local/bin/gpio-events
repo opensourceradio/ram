@@ -19,15 +19,11 @@
 setopt NO_CASE_MATCH
 zmodload zsh/regex
 zmodload zsh/datetime
-zmodload zsh/terminfo
-zmodload zsh/stat
-autoload colors
-colors
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=0
+declare -ri v_patch=1
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
 declare -r v_hash='$Hash$'
@@ -129,7 +125,7 @@ unset TEMP
 
 if ((SHOW_VERSION)) ; then
     typeset commit_hash="${v_hash}"
-    [[ "${v_hash}" =~ .*Hash.* ]] &&
+    [[ "${v_hash}" == '$Hash$' ]] &&
 	commit_hash="prerelase"
     print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
     exit 0
