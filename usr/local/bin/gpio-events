@@ -1,0 +1,183 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC1105,SC2046,SC2079,SC2086,SC2154
+# SC1105: using (( )) correctly for ZSH
+# SC2046: We do not care about the word splitting in unquoted $() expansion
+# SC2079: ZSH arithmetic expressions can do floating point
+# SC2086: all instances of parameters are double-quoted the way I want them
+# SC2154: reference parameters are set by ZSH for us
+
+##########################################################################################
+##########################################################################################
+##
+## gpio-events
+##
+## Search for and display Rivendell GPIO events.
+##
+##########################################################################################
+##########################################################################################
+
+setopt NO_CASE_MATCH
+zmodload zsh/regex
+zmodload zsh/datetime
+zmodload zsh/terminfo
+zmodload zsh/stat
+autoload colors
+colors
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=0
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
+# shellcheck disable=SC2016
+declare -r v_hash='$Hash$'
+
+##########################################################################################
+## Locally defined subroutines
+##########################################################################################
+
+# How to use this command.
+usage() {
+  local myName="${1}"
+
+  ${CAT} << EOF
+${myName}: display historical GPIO events.
+
+SUMMARY
+
+${myName} [ --verbose (-v) ] [ --version (-V) ]
+            [ --end <ending-date [time]> (-e) ]
+            [ --csv (-c) ]
+            <start-date [time]> [ <switcher> ]
+
+DESCRIPTION
+
+${myName} searches for and displays GPIO events from the GPIO_EVENTS
+table. Specify a starting date (and optional time) in the format
+YYYY-MM-DD, and optionally HH:MM:SS.
+
+${my_name} displays GPIO events through the end of the requested day
+unless you specify an end date with the --end <ending-date> option.
+
+Options include:
+
+  --csv - produce Comma Separated Value output
+  --end <ending-date [time]> (-e) - specify an end date (and time)
+  --verbose (-v) - enable chattiness in the operation
+  --version (-V) - display the app version number and exit
+
+You may also specify a switcher by typing the numeric ID of the switcher after the start date
+
+${myName} sends diagnostic and verbose output to the standard error
+(STDERR) channel.
+
+EOF
+}
+
+##########################################################################################
+## Script main line
+##########################################################################################
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 3 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat getopt mysql )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+declare -i VERBOSE=0
+declare -i SHOW_VERSION=0
+declare -i CSV_OUTPUT=0
+declare END_DATE=""
+
+if ! TEMP=$(${GETOPT} -o cehVv --long csv,end:,help,version,verbose -n "${0:t}" -- "${@}") ; then
+    print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+    return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+    case "${1}" in
+	-c|--csv) CSV_OUTPUT=1 ; shift ;;
+	-e|--end) END_DATE="${2}" ; shift 2 ;;
+	-h|--help*) usage ${0:t} ; exit ;;
+	-v|--verb*) VERBOSE=1 ; shift ;;
+	-V|--vers*) SHOW_VERSION=1 ; shift ;;
+	--) shift ; break ;;
+	*) print "${0:t}: Trouble making sense of options. This should not happen. Please contact support."
+	   exit 1
+	   ;;
+    esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" =~ .*Hash.* ]] &&
+	commit_hash="prerelase"
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
+fi
+
+event_date=${1:?"Please specify a date for the events (YYYY-MM-DD format)."}
+matrix=${2:-0}
+
+query='select * from GPIO_EVENTS'
+query="${query} where MATRIX = ${matrix}"
+query="${query} and EVENT_DATETIME >= '${event_date}'"
+if [[ -n "${END_DATE}" ]] ; then
+    # Specify the end of the end-date if they did not include the time
+    # in their ending date.
+    if ! [[ "${END_DATE}" =~ .*[[:digit:]]{2}:[[:digit:]]{2}(:[[:digit:]]{2})*$ ]] ; then
+	END_DATE="${END_DATE}T23:59:59"
+    fi
+    query="${query} and EVENT_DATETIME <= '${END_DATE}'"
+else
+    query="${query} and EVENT_DATETIME <= '${event_date%[T ]*} 23:59:59'"
+fi
+query="${query} order by EVENT_DATETIME asc"
+
+((VERBOSE)) &&
+    print "GPIO query: ${query}" >&2
+if ((CSV_OUTPUT)) ; then
+    # `ID` int(11) NOT NULL AUTO_INCREMENT
+    # `STATION_NAME` char(64) NOT NULL
+    # `MATRIX` int(11) NOT NULL
+    # `NUMBER` int(11) NOT NULL
+    # `TYPE` int(11) NOT NULL
+    # `EDGE` int(11) NOT NULL
+    # `EVENT_DATETIME` datetime NOT NULL
+    print '"ID","STATION_NAME","MATRIX","NUMBER","TYPE","EDGE","EVENT_DATETIME"'
+    #oIFS="${IFS}"
+    IFS=$'\t\n'
+    ${MYSQL} -s -N -B Rivendell -e "${query}" | while read -r id station_name matrix number type edge event_datetime ; do
+	printf '%d,"%s",%d,%d,%d,%d,"%s"'"\n" \
+	       "${id}" \
+	       "${station_name}" \
+	       "${matrix}" \
+	       "${number}" \
+	       "${type}" \
+	       "${edge}" \
+	       "${event_datetime}"
+    done
+else
+    ${MYSQL} --table Rivendell -e "${query}"
+fi
+
+exit
