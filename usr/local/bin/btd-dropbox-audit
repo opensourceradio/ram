@@ -2,73 +2,228 @@
 # shellcheck shell=bash disable=SC2034,SC2190,SC2207
 # SC2034: shellcheck does not know about ZSH param expansions.
 # SC2190: ZSH associative arrays work differently from Bash associative arrays.
-# SC2207: I do not prefer mapfile or read -a.
+# SC2207: mapfile or read -a are Bash-isms.
 
-if [[ -f /usr/local/bin/zsh-functions ]] ; then
+zmodload zsh/stat
+zmodload zsh/datetime
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri vMajor=0
+declare -ri vMinor=1
+declare -ri vPatch=3
+# SC2016: We do not want this single quoted expression to expand.
+# shellcheck disable=SC2016
+declare -r vHash='$Hash$'
+
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+    source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
     source /usr/local/bin/zsh-functions
 else
-    print "Missing zsh-functions."
+    print "Missing zsh-functions." >&2
     exit 1
 fi
 
+typeset -i INTERACTIVE=0
+typeset -i CHECK_STRANDED_FILES=0
+typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
+
+typeset -ri CURRENT_TIME=${EPOCHSECONDS}
+typeset -ri ONE_DAY=$((60 * 60 * 24))
+
+usage() {
+  local -r my_name="${1:t}"
+
+  ${CAT} <<EOF
+NAME
+
+${my_name}
+
+SYNOPSIS
+
+${my_name} [ --stranded-files (-s) ] [ --interactive (-i) ]
+                  [ --help (-h) ] [ --version (-v) ]
+
+DESCRIPTION
+
+$(${FMT} <<<"${my_name} performs several checks on Rivendell dropboxes in order to ensure their consistent and reliable functionality. Checks include:
+
+  * running processes for all defined dropboxes
+
+  * 'left-over' processes from deleted or changed dropboxes
+
+  * existance of dropbox folders (directories)
+
+  * existance of Carts for dropboxes that specify them
+
+  * 'hung' import processes
+
+  * 'stranded' (unimported) files in dropbox directories")
+
+$(${FMT} <<<"${my_name} takes specific action in cases where it makes sense and is safe:
+
+  * starts any missing dropbox processes
+
+  * terminates any 'hung' import processes")
+
+$(${FMT} <<<"Specify '--interactive' (short option: '-i') to have ${my_name} prompt before taking any action.")
+
+$(${FMT} <<<"Specify '--stranded-files' (short option: '-s') to have ${my_name} look for and report on files in dropbox directories that have not been imported.")
+
+EOF
+}
+
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 12 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat date find fmt getopt grep kill pidof ps sed sendusr1 sort )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+if ! TEMP=$(${GETOPT} -o hisVv --long help,interactive,stranded-files,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+    # VERBOSE is used, but in a non-Bash way.
+    # shellcheck disable=SC2034
+    case "${1}" in
+	-h|--help) usage "${0}" ; exit ;;
+	-i|--inter*) INTERACTIVE=1 ; shift ;;
+	-s|--stranded*) CHECK_STRANDED_FILES=1 ; shift ;;
+	-V|--version) SHOW_VERSION=1 ; shift ;;
+	-v|--verbose) ((VERBOSE += 1)) ; shift ;;
+	--) shift ; break ;;
+	*) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+    esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+  printf "%s: version %d.%d.%d-%s\n" "${0:t}" "${vMajor}" "${vMinor}" "${vPatch}" "${${vHash#\$Hash: }%$}"
+  exit 0
+fi
+
 typeset -r oIFS="${IFS}"
+# hostname -s *must* match the station name in the STATIONS table.
 typeset -r station=$(hostname -s)
 typeset -r myFS='^:^'
 
-# Get the count of both dropboxes and processes.
+# Get the count of dropboxes and running processes.
 typeset -ri box_count=$(doSQL "select count(*) from DROPBOXES where station_name='${station}'")
-typeset -ri pid_count=$(pidof rdimport | wc -w)
+typeset -ri pid_count=$(${PIDOF} rdimport | wc -w)
+((VERBOSE)) && printf "(v): dropbox count: %d, PID count: %d\n" "${box_count}" "${pid_count}" >&2
 
 if ((box_count > pid_count)) ; then
     printf "%d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
 elif ((pid_count > box_count)) ; then
     printf "%d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
+else
+    ((VERBOSE)) && printf "Good! %d dropboxes and %d dropbox processes.\n" "${box_count}" "${pid_count}" >&2
 fi
 
 # procs is an associative array containing the full command line,
 # indexed by the PID.
 typeset -A procs
 IFS=$'\n\t'
-# NOTE: the whitespace between %p and %a is a single <TAB>
-# SC2009: I want a <TAB> separating the PID from the args.
+# NOTE: the whitespace between %p and %a is a single <TAB> SC2009: I
+# want a <TAB> separating the PID from the args. I use
+# PS_PERSONALITY=aix because this seems to be the only way to get a
+# <Tab> separator in the output.
 # shellcheck disable=SC2009
-procs=($(PS_PERSONALITY=aix ps -eo '%p	%a' | grep -v grep | grep rdimport | sed -e 's/^  *//'))
+procs=($(PS_PERSONALITY=aix ${PS} -eo '%p	%a' | ${GREP} -v "${GREP}" | ${GREP} "rdimport" | ${SED} -e 's/^  *//'))
+((VERBOSE > 1)) && printf "rdimport processes:\n%s" "${(v)procs[*]}" >&2
 
 # path_specs is an associative array containing the dropbox cart number
 # (may be 0) and the path spec, indexed by the dropbox ID.
 typeset -A path_specs
 path_specs=($(doSQL "select ID,concat(TO_CART,'${myFS}',PATH) from DROPBOXES where STATION_NAME='${station}' order by TO_CART"))
+((VERBOSE > 1)) && printf "path_specs:\n%s" "${(v)path_specs[*]}" >&2
 
 # Check if all defined dropbox processes are running.
+((VERBOSE)) && print "Checking for running processes for all dropboxes..." >&2
+typeset -i to_cart
 for id in ${(k)path_specs[*]} ; do
     path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
     to_cart="${path_specs[${id}]%${myFS}*}"
 
-    if ! grep -F -q "${path_specs[${id}]#*${myFS}}" <<<"${(v)procs[*]}" ; then
-	printf "Missing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+    if ! ${GREP} -F -q "${path_specs[${id}]#*${myFS}}" <<<"${(v)procs[*]}" ; then
+	printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" \
+	       "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+
 	dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
+	((VERBOSE)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
 	    printf "\tReset with 'delete from DROPBOX_PATHS where DROPBOX_ID = %d'\n" "${id}" >&2
 	else
-	    # SC2016: I do not want anything to expand in this string
-	    # shellcheck disable=SC2016
-	    printf '\tMight want to `sendusr1 $(pidof rdservice)`.\n' >&2
+	    if ((INTERACTIVE)) ; then
+		read -r response\?"Restart dropboxes? "
+		[[ -z "${response}" ]] && response=n
+		until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
+		    print "Please respond with 'yes' or 'no'."
+		    read -r response\?"Restart dropboxes? "
+		    [[ -z "${response}" ]] && response=n
+		done
+		if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+		    ${SENDUSR1} "$(${PIDOF} 'rdservice')"
+		    print "Dropboxes have been restarted."
+		fi
+	    else
+		# SC2016: I do not want anything to expand in this string
+		# shellcheck disable=SC2016
+		printf '\tMight want to `sendusr1 $(pidof rdservice)`.\n' >&2
+	    fi
 	fi
     fi
 done
 
 # Other way around: check if all running processes have a dropbox
-# defined.
+# defined. We do this by extracting the dropbox ID from the rdimport
+# process and comparing that to the list of dropbox IDs from the
+# database. We also look for dropboxes that have no Path Spec defined.
+((VERBOSE)) && print "Checking whether all running dropbox processes have a dropbox configured..." >&2
 for proc in ${(v)procs[*]} ; do
-    process_path_spec="${proc/* \///}"
-    if ! grep -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
-	printf "Missing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
+    # This expansion assumes '--persistent-dropbox-id=' is followed
+    # immediately by '--drop-box' in the ps(1) output.
+    typeset process_dropbox_id="${${proc#*persistent-dropbox-id=}% --drop-box*}"
+    typeset process_path_spec="${proc/* \///}"
+    if [[ "${process_path_spec#/usr/bin/rdimport }" =~ ^/ ]] ; then
+	if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
+	    printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
+	fi
+    else
+	# Deal with dropboxes that are missing a Path Spec.
+	printf "\tDropbox ID %d has no Path Spec. Where should it look for files to import?\n" \
+	       "${process_dropbox_id}"
     fi
 done
 
 # Check for existence of dropbox directories.
+((VERBOSE)) && print "Checking for dropbox directories..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
-    path_spec_dir=${path_spec%/*}
+    typeset path_spec_dir=${path_spec%/*}
     if ! [[ -d ${path_spec_dir} ]] ; then
 	printf "Missing directory for dropbox PATH specifier: %s\n" "${path_spec}" >&2
     fi
@@ -76,30 +231,84 @@ done
 
 # Check for Cart Numbers as needed (some dropboxes create new Carts
 # for all new imports).
+((VERBOSE)) && print "Checking dropbox Cart numbers (this may take some time)..." >&2
 for id in ${(k)path_specs[*]} ; do
     to_cart=${path_specs[${id}]%${myFS}*}
-    if (( to_cart > 0 )) ; then
-	cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
-	if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
-	    printf "Missing TITLE for dropbox ID %d, PATH '%s' (Cart # %d)\n" "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
-	fi
-	cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
+    if ((to_cart > 0)) ; then
+	typeset -i cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
 	if ((cut_count < 1)) ; then
-	    printf "No CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+	    typeset cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
+	    if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
+		printf "\nMissing TITLE for dropbox ID %d, PATH '%s' (Cart # %d)\n" \
+		       "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+	    fi
+	    printf "\nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
+		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+	fi
+    fi
+    ((VERBOSE)) && printf "." >&2
+done
+((VERBOSE)) && print
+
+# Check for "hung" rdxport.cgi processes. Kill them if they are old or
+# appear to be "stranded".
+((VERBOSE)) && print "Checking for 'hung' rdxport.cgi processes..." >&2
+for pid in $(${PIDOF} 'rdxport.cgi' | tr ' ' '\n') ; do
+    # SC2086: shellcheck sometimes gets confused about quotes
+    # shellcheck disable=SC2086
+    typeset process_start_time=$(${DATE} --date="$(${PS} -p ${pid} --format 'lstart=')" +%s)
+    if ((process_start_time < (CURRENT_TIME - ONE_DAY))) ; then
+	# SC2086: shellcheck is easily confused by quoting
+	# shellcheck disable=SC2086
+	printf "NOTICE: import process ID %d was started %s.\n" "${pid}" \
+	       "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
+	if ((INTERACTIVE)) ; then
+	    read -r response\?"Terminate process ID ${pid}? "
+	    [[ -z "${response}" ]] && response=n
+	    until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
+		print "Please respond with 'yes' or 'no'."
+		read -r response\?"Terminate process ID ${pid}? "
+		[[ -z "${response}" ]] && response=n
+	    done
+	    if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+		${KILL} "${pid}"
+	    fi
+	    print "Killed."
+	else
+	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}"
+	    ${KILL} "${pid}"
+	    ((VERBOSE)) && print "done."
 	fi
     fi
 done
 
-# Check for "stranded files": those that have been downloaded and not
-# imported.
-for id in ${(k)path_specs[*]} ; do
-    path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
-    to_cart="${path_specs[${id}]%${myFS}*}"
-    group_name=$(doSQL "select GROUP_NAME from DROPBOXES where ID = ${id}")
-    find "${path_dir}" -type f -print | sort | while read -r line ; do
-	[[ "${line}" =~ \.log ]] && continue
-	echo "Might want to: rdimport --verbose --delete-source --delete-cuts --to-cart=${to_cart} ${group_name} ${line}"
+if ((CHECK_STRANDED_FILES)) ; then
+    typeset -A file_history
+    file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
+    ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}"
+    typeset -A dropbox_groups
+    dropbox_groups=($(doSQL "select ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
+
+    ((VERBOSE)) && print "Checking for 'stranded' files (in a dropbox, but not imported). This may take some time..." >&2
+
+    # SC2086: shellcheck is easily confused by quoting and this
+    # parameter expansion is pretty disgusting.
+    # shellcheck disable=SC2086
+    for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
+	typeset -a possibly_stranded
+	possibly_stranded=(
+	    $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
+		  [[ "${line}" =~ (\.log|/@eaDir/) ]] && continue
+		  [[ "${(v)file_history[*]}" =~ .*${line}.* ]] ||
+		      print "${line}"
+	      done)
+	)
+	if [[ -n "${possibly_stranded[*]}" ]] ; then
+	    printf "The following files in dropbox path %s appear to be 'stranded':\n" \
+		   "${path_dir}"
+	    print "\t${(oj:\n\t:)possibly_stranded[*]}"
+	fi
     done
-done
+fi
 
 exit
