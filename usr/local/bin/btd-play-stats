@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2016
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 
 ##############################################################################
 ##############################################################################
@@ -9,29 +11,28 @@
 ##############################################################################
 ##############################################################################
 
-myName=${0##*/}
+my_name=${0:t}
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=1
-vPatch=2
-# shellcheck disable=SC2016
-vHash='$Hash$'
+declare -ri v_major=0
+declare -ri v_minor=2
+declare -ri v_patch=1
+declare -r v_hash='$Hash$'
 
 ##############################################################################
 ## Locally defined subroutines
 ##############################################################################
 
 # How to use this command.
-usage() {
-  local myName=${1}
+function usage() {
+  local my_name=${1}
 
-  ${CAT} <<EOF
-${myName}: Generate and display statistics from the Rivendell database table ELR_LINES.
+  cat <<EOF
+${my_name}: Generate and display statistics from the Rivendell database table ELR_LINES.
 
 Summary
 
-${myName}      [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
+${my_name}      [ --verbose (-v) ] [ --version (-V) ] [ --help (-h) ]
                [ --service (-s) <SERVICE-NAME> ]
                [ --group (-g) <GROUP-NAME> ]
 	       [ --start <YYYY-MM-DD [ HH:MM:SS ]> ]
@@ -63,11 +64,11 @@ EOF
 # value of this shell funtion is the exit value of the mysql command
 # invocation.
 # shellcheck disable=SC2086
-doSQL() {
-  local statement="${1:?Need a database query to run.}"
-  local useMyCNF=0
-  local usableMyCNF=4
-  local rdconfig=${RD_CONFIG:-/etc/rd.conf}
+function doSQL() {
+  local -r statement="${1:?Need a database query to run.}"
+  local -i useMyCNF=0
+  local -ir usableMyCNF=4
+  local -r rdconfig=${RD_CONFIG:-/etc/rd.conf}
 
   # Use the exported variables if we have been through this function
   # already. This applies to each running instance of scripts that
@@ -142,35 +143,39 @@ doSQL() {
 ##############################################################################
 
 ## Defaults
-VERBOSE=0
-SERVICE_NAME="production"
-GROUP_NAME="music"
+declare -i VERBOSE=0
+declare -i SHOW_VERSION=0
+declare SERVICE_NAME="production"
+declare GROUP_NAME="music"
+declare -ri minimum_reasonable_tracks_per_hour=9
+declare -ri maximum_reasonable_tracks_per_hour=50
 
 # Process command line options.
 # We use the same option names and values as podget.
 TEMP=$(getopt -o g:hs:vV --long end:,group:,help,service:,start:,verbose,version -n "${0:t}" -- "${@}")
 # shellcheck disable=SC2181
-if (( ${?} != 0 )) ; then echo "${myName}: getopt Fatal Error (${?}). Terminating..." >&2 ; return 1 ; fi
+if (( ${?} != 0 )) ; then echo "${my_name}: getopt Fatal Error (${?}). Terminating..." >&2 ; return 1 ; fi
 # Note the quotes around ${TEMP}: they are essential!
 eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
     --end) END_DATE="${2}" ; shift 2 ;;
-    -h|--help*) usage "${myName}" ; exit ;;
+    -h|--help*) usage "${my_name}" ; exit ;;
     -g|--grou*) GROUP_NAME="${2}" ; shift 2 ;;
     -s|--serv*) SERVICE_NAME="${2}" ; shift 2 ;;
     --start) START_DATE="${2}" ; shift 2 ;;
     -v|--verb*) VERBOSE=1 ; shift ;;
-    -V|--vers*) showVersion=1 ; shift ;;
+    -V|--vers*) SHOW_VERSION=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "${myName}: getopt Internal Error! Terminating..." >&2 ; return 1 ;;
+    *) echo "${my_name}: getopt Internal Error! Terminating..." >&2 ; return 1 ;;
   esac
 done
 
-if ((showVersion)) ; then
-  just_the_hash=${vHash#\$Hash: }
-  just_the_hash=${just_the_hash%$}
-  echo "${myName}: version ${vMajor}.${vMinor}.${vPatch}-${just_the_hash}"
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" == '$Hash$' ]] &&
+	commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -188,30 +193,30 @@ declare avg=''
 # shellcheck disable=SC2162
 doSQL "${query}" | {
   while read datehour num; do
-    ((num < 10 || num > 50)) && { ((VERBOSE)) && printf '%s: Weird number of tracks (%d) on %s\n' "${myName}" "${num}" "${datehour}" ; continue ; }
+    ((num < minimum_reasonable_tracks_per_hour || num > maximum_reasonable_tracks_per_hour)) &&
+      { ((VERBOSE)) && printf '%s: Weird number of tracks (%d) on %s\n' "${my_name}" "${num}" "${datehour}" ; continue ; }
 
     ((total += num))
     ((count++))
 
     ((num == min)) && { ((mincount += 1)) ; ((mincount++)) ; ((VERBOSE)) && printf '\t\tHit Min (%d) on %s\n' ${min} "${datehour}" ; }
-    ((num < min)) && { ((min=num)) ; ((mincount = 1)) ; min_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Min %d\n\n' "${min_datehour}" ${min} ; }
+    ((num < min)) && { ((min=num)) ; ((mincount = 1)) ; min_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Min %d\n\n' "${min_datehour}" "${min}" ; }
 
     ((num == max)) && { ((maxcount += 1)) ; ((maxcount++)) ; ((VERBOSE)) && printf '\t\tHit Max (%d) on %s\n' ${max} "${datehour}" ; }
-    ((num > max)) && { ((max=num)) ; ((maxcount = 1)) ; max_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Max %d\n\n' "${max_datehour}" ${max} ; }
+    ((num > max)) && { ((max=num)) ; ((maxcount = 1)) ; max_datehour=${datehour} ; ((VERBOSE)) && printf '\n\tOn %s: Max %d\n\n' "${max_datehour}" "${max}" ; }
   done
 
   # shellcheck disable=SC2046
   read avg <<<$(awk "BEGIN{print ${total} / ${count}}")
   printf 'Total of %d tracks played over %d hours. Average tracks per hour: %2.4f\n' \
-	 ${total} ${count} "${avg}"
+	 "${total}" "${count}" "${avg}"
   printf 'First minimum-tracks hour (%d) on %s in the %02d:00 hour, First maximum-tracks hour (%d) on %s in the %02d:00 hour\n' \
-	  ${min} "${min_datehour%:*}" "${min_datehour#*:}" ${max} "${max_datehour%:*}" "${max_datehour#*:}"
+	 "${min}" "${min_datehour%:*}" "${min_datehour#*:}" "${max}" "${max_datehour%:*}" "${max_datehour#*:}"
   printf 'Number of minimum-track (%d) hours: %d\n' "${min}" "${mincount}"
   printf 'Number of maximum-track (%d) hours: %d\n' "${max}" "${maxcount}"
 }
 
 exit
-
 # Local Variables: ***
 # mode:shell-script ***
 # indent-tabs-mode: f ***
