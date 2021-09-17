@@ -1,0 +1,17 @@
+# dropbox-audit XDG
+# last updated: Tue Jul 13 10:39:14 PDT 2021
+[Desktop Entry]
+X-AppInstall-Package=gnome-terminal
+X-AppInstall-Section=main
+Type=Application
+Exec=/usr/bin/gnome-terminal --hide-menubar --working-directory=/home/rd --full-screen --title "Rivendell Dropbox Audit" --command /usr/local/bin/run-btd-dropbox-audit --interactive --verbose
+Hidden=false
+X-MATE-Autostart-enabled=true
+Name=Rivendell Dropbox Audit
+Comment=Audit Rivendell dropboxes
+Categories=Admin;Rivendell;
+Icon=computer
+Terminal=false
+StartupNotify=false
+Path=/home/rd/Desktop
+GenericName=Audit RIvendell dropboxes
