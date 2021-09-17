@@ -1,0 +1,19 @@
+#!/bin/zsh
+
+# A simple btd-dropbox-audit wrapper for use with desktop application
+# launchers.
+
+zmodload zsh/datetime
+
+PATH=/usr/local/bin/path:${PATH}
+
+output_file=~/Desktop/dropbox-audit-$(strftime "%F-%H%M%S" "${EPOCHSECONDS}")
+
+/usr/local/bin/btd-dropbox-audit --interactive --stranded-files 2>&1 | tee "${output_file}"
+
+unix2dos --keepdate --quiet "${output_file}" "${output_file}.txt" &&
+    rm -f "${output_file}"
+
+printf "Press <Enter> to exit: " && read -r _
+
+exit
