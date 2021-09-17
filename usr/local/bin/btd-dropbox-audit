@@ -35,7 +35,7 @@ typeset -ri ONE_DAY=$((60 * 60 * 24))
 
 # Attempt to kill process ${pid}. Then attempt to kill it with
 # privilege escalation.
-function kill_with_privelege() {
+function kill_with_privilege() {
     local -ir pid="${1}" ; shift
 
     local -ir attempt_limit=5
