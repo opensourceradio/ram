@@ -1,5 +1,6 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2034,SC2190,SC2207
+# shellcheck shell=bash disable=SC2016,SC2034,SC2190,SC2207
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # SC2034: shellcheck does not know about ZSH param expansions.
 # SC2190: ZSH associative arrays work differently from Bash associative arrays.
 # SC2207: mapfile or read -a are Bash-isms.
@@ -8,12 +9,10 @@ zmodload zsh/stat
 zmodload zsh/datetime
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -ri vMajor=0
-declare -ri vMinor=1
-declare -ri vPatch=3
-# SC2016: We do not want this single quoted expression to expand.
-# shellcheck disable=SC2016
-declare -r vHash='$Hash$'
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=4
+declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
 # rdfetch package) over /usr/local/bin
@@ -22,7 +21,7 @@ if [[ -f /usr/bin/zsh-functions ]] ; then
 elif [[ -f /usr/local/bin/zsh-functions ]] ; then
     source /usr/local/bin/zsh-functions
 else
-    print "Missing zsh-functions." >&2
+    print "Missing zsh-functions library. Cannot continue." >&2
     exit 1
 fi
 
@@ -34,7 +33,33 @@ typeset -i SHOW_VERSION=0
 typeset -ri CURRENT_TIME=${EPOCHSECONDS}
 typeset -ri ONE_DAY=$((60 * 60 * 24))
 
-usage() {
+# Attempt to kill process ${pid}. Then attempt to kill it with
+# privilege escalation.
+function kill_with_privelege() {
+    local -ir pid="${1}" ; shift
+
+    local -ir attempt_limit=5
+    local -i count=0
+    while ((count < attempt_limit)) ; do
+	${KILL} "${pid}"
+	${SLEEP} 0.5
+	if ! [[ -d "/proc/${pid}" ]] ; then
+	    return 0
+	fi
+	${SUDO} "${KILL}" "${pid}"
+	${SLEEP} 0.5
+	if ! [[ -d "/proc/${pid}" ]] ; then
+	    return 0
+	fi
+	${SLEEP} 0.5
+	((count++))
+    done
+    printf 'Unable to terminate process %s. Please seek help!\n' "${pid}" >&2
+    return 1
+}
+
+# Show how to use this command.
+function usage() {
   local -r my_name="${1:t}"
 
   ${CAT} <<EOF
@@ -55,13 +80,13 @@ $(${FMT} <<<"${my_name} performs several checks on Rivendell dropboxes in order 
 
   * 'left-over' processes from deleted or changed dropboxes
 
-  * existance of dropbox folders (directories)
+  * existence of dropbox folders (directories)
 
-  * existance of Carts for dropboxes that specify them
+  * existence of Carts for dropboxes that specify them
 
-  * 'hung' import processes
+  * 'hung' import processes (rdxport.cgi)
 
-  * 'stranded' (unimported) files in dropbox directories")
+  * 'stranded' (unimported) files in dropbox directories") (optional)
 
 $(${FMT} <<<"${my_name} takes specific action in cases where it makes sense and is safe:
 
@@ -76,12 +101,11 @@ $(${FMT} <<<"Specify '--stranded-files' (short option: '-s') to have ${my_name} 
 EOF
 }
 
-
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 12 external commands.
+# This script uses these 14 external commands.
 # Look for them in their upper case, parameter expanded form.
 typeset -a our_commands
-our_commands=( cat date find fmt getopt grep kill pidof ps sed sendusr1 sort )
+our_commands=( cat date find fmt getopt grep kill pidof ps sed sendusr1 sleep sort sudo )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -122,8 +146,11 @@ done
 unset TEMP
 
 if ((SHOW_VERSION)) ; then
-  printf "%s: version %d.%d.%d-%s\n" "${0:t}" "${vMajor}" "${vMinor}" "${vPatch}" "${${vHash#\$Hash: }%$}"
-  exit 0
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" == '$Hash$' ]] &&
+	commit_hash="prerelase"
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
 fi
 
 typeset -r oIFS="${IFS}"
@@ -253,7 +280,10 @@ done
 # Check for "hung" rdxport.cgi processes. Kill them if they are old or
 # appear to be "stranded".
 ((VERBOSE)) && print "Checking for 'hung' rdxport.cgi processes..." >&2
-for pid in $(${PIDOF} 'rdxport.cgi' | tr ' ' '\n') ; do
+declare -a possibly_hung_xport_procs
+possibly_hung_xport_procs=( $(${PIDOF} 'rdxport.cgi') )
+printf "Found %d possibly 'hung' Import processes...\n" "${#possibly_hung_xport_procs}"
+for pid in ${possibly_hung_xport_procs[*]} ; do
     # SC2086: shellcheck sometimes gets confused about quotes
     # shellcheck disable=SC2086
     typeset process_start_time=$(${DATE} --date="$(${PS} -p ${pid} --format 'lstart=')" +%s)
@@ -271,12 +301,12 @@ for pid in $(${PIDOF} 'rdxport.cgi' | tr ' ' '\n') ; do
 		[[ -z "${response}" ]] && response=n
 	    done
 	    if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
-		${KILL} "${pid}"
+		kill_with_privelege "${pid}"
 	    fi
 	    print "Killed."
 	else
 	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}"
-	    ${KILL} "${pid}"
+	    kill_with_privelege "${pid}"
 	    ((VERBOSE)) && print "done."
 	fi
     fi
