@@ -11,7 +11,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=4
+declare -ri v_patch=5
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -33,29 +33,35 @@ typeset -i SHOW_VERSION=0
 typeset -ri CURRENT_TIME=${EPOCHSECONDS}
 typeset -ri ONE_DAY=$((60 * 60 * 24))
 
-# Attempt to kill process ${pid}. Then attempt to kill it with
-# privilege escalation.
+# Attempt to kill all PIDs passed. Try first without privilege
+# escalation, then try _with_ privilege escalation.
+# Returns with non-zero status if we are unable to kill any of the
+# passed PIDs.
 function kill_with_privilege() {
-    local -ir pid="${1}" ; shift
-
+    local -i pid
     local -ir attempt_limit=5
     local -i count=0
-    while ((count < attempt_limit)) ; do
-	${KILL} "${pid}"
-	${SLEEP} 0.5
-	if ! [[ -d "/proc/${pid}" ]] ; then
-	    return 0
-	fi
-	${SUDO} "${KILL}" "${pid}"
-	${SLEEP} 0.5
-	if ! [[ -d "/proc/${pid}" ]] ; then
-	    return 0
-	fi
-	${SLEEP} 0.5
-	((count++))
+    local -i return_value=0
+    for pid ; do
+	while ((count < attempt_limit)) ; do
+	    ((VERBOSE)) && printf "Attempting to terminate process ID %d\n" "${pid}" >&2
+	    ${KILL} "${pid}"
+	    ${SLEEP} 0.5
+	    if ! [[ -d "/proc/${pid}" ]] ; then
+		continue 2	# next pid in the for loop
+	    fi
+	    ${SUDO} "${KILL}" "${pid}"
+	    ${SLEEP} 0.5
+	    if ! [[ -d "/proc/${pid}" ]] ; then
+		continue 2	# next pid in the for loop
+	    fi
+	    ${SLEEP} 0.5
+	    ((count++))
+	done
+	printf 'Unable to terminate process %s. Please seek help!\n' "${pid}" >&2
+	return_value=1
     done
-    printf 'Unable to terminate process %s. Please seek help!\n' "${pid}" >&2
-    return 1
+    return "${return_value}"
 }
 
 # Show how to use this command.
@@ -200,10 +206,28 @@ for id in ${(k)path_specs[*]} ; do
 	printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" \
 	       "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
 
-	dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
+	typeset -ir dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
 	((VERBOSE)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
-	    printf "\tReset with 'delete from DROPBOX_PATHS where DROPBOX_ID = %d'\n" "${id}" >&2
+	    if ((INTERACTIVE)) ; then
+		read -r response\?"Reset dropbox '${path_specs[${id}]#*${myFS}}'? "
+		[[ -z "${response}" ]] && response=n
+		until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
+		    print "Please respond with 'yes' or 'no'."
+		    read -r response\?"Reset dropbox '${path_specs[${id}]#*${myFS}}'? "
+		    [[ -z "${response}" ]] && response=n
+		done
+		if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+		    if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
+			printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
+		    fi
+		fi
+	    else
+		((VERBOSE)) && printf "Resetting dropbox ID '%d' ('%s')\n" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+		if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
+		    printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
+		fi
+	    fi
 	else
 	    if ((INTERACTIVE)) ; then
 		read -r response\?"Restart dropboxes? "
@@ -214,13 +238,23 @@ for id in ${(k)path_specs[*]} ; do
 		    [[ -z "${response}" ]] && response=n
 		done
 		if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
-		    ${SENDUSR1} "$(${PIDOF} 'rdservice')"
+		    if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
+			# The Rivendell 3+ way to restart all dropboxes.
+			${SENDUSR1} "${pidof_rdservice}"
+		    else
+			# The pre-Rivendell 3 way to restart all dropboxes.
+			kill_with_privilege "$(${PIDOF} rdcatchd)"
+			# SC2046: we want the words of pidof to be split.
+			# shellcheck disable=SC2046
+			kill_with_privilege $(${PIDOF} rdimport)
+		    fi
+
 		    print "Dropboxes have been restarted."
 		fi
 	    else
 		# SC2016: I do not want anything to expand in this string
 		# shellcheck disable=SC2016
-		printf '\tMight want to `sendusr1 $(pidof rdservice)`.\n' >&2
+		printf '\tMight want to restart dropboxes as appropriate.\n' >&2
 	    fi
 	fi
     fi
@@ -247,12 +281,28 @@ for proc in ${(v)procs[*]} ; do
     fi
 done
 
+# Check for valid directory names. Spaces and special characters are
+# not allowed.
+((VERBOSE)) && print "Checking for forbidden directory names..." >&2
+for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
+    typeset path_spec_dir=${path_spec%/*}
+    if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
+	${CAT} <<EndOfText >&2
+One ore more directory components in dropbox path spec
+${p}
+contains one of the characters |, &, {, }, # \$, <, >, and ?.
+Please fix this dropbox.
+EndOfText
+    fi
+done
+
 # Check for existence of dropbox directories.
 ((VERBOSE)) && print "Checking for dropbox directories..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
     typeset path_spec_dir=${path_spec%/*}
     if ! [[ -d ${path_spec_dir} ]] ; then
-	printf "Missing directory for dropbox PATH specifier: %s\n" "${path_spec}" >&2
+	printf "Missing directory (%s) for dropbox PATH specifier: %s\n" \
+	       "${path_spec_dir}" "${path_spec}" >&2
     fi
 done
 
@@ -266,8 +316,8 @@ for id in ${(k)path_specs[*]} ; do
 	if ((cut_count < 1)) ; then
 	    typeset cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
 	    if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
-		printf "\nMissing TITLE for dropbox ID %d, PATH '%s' (Cart # %d)\n" \
-		       "${id}" "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
+		printf "\nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
+		       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	    fi
 	    printf "\nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
 		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
@@ -275,7 +325,7 @@ for id in ${(k)path_specs[*]} ; do
     fi
     ((VERBOSE)) && printf "." >&2
 done
-((VERBOSE)) && print
+((VERBOSE)) && print >&2
 
 # Check for "hung" rdxport.cgi processes. Kill them if they are old or
 # appear to be "stranded".
@@ -305,21 +355,44 @@ for pid in ${possibly_hung_xport_procs[*]} ; do
 	    fi
 	    print "Killed."
 	else
-	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}"
+	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}" >&2
 	    kill_with_privelege "${pid}"
-	    ((VERBOSE)) && print "done."
+	    ((VERBOSE)) && print "done." >&2
 	fi
     fi
 done
 
+# Check for missing log settings in the dropboxes.
+for id in ${(k)path_specs[*]} ; do
+    if okDatabaseStructure DROPBOXES:LOG_TO_SYSLOG ; then
+	log_specs=$(doSQL "select concat(LOG_TO_SYSLOG,'${myFS}',LOG_PATH) from DROPBOXES where ID=${id}")
+	if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
+	    if [[ -z "${log_specs#*${myFS}}" ]] ; then
+		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
+		       "${id}" "${path_specs[${id}]}"
+	    fi
+	fi
+    else
+	log_path=$(doSQL "select LOG_PATH from DROPBOXES where ID=${id}")
+	if [[ -z "${log_path}" ]] ; then
+		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
+		       "${id}" "${path_specs[${id}]}"
+	fi
+    fi
+done
+
+# A "stranded" file is one that is in a dropbox directory and is not
+# registered in DROPBOX_PATHS. This likely means the file was never
+# successfully imported. It may also mean the file does not match the
+# pattern in DROPBOX.PATH.
 if ((CHECK_STRANDED_FILES)) ; then
     typeset -A file_history
     file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
-    ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}"
+    ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}" >&2
     typeset -A dropbox_groups
     dropbox_groups=($(doSQL "select ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
 
-    ((VERBOSE)) && print "Checking for 'stranded' files (in a dropbox, but not imported). This may take some time..." >&2
+    ((VERBOSE)) && print "Checking for 'stranded' files (in a dropbox folder, but not imported). This may take some time..." >&2
 
     # SC2086: shellcheck is easily confused by quoting and this
     # parameter expansion is pretty disgusting.
@@ -328,14 +401,16 @@ if ((CHECK_STRANDED_FILES)) ; then
 	typeset -a possibly_stranded
 	possibly_stranded=(
 	    $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
-		  [[ "${line}" =~ (\.log|/@eaDir/) ]] && continue
-		  [[ "${(v)file_history[*]}" =~ .*${line}.* ]] ||
+		  declare escaped_line=""
+		  escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
+		  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
+		  [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
 		      print "${line}"
 	      done)
 	)
 	if [[ -n "${possibly_stranded[*]}" ]] ; then
-	    printf "The following files in dropbox path %s appear to be 'stranded':\n" \
-		   "${path_dir}"
+	    printf "The following %d files in dropbox folder '%s' appear to be stranded:\n" \
+		   "${#possibly_stranded}" "${path_dir}"
 	    print "\t${(oj:\n\t:)possibly_stranded[*]}"
 	fi
     done
