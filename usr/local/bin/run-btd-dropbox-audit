@@ -14,6 +14,6 @@ output_file=~/Desktop/dropbox-audit-$(strftime "%F-%H%M%S" "${EPOCHSECONDS}")
 unix2dos --keepdate --quiet "${output_file}" "${output_file}.txt" &&
     rm -f "${output_file}"
 
-printf "Press <Enter> to exit: " && read -r _
+printf "Press <Enter> to exit: " && read _
 
 exit
