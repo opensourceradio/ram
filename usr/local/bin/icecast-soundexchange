@@ -206,8 +206,7 @@ sub main() {
 
 	# Stash the per-mountpoint files into the zip archive if so requested.
 	if ($zipFile) {
-	    # Note the <Tab> characters in the string.
-	    my $zipString = join("\r\n", ("IPAddress	Date	Time	Stream	Duration	Status	Referrer",
+	    my $zipString = join("\r\n", ("IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer",
 					  @{$mountpoints->{$mount}}, ''));
 
 	    my $stringMember = $zip->addString($zipString, "$mount.txt");
@@ -216,8 +215,7 @@ sub main() {
 	} else {
 	    my $outFH = undef;
 	    open($outFH, ">", "$outputDir/$mount.txt") || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
-	    # Again, note the <Tab> characters in the string.
-	    print $outFH "IPAddress	Date	Time	Stream	Duration	Status	Referrer\r\n";
+	    print $outFH "IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer\r\n";
 	    foreach my $line (@{$mountpoints->{$mount}}) {
 		print $outFH $line, "\r\n";
 	    }
