@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 4;
+use constant vPATCH => 5;
 use constant vHASH => '$Hash$';
 
 use Data::Dumper;
