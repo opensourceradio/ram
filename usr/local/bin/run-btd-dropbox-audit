@@ -1,19 +1,40 @@
 #!/bin/zsh
+# shellcheck shell=bash
 
 # A simple btd-dropbox-audit wrapper for use with desktop application
 # launchers.
 
 zmodload zsh/datetime
 
-PATH=/usr/local/bin/path:${PATH}
+typeset -x PATH=/usr/local/bin:${PATH}
 
-output_file=~/Desktop/dropbox-audit-$(strftime "%F-%H%M%S" "${EPOCHSECONDS}")
+typeset CHECK_STRANDED=""
 
-/usr/local/bin/btd-dropbox-audit --interactive --stranded-files 2>&1 | tee "${output_file}"
+if [[ -d "${HOME}/Desktop" ]] ; then
+    typeset -r output_file=${HOME}/Desktop/dropbox-audit-$(strftime "%F-%H%M%S" "${EPOCHSECONDS}")
+else
+    typeset -r output_file=/var/tmp/dropbox-audit-$(strftime "%F-%H%M%S" "${EPOCHSECONDS}")
+fi
 
-unix2dos --keepdate --quiet "${output_file}" "${output_file}.txt" &&
+printf "About to audit the Rivendell dropboxes.\nDo you also want to check for 'stranded files'? "
+read -r response
+until [[ "${response}" =~ [YyNn]([EeOo][Ss]?)* ]] ; do
+    printf "Please reply with 'yes' or 'no'. Check for 'stranded files'? "
+    read -r response
+done
+if [[ "${response}" =~ [Yy].* ]] ; then
+    typeset -r CHECK_STRANDED="--stranded-files"
+fi
+
+# SC2086: quoting CHECK_STRANDED breaks the command invocation
+# shellcheck disable=SC2086
+/usr/local/bin/btd-dropbox-audit --verbose --interactive ${CHECK_STRANDED} 2>&1 | tee "${output_file}"
+
+# Redirect stderr to /dev/null because the --quiet option *always*
+# results in zero exit status.
+unix2dos --keepdate --force --newfile "${output_file}" "${output_file}.txt" 2>/dev/null &&
     rm -f "${output_file}"
 
-printf "Press <Enter> to exit: " && read _
+printf "Press <Enter> to exit: " && read -r response
 
 exit
