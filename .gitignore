@@ -3,3 +3,4 @@
 *~
 conf.msmtp
 .vscode
+.pytest_cache
