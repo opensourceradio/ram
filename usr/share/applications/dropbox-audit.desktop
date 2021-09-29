@@ -4,9 +4,9 @@
 X-AppInstall-Package=gnome-terminal
 X-AppInstall-Section=main
 Type=Application
-Exec=/usr/bin/gnome-terminal --hide-menubar --working-directory=/home/rd --full-screen --title "Rivendell Dropbox Audit" --command /usr/local/bin/run-btd-dropbox-audit --interactive --verbose
+Exec=/usr/bin/gnome-terminal --hide-menubar --working-directory=/home/rd --full-screen --title "Rivendell Dropbox Audit" --command /usr/local/bin/run-btd-dropbox-audit
 Hidden=false
-X-MATE-Autostart-enabled=true
+X-MATE-Autostart-enabled=false
 Name=Rivendell Dropbox Audit
 Comment=Audit Rivendell dropboxes
 Categories=Admin;Rivendell;
