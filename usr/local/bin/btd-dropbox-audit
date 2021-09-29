@@ -325,10 +325,10 @@ for id in ${(k)path_specs[*]} ; do
 	if ((cut_count < 1)) ; then
 	    typeset cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
 	    if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
-		printf "\nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
+		printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
 		       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	    fi
-	    printf "\nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
+	    printf "\r \nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
 		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	fi
     fi
