@@ -1,5 +1,7 @@
 #!/bin/zsh
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2016,SC2190
+# SC2016: "$Hash" is not a variable.
+# SC2190: ZSH associative arrays are different from BASH.
 
 ##############################################################################
 ##############################################################################
@@ -14,39 +16,44 @@
 zmodload zsh/datetime
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -ri vMajor=0
-declare -ri vMinor=2
-declare -ri vPatch=4
-# SC2016: We do not want this single quoted expression to expand.
-# shellcheck disable=SC2016
-declare -r vHash='$Hash$'
+declare -ri v_major=0
+declare -ri v_minor=2
+declare -ri v_patch=5
+declare -r v_hash='$Hash$'
+
+declare -ir one_day=$(( 60 * 60 * 24))
+
+declare -i DEBUG=0
+declare -i SHOW_VERSION=0
 
 # Do not overwrite existing log by default (see options below).
 # Sigh, rdlogmanager(1) has an "unusual" sense of "force" vs "preserve".
 declare PRESERVE="-P"
 
 # Default number of days for which to generate Logs.
-DAYS=1
+declare -i DAYS=1
 
-usage() {
-  local myName="${1:t}"
+function usage() {
+  local my_name="${1:t}"
 
   cat <<EOF
-${myName} [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+${my_name} [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
                  [ --force (-f) ] [ --service <name> ]
                  [ --help (-h) ] [ --version (-v) ]
 
-$(${FMT} <<<"${myName} uses rdlogmanager(1) to generate Logs for all SERVICES. With no optional arguments, ${myName} generates Logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${myName} generates Logs for all SERVICES for Saturday, Sunday and Monday.")
+$(${FMT} <<<"${my_name} uses rdlogmanager(1) to generate Logs for all SERVICES. With no optional arguments, ${my_name} generates Logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${my_name} generates Logs for all SERVICES for Saturday, Sunday and Monday.")
 
-$(${FMT} <<<"Without the optional '--service' parameter, ${myName} generates logs for all Rivendell Services. Specify a single service with the '--service <NAME>' option.")
+$(${FMT} <<<"Without the optional '--service' parameter, ${my_name} generates logs for all Rivendell Services. Specify a single service with the '--service <NAME>' option.")
 
-$(${FMT} <<<"By default, ${myName} does not overwrite existing Logs (i.e., rdlogmanager(1) is invoked with the '-P' [preserve] option). You may force overwriting existing Logs by calling ${myName} with the '--force' ('-f') option.")
+$(${FMT} <<<"By default, ${my_name} does not overwrite existing Logs (i.e., rdlogmanager(1) is invoked with the '-P' [preserve] option). You may force overwriting existing Logs by calling ${my_name} with the '--force' ('-f') option.")
 
-$(${FMT} <<<"You may specify a range of days for which rdlogmanager(1) should generate Logs by calling ${myName} with the '--start' and '--end' options and specifying the date in YYYY-MM-DD format. Specifying '--end' without '--start' assumes 'tomorrow' as the starting day. Specifying '--start' without '--end' means 'generate a Log just for that day'. Specifying neither '--start' nor '--end' causes ${myName} to generate Logs for 'tomorrow' (see above).")
+$(${FMT} <<<"You may specify a range of days for which rdlogmanager(1) should generate Logs by calling ${my_name} with the '--start' and '--end' options and specifying the date in YYYY-MM-DD format. Specifying '--end' without '--start' assumes 'tomorrow' as the starting day. Specifying '--start' without '--end' means 'generate a Log just for that day'. Specifying neither '--start' nor '--end' causes ${my_name} to generate Logs for 'tomorrow' (see above).")
 
-$(${FMT} <<<"Alternatively, you may instruct ${myName} to generate a specific number of days of Logs with the --days <D> option. The starting day in this case is 'tomorrow'.")
+$(${FMT} <<<"Alternatively, you may instruct ${my_name} to generate a specific number of days of Logs with the --days <D> option. The starting day in this case is 'tomorrow'.")
 
-$(${FMT} <<<"${myName} saves the output of rdlogmanager(1) in the Desktop folder of the invoking user, and also emails the output to the addresses listed in the MAILTO shell variable.")
+$(${FMT} <<<"${my_name} saves the output of rdlogmanager(1) in the Desktop folder of the invoking user, and also emails the output to the addresses listed in the MAILTO shell variable.")
+
+$(${FMT} <<<"Enable ZSH debugging with the --debug (-D) option.")
 
 $(${FMT} <<<"See rdlogmanager(1) and 'rdlogmanager --help' for additional details.")
 
@@ -65,6 +72,7 @@ our_commands=( cp fmt getopt logger mktemp rdlogmanager rm )
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
 # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
@@ -73,10 +81,10 @@ for C in ${our_commands[*]} ; do
   done
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-unset our_commands
+unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if ! TEMP=$(${GETOPT} -o d:e:fhs:v --long days:,force,help,version,service:,start:,end: -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o Dd:e:fhs:v --long debug,days:,force,help,version,service:,start:,end: -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating." >&2
   return 1
 fi
@@ -86,36 +94,58 @@ do
   case "${1}" in
     -d|--day*) DAYS=${2} ; shift 2 ;;
     -f|--forc*) unset PRESERVE ; shift ;;
-    -h|--help) usage "${0}" ; exit ;;
-    -v|--vers*) showVersion=1 ; shift ;;
     --service) SERVICE=${2} ; shift 2 ;;
     -s|--start) START_DATE=${2} ; shift 2 ;;
     -e|--end) END_DATE=${2} ; shift 2 ;;
+    -D|--debug) DEBUG=1 ; shift ;;
+    -h|--help) usage "${0}" ; exit ;;
+    -v|--vers*) SHOW_VERSION=1 ; shift ;;
     --) shift ; break ;;
     *) echo 'Internal error!' ; exit 1 ;;
   esac
 done
 unset TEMP
 
-if ((showVersion)) ; then
-  printf "%s: version %d.%d.%d-%s\n" "${0:t}" "${vMajor}" "${vMinor}" "${vPatch}" "${${vHash#\$Hash: }%$}"
+if ((SHOW_VERSION)) ; then
+  typeset commit_hash="${v_hash}"
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
 exec 1> "/var/tmp/${0:t}.out"
 exec 2> "/var/tmp/${0:t}.err"
 
-rightNow=${EPOCHSECONDS}
-
 if [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
+elif [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without /usr/local/bin/zsh-functions! (Error: ${?})"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
   exit 3
 fi
 
-MAILTO=${MAILTO:-"dklann@grunch.org"}
-oneDay=$(( 60 * 60 * 24))
+((DEBUG)) && setopt xtrace
+
+# Exit values from rdlogmanager(1).
+declare -A rdlogmanager_exit_values
+rdlogmanager_exit_values=(
+  0  "Normal exit"
+  2  "Unable to open database"
+  4  "Unknown/invalid command line option"
+  5  "Unable to overwrite output [-P given]"
+  6  "No such service"
+  7  "No such log"
+  8  "No such report"
+  9  "Log generation failed"
+  10 "Schedule import failed"
+  11 "Insufficient permissions"
+  12 "Report generation failed"
+)
+
+declare -ri right_now=${EPOCHSECONDS}
+declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 # Gather all the Services from Rivendell unless
 # they asked for a specific Service
@@ -128,19 +158,32 @@ else
   services=( $(doSQL "SELECT name FROM SERVICES") )
 fi
 
-outputFile=$(${MKTEMP})
+declare output_file
+if ! output_file=$(${MKTEMP}) ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "Error trying to create temporary file. Cannot continue."
+  exit 3
+fi
+# No changes to the value of the parameter.
+declare -r output_file
 
 # SC2064: I want this trap argument to expand now.
 # shellcheck disable=SC2064
-trap "${RM} -f '${outputFile}' ; exit ;" 0 1 2 3
+trap "${RM} -f '${output_file}' ; exit ;" 0 1 2 3
 
 # Get the current full weekday name (%A) (but permit setting it in
 # the calling environment for testing).
-today=${TODAY:-$(strftime "%A" "${rightNow}")}
+declare -r today=${TODAY:-$(strftime "%A" "${right_now}")}
 
 # With no command line options, Logs are generated for tomorrow.
-tomorrowYYYYMMDD=$(strftime "%F" $(( rightNow + oneDay )))
-tomorrowSeconds=$(strftime -r "%F" "${tomorrowYYYYMMDD}")
+# SC2155: I *know* the strftime() works.
+# shellcheck disable=SC2155
+declare -r tomorrow_YYYYMMDD=$(strftime "%F" $(( right_now + one_day )))
+# SC2155: See above.
+# shellcheck disable=SC2155
+declare -ri tomorrow_seconds=$(strftime -r "%F" "${tomorrow_YYYYMMDD}")
+
+declare -i start_date_seconds
+declare -i end_date_seconds
 
 # Set the start date to tomorrow if not specified on the command line.
 if [[ -n "${START_DATE}" ]] ; then
@@ -148,9 +191,9 @@ if [[ -n "${START_DATE}" ]] ; then
     ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of Start Date '${START_DATE}'. I quit."
     exit
   fi
-  startDateSeconds=$(strftime -r "%F" "${START_DATE}")
+  start_date_seconds=$(strftime -r "%F" "${START_DATE}")
 else
-  startDateSeconds="${tomorrowSeconds}"
+  start_date_seconds="${tomorrow_seconds}"
 fi
 
 # Set the end date to the same as the start date if not specified on
@@ -160,14 +203,14 @@ if [[ -n "${END_DATE}" ]] ; then
     ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of End Date '${END_DATE}'. I quit."
     exit
   fi
-  endDateSeconds=$(strftime -r "%F" "${END_DATE}")
+  end_date_seconds=$(strftime -r "%F" "${END_DATE}")
 else
-  endDateSeconds="${startDateSeconds}"
+  end_date_seconds="${start_date_seconds}"
 fi
 
 # Same thing if number of days was specified on the command line.
 if ((DAYS > 1)) ; then
-  endDateSeconds=$((startDateSeconds + (oneDay * DAYS)))
+  end_date_seconds=$((start_date_seconds + (one_day * DAYS)))
 fi
 
 # For each day offset and for each service found:
@@ -176,32 +219,42 @@ fi
 #   service: (e.g.: "Production") (-s)
 #   merge traffic (-t)
 #   merge music (-m)
-#   day-spec (-d) is "tomorrow" (0) unless ${START_DATE} is specified
-startDayOffset=$(( ( startDateSeconds - tomorrowSeconds - oneDay ) / oneDay ))
-endDayOffset=$(( ( endDateSeconds - tomorrowSeconds - oneDay ) / oneDay ))
+#   day spec (-d) is "tomorrow" (0) unless ${START_DATE} is specified
+declare -ri start_day_offset=$(( ( start_date_seconds - tomorrow_seconds - one_day ) / one_day ))
+declare -ri end_day_offset=$(( ( end_date_seconds - tomorrow_seconds - one_day ) / one_day ))
 
-for (( dayOffset = startDayOffset + 1; dayOffset <= ( endDayOffset + 1 ); dayOffset++ )) ; do
+for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); day_offset++ )) ; do
   for service in ${services[*]} ; do
-    ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${dayOffset}" ${PRESERVE} 2>&1
+    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1 ; then
+      ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (${day_offset}) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+    fi
 
     # Also create Logs for Sunday and Monday if ${today} is
     # 'Friday' and we do not have an End Date.
     if [[ "${today}" == Friday ]] && [[ -z "${END_DATE}" ]] ; then
-      ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 ${PRESERVE} 2>&1
-      ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 ${PRESERVE} 2>&1
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 ${PRESERVE} 2>&1 ; then
+	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Sunday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+      fi
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 ${PRESERVE} 2>&1 ; then
+	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Monday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+      fi
     fi
   done
-done > "${outputFile}"
+done > "${output_file}"
 
-# Save a copy in the user's Desktop folder if such a folder exists.
-if [[ -d "${HOME}/Desktop" ]] ; then
-  ${CP} "${outputFile}" "${HOME}/Desktop/RD-Log-Generate.txt"
+# Save a copy in the user "rd"'s Desktop folder if such a folder exists.
+# BUG ALERT: This works only for Rivendell installations that follow the
+# "reference" installation methodology.
+if [[ -d ~rd/Desktop ]] ; then
+  ${CP} "${output_file}" ~rd/Desktop/RD-Log-Generate.txt
+  ${CHOWN} rd: ~rd/Desktop/RD-Log-Generate.txt
+  ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ~rd/Desktop/RD-Log-Generate.txt."
 fi
 
 # Send email to the addresses in $MAILTO with the same output as is on
 # the desktop.
-if [[ -s "${outputFile}" ]] ; then
-  sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "Rivendell Logs have been generated." "${outputFile}"
+if [[ -s "${output_file}" ]] ; then
+  sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "Rivendell Logs have been generated." "${output_file}"
 else
   sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "rdlogmanager(1) created no output. Did it run? Better check on it."
 fi
