@@ -11,7 +11,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=5
+declare -ri v_patch=6
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -158,8 +158,9 @@ if ((SHOW_VERSION)) ; then
     print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
     exit 0
 fi
+((VERBOSE)) && printf "%s: beginning audit of Rivendell dropboxes.\n" "${0:t}" >&2
 
-typeset -r oIFS="${IFS}"
+typeset oIFS="${IFS}"
 # hostname -s *must* match the station name in the STATIONS table.
 typeset -r station=$(hostname -s)
 typeset -r myFS='^:^'
@@ -167,12 +168,12 @@ typeset -r myFS='^:^'
 # Get the count of dropboxes and running processes.
 typeset -ri box_count=$(doSQL "select count(*) from DROPBOXES where station_name='${station}'")
 typeset -ri pid_count=$(${PIDOF} rdimport | wc -w)
-((VERBOSE)) && printf "(v): dropbox count: %d, PID count: %d\n" "${box_count}" "${pid_count}" >&2
+((VERBOSE)) && printf "Dropbox count: %d, PID count: %d\n" "${box_count}" "${pid_count}" >&2
 
 if ((box_count > pid_count)) ; then
-    printf "%d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
+    printf "Found %d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
 elif ((pid_count > box_count)) ; then
-    printf "%d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
+    printf "Found %d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
 else
     ((VERBOSE)) && printf "Good! %d dropboxes and %d dropbox processes.\n" "${box_count}" "${pid_count}" >&2
 fi
@@ -207,7 +208,7 @@ for id in ${(k)path_specs[*]} ; do
 	       "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
 
 	typeset -ir dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
-	((VERBOSE)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
+	((VERBOSE > 1)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
 	    if ((INTERACTIVE)) ; then
 		read -r response\?"Reset dropbox '${path_specs[${id}]#*${myFS}}'? "
@@ -283,7 +284,7 @@ done
 
 # Check for valid directory names. Spaces and special characters are
 # not allowed.
-((VERBOSE)) && print "Checking for forbidden directory names..." >&2
+((VERBOSE)) && print "Checking for 'forbidden' directory names..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
     typeset path_spec_dir=${path_spec%/*}
     if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
@@ -306,10 +307,18 @@ for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
     fi
 done
 
+typeset -a spinners
+# SC1003: Not escaping a single-quote, we are quoting an escaped backslash.
+# shellcheck disable=SC1003
+spinners=('|' '/' '-' '\\')
+typeset -ir spinner_count="${#spinners}"
+typeset -i x=1
+
 # Check for Cart Numbers as needed (some dropboxes create new Carts
 # for all new imports).
 ((VERBOSE)) && print "Checking dropbox Cart numbers (this may take some time)..." >&2
 for id in ${(k)path_specs[*]} ; do
+    ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
     to_cart=${path_specs[${id}]%${myFS}*}
     if ((to_cart > 0)) ; then
 	typeset -i cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
@@ -323,9 +332,8 @@ for id in ${(k)path_specs[*]} ; do
 		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	fi
     fi
-    ((VERBOSE)) && printf "." >&2
 done
-((VERBOSE)) && print >&2
+((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
 # Check for "hung" rdxport.cgi processes. Kill them if they are old or
 # appear to be "stranded".
@@ -363,7 +371,10 @@ for pid in ${possibly_hung_xport_procs[*]} ; do
 done
 
 # Check for missing log settings in the dropboxes.
+printf "Checking for missing Log settings in dropboxes...\n"
+x=1
 for id in ${(k)path_specs[*]} ; do
+    ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
     if okDatabaseStructure DROPBOXES:LOG_TO_SYSLOG ; then
 	log_specs=$(doSQL "select concat(LOG_TO_SYSLOG,'${myFS}',LOG_PATH) from DROPBOXES where ID=${id}")
 	if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
@@ -380,11 +391,13 @@ for id in ${(k)path_specs[*]} ; do
 	fi
     fi
 done
+((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
 # A "stranded" file is one that is in a dropbox directory and is not
 # registered in DROPBOX_PATHS. This likely means the file was never
 # successfully imported. It may also mean the file does not match the
 # pattern in DROPBOX.PATH.
+x=1
 if ((CHECK_STRANDED_FILES)) ; then
     typeset -A file_history
     file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
@@ -406,14 +419,23 @@ if ((CHECK_STRANDED_FILES)) ; then
 		  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
 		  [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
 		      print "${line}"
+		  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
 	      done)
 	)
 	if [[ -n "${possibly_stranded[*]}" ]] ; then
-	    printf "The following %d files in dropbox folder '%s' appear to be stranded:\n" \
-		   "${#possibly_stranded}" "${path_dir}"
+	    if ((${#possibly_stranded[*]} == 1)) ; then
+		typeset thing='file'
+		typeset plural='s'
+	    else
+		typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
+		typeset plural=''
+	    fi
+	    printf "The following %s in dropbox folder '%s' appear%c to be stranded:\n" \
+		   "${thing}" "${path_dir}" "${plural}"
 	    print "\t${(oj:\n\t:)possibly_stranded[*]}"
 	fi
     done
+    ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 fi
 
 exit
