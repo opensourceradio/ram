@@ -30,7 +30,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=10
+  vLibPatch=11
   vLibHash='$Hash$'
 }
 function zsh_library_version() {
@@ -55,10 +55,10 @@ function sendNotification() {
   local messagefile="${1}" # optional text filename to attach
 
   ############ BEGIN external shell commands used in this function. ############
-  # This function uses these 6 external commands.
+  # This function uses these 7 external commands.
   # Look for them in their upper case, parameter expanded form.
-  typeset -a our_commands
-  our_commands=( awk base64 cat dos2unix logger uuidgen )
+  local -a our_commands
+  our_commands=( awk base64 cat dos2unix hostname logger uuidgen )
   # Find the executables we need; this uses some basic shell and a ZSH trick:
   # the (U) in the eval says to evaluate the parameter as all upper case
   # letters. This snippet generates shell parameters representing the upper case
@@ -66,6 +66,7 @@ function sendNotification() {
   # of the commands.
   # Refresh this segment in Emacs by marking the appropriate region (or the whole
   # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+  local C D
   for C in ${our_commands[*]} ; do
     # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
     for D in ${path} ; do
@@ -74,13 +75,13 @@ function sendNotification() {
     done
     [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
   done
-  unset our_commands
+  unset our_commands C D
   ############# END external shell commands used in this function. #############
 
   local MAILER=$(whence msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
   local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/pmw/conf.msmtp}"
   local MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
-  local hostName="${HOSTNAME:-$(hostname -f)}"
+  local hostName="$(${HOSTNAME} -f)"
   local PRETEND="${PRETEND}"
   local startTime="${EPOCHSECONDS}"
   local returnValue=0
@@ -99,7 +100,7 @@ To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
 Subject: Notification from ${myName} (${type})
-Message-ID: <$(${UUIDGEN})-${startTime}@$(${HOSTNAME} -f)>
+Message-ID: <$(${UUIDGEN})-${startTime}@${hostName}>
 X-Script-Name: ${myName}
 X-zsh-library-version: $(zsh_library_version)
 MIME-Version: 1.0
@@ -117,7 +118,7 @@ ${message}
 
 Note that you will see only one notification per day for this
 condition. You may see all notifications (including those for which
-no email was sent) by opening a terminal window on $(${HOSTNAME}) and
+no email was sent) by opening a terminal window on ${hostName} and
 entering (or pasting) the command:
 
   journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
