@@ -1,0 +1,442 @@
+#!/usr/bin/perl -w
+
+use lib qw{/home/dklann/perl5/lib/perl5};
+
+use strict;
+
+use URI::Escape;
+use Data::Dumper;
+
+use Readonly;
+Readonly my $vMAJOR => 0;
+Readonly my $vMINOR => 1;
+Readonly my $vPATCH => 9;
+Readonly my $vHASH => '$Hash$';
+
+package Feed;
+
+use URI::Escape;
+use Data::Dumper;
+
+# Define the data here because ... it's just easier.
+my $feeds = {
+    'RedDirtMusicRadio' => {
+        'feedTitle'        => 'Red Dirt Music Radio',
+        'feedDescription'  => 'Red Dirt Music Radio Segments',
+        'feedRSSfile'      => 'rdmr.xml',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.radioidl.com',
+        'remoteUSER'       => 'rdmrcom',
+        'remotePASS'       => 'R@dio2435',
+        # Note that remoteDIR must begin with (but not end with) a '/'.
+        'remoteDIR'        => '/',
+	'recurse'          => 0,
+        # This is the list of fields as returned by ncftpls(1). The
+        # digits are the indexes into the array returned by
+        # split(). Note that filenames with spaces in them will cause
+        # the split() array to contain more than 9 elements.
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        # The minimum number of files we expect to exist on the remote server
+        # (this is a total crap-shoot, and is merely a sanity check).
+        'minimumFileCount' => 4,
+        # Where we will put the RSS XML data.
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/rdmr.xml',
+    },
+    'UnderCurrents' => {
+        'feedTitle'        => 'UnderCurrents',
+        'feedDescription'  => 'UnderCurrents 1-hour segments',
+        'feedRSSfile'      => 'uc.xml',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.nativeftp.org',
+        'remoteUSER'       => 'undercurrents@nativeftp.org',
+        'remotePASS'       => 'undercurrents@nativeftp.org',
+        'remoteDIR'        => '/UnderCurrents',
+	'recurse'          => 0,
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        'minimumFileCount' => 20,
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc.xml',
+    },
+    'UnderCurrentsSegmented' => {
+        'feedTitle'        => 'UnderCurrents Segments',
+        'feedDescription'  => 'UnderCurrents 1/2-hour segments',
+        'feedRSSfile'      => 'uc-s.xml',
+        'remotePROTO'      => 'ftp',
+        'remoteHOST'       => 'ftp.nativeftp.org',
+        'remoteUSER'       => 'undercurrents@nativeftp.org',
+        'remotePASS'       => 'undercurrents@nativeftp.org',
+        'remoteDIR'        => '/UnderCurrents/MP2%20Segmented',
+	'recurse'          => 1,
+        'longListFormat'   => {
+            'mode'     => 0,
+            'links'    => 1,
+            'owner'    => 2,
+            'group'    => 3,
+            'size'     => 4,
+            'mon'      => 5,
+            'mday'     => 6,
+            'hhmm'     => 7,
+            'filename' => 8,
+        },
+        'minimumFileCount' => 20,
+        'outputFile'       => '/var/www/grunch.org/htdocs/rss/uc-s.xml',
+    },
+};
+
+sub new {
+    my( $proto ) = shift;
+    my( %parms ) = @_;
+
+    my( $class ) = ref( $proto ) || $proto;
+
+    bless( { feedList => $feeds, %parms }, $class );
+}
+
+sub DESTROY {
+    my $self = shift;
+}
+
+sub feedName {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName};
+}
+
+# Return the URL for the feeName.
+sub feedURL {
+    my $self = shift;
+    my $feedName = shift;
+
+    my $url = $self->{feedList}->{$feedName}->{remotePROTO} . '://' .
+	$self->{feedList}->{$feedName}->{remoteHOST} .
+	$self->{feedList}->{$feedName}->{remoteDIR};
+
+    $url;
+}
+
+# Return the username for the feeName.
+sub feedUser {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName}->{remoteUSER};
+}
+
+# Return the password for the feeName.
+sub feedPass {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName}->{remotePASS};
+}
+
+sub recurse {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName}->{recurse};
+}
+
+# Return the output filename for the feedName.
+sub outputFile {
+    my $self = shift;
+    my $feedName = shift;
+
+    $self->{feedList}->{$feedName}->{outputFile};
+}
+
+# Return the file name from a single entry in a long listing.
+sub getFilename {
+    my $self = shift;
+    my $feedName = shift;
+    my $fileListing = shift;
+
+    my $filename = undef;
+
+    # Strip off everything up to and including the file date and time
+    # stamp.
+    ( $filename = $fileListing ) =~ s/^.*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}\s+//;
+
+    # Sanity check for a filename ending in .mp3 or a directory (. or
+    # ..).
+    if ( $filename =~ m/(.*\.mp3|\.+)/ ) {
+	$filename;
+    } else {
+	say STDERR "ERROR: Unable to discern an MP3 file from $fileListing!";
+	"";
+    }
+}
+
+sub getPubDate {
+    my $self = shift;
+    my $feedName = shift;
+    my $fileListing = shift;
+
+    my @fileListing = split( ' ', $fileListing );
+
+    @fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{mon}] . " " .
+	@fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{mday}] . " " .
+	@fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{hhmm}];
+}
+
+sub getSize {
+    my $self = shift;
+    my $feedName = shift;
+    my $fileListing = shift;
+
+    my @fileListing = split( ' ', $fileListing );
+    $fileListing[$self->{feedList}->{$feedName}->{longListFormat}->{size}];
+}
+
+sub listFeeds {
+    my $self = shift;
+
+    # @feeds is a Package-scope array
+    for my $feed ( sort ( keys ( %$feeds ))) {
+	say STDOUT $feed, " (", $feeds->{$feed}->{feedDescription}, ")";
+    }
+}
+
+sub getFileListingForFeed {
+    my $self = shift;
+    my $feedName = shift;
+
+    my @fileList = ();
+    my $recurse = "";
+
+    # Directory listings (at least for UnderCurrents) need a trailing
+    # "/" in order to list the contents of the directory rather than
+    # the directory itself, as of Thu Jul 6 20:05:14 CDT 2017.
+    my $feedURL = $self->feedURL( $feedName ) . q(/);
+    my $feedUser = $self->feedUser( $feedName );
+    my $feedPass = $self->feedPass( $feedName );
+
+    $recurse = qq(-R) if $self->recurse( $feedName );
+
+    my $listCommand = join(q( ), (
+			       qq(ncftpls),
+			       qq($recurse),
+			       qq(-l),
+			       qq(-u),
+			       qq("$feedUser"),
+			       qq(-p),
+			       qq("$feedPass"),
+			       qq("$feedURL")
+			   ));
+
+    say STDERR $listCommand if ( $self->{verbose} );
+
+    @fileList = qx($listCommand);
+
+    chomp( @fileList );
+
+    # Eliminate blank lines from the listing output.
+    @fileList = grep(!/^$/, @fileList);
+
+    \@fileList;
+}
+
+package main;
+
+use autodie;
+use English;
+
+use Getopt::Long qw(:config no_ignore_case);
+use Pod::Usage;
+
+use Time::localtime qw(localtime);
+
+sub showVersion;
+sub createXML;
+sub main;
+
+main;
+
+1;
+
+sub showVersion {
+    my $verbose = shift;
+
+    my $hash = undef;
+
+    ( $hash = $vHASH ) =~ s/\$Hash: //;
+
+    say STDOUT $vMAJOR . "." . $vMINOR . "." . $vPATCH . "-" . $hash;
+
+    exit;
+}
+
+sub createXML {
+    my $feeds = shift;
+    my $feedName = shift;
+    my $files = shift;
+    my $verbose = shift;
+
+    my $feed = $feeds->feedName( $feedName );
+
+    my $xml = undef;
+    my $subdir = undef;
+    my $fullURL = undef;
+
+    # make the header
+    $xml = <<END;
+<?xml version="1.0" encoding="iso8859-1" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+ <channel>
+  <title>$feed->{feedTitle}</title>
+  <link>http://grunch.org/rss/$feed->{feedRSSfile}</link>
+  <description>$feed->{feedDescription}</description>
+ </channel>
+END
+
+
+    # make each entry
+    foreach my $file ( @$files ) {
+	next if ( $file =~ /^d.*\s\.+$/ );
+	if ( $file =~ /^\.\/.*:$/ ) {
+	    ( $subdir = $file ) =~ s/^\.\/(.*):$/$1/;
+	    next;
+	}
+        next unless ( $file =~ /\.mp[23]$/ );
+	$fullURL = $feeds->feedURL( $feedName );
+	$fullURL .= q(/) . uri_escape($subdir) if ( defined($subdir) );
+	$fullURL .= q(/) . uri_escape( $feeds->getFilename( $feedName, $file ));
+
+	my $rawFileName = $feeds->getFilename( $feedName, $file );
+	my $length = $feeds->getSize( $feedName, $file );
+	my $pubDate = $feeds->getPubDate( $feedName, $file );
+
+	$xml .= <<END;
+ <item>
+   <title>$feed->{feedTitle} - Show $rawFileName</title>
+   <link></link>
+   <description>$feed->{feedDescription}</description>
+   <pubDate>$pubDate</pubDate>
+   <enclosure url="$fullURL" length="$length" type="audio/mpeg" />
+ </item>
+END
+    }
+
+    # close it out
+    $xml .= "</rss>\n";
+
+    say STDERR $xml if ( $verbose );
+
+    $xml;
+}
+
+sub main {
+    my( $list, $verbose, $man, $help ) = ( undef, 0, undef, undef );
+    my $version = undef;
+    my( $now ) = localtime();
+    my( $year ) = ( undef );
+    my( $feedName, $feed ) = ( undef, undef );
+
+    GetOptions(
+	'list|l'   => \$list,
+        'help|?|h' => \$help,
+        'man|m' => \$man,
+        'verbose|v+' => \$verbose,
+	'version|V' => \$version,
+        ) || pod2usage( 2 );
+
+    pod2usage( -verbose => 0, -output  => \*STDERR ) if $help;
+    pod2usage( -verbose => 3, -output  => \*STDERR ) if $man;
+    showVersion( $verbose ) if $version;
+
+    $feedName = shift( @ARGV );
+
+    pod2usage( 1 ) unless ( $feedName || $list );
+
+    my( $feeds ) = new Feed( verbose => $verbose, );
+
+    if ( $list ) {
+	$feeds->listFeeds();
+    } else {
+	$feed = $feeds->feedName( $feedName );
+	my $files = $feeds->getFileListingForFeed( $feedName );
+	say STDERR join(qq(\n), @$files) if ( $verbose > 1 );
+
+	open my $feedFH, ">", $feeds->outputFile( $feedName ) ||
+	    die "Cannot open $feeds->outputFile( $feedName ) for writing ($?). Stopped";
+	print $feedFH createXML( $feeds, $feedName, $files, $verbose );
+	close $feedFH;
+    }
+}
+
+1;
+
+__END__;
+
+=head1 NAME
+
+btd-ftp-to-rss - Retrieve a list of files on an FTP server and create a (somewhat) proper XML to be consumed by RSS feed readers.
+
+=head1 SYNOPSIS
+
+btd-ftp-to-rss [ -m ] [ -h ] [ -V ] [ -v ] <feed-name> (or --list (-l))
+
+ Options:
+ --list (-l)          list all known FTP sites
+ --help (-h)          show a brief help message
+ --man (-m)           display the full documentation for this command
+ --verbose (-v)       run in 'verbose' mode
+ --version (-V)       show the program version and exit
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<--help (h)>
+
+Print a brief help message and exit.
+
+=item B<--man (m)>
+
+Print the manual page and exit.
+
+=item B<--verbose (v)>
+
+Run in verbose mode. Use multiple times for more verbosity.
+
+=item B<--version (V)>
+
+Display this program's version and exit.
+
+=back
+
+=head1 DESCRIPTION
+
+B<btd-ftp-to-rss> creates an XML file suitable for advertising as an RSS feed for consumption of a podcast retrieval app such as podget(1).
+
+=head1 SEE ALSO
+
+=over 8
+
+=item B<curl(1)>
+
+=item B<podget(1)>
+
+=item B<kuchota(1)>
+
+=back
