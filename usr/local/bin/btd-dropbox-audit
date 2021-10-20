@@ -359,12 +359,12 @@ for pid in ${possibly_hung_xport_procs[*]} ; do
 		[[ -z "${response}" ]] && response=n
 	    done
 	    if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
-		kill_with_privelege "${pid}"
+		kill_with_privilege "${pid}"
 	    fi
 	    print "Killed."
 	else
 	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}" >&2
-	    kill_with_privelege "${pid}"
+	    kill_with_privilege "${pid}"
 	    ((VERBOSE)) && print "done." >&2
 	fi
     fi
