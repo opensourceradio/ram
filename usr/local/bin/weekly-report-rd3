@@ -1,4 +1,13 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2004,SC2030,SC2031,SC2034,SC2046,SC2086,SC2116,SC2207
+# SC2004: ZSH does not spawn subshells like Bash does.
+# SC2030: ZSH does not spawn subshells like Bash does.
+# SC2034: parameters are used in a ZSH way.
+# SC2031: ZSH does not spawn subshells like Bash does.
+# SC2046: Lots of quoting unneeded.
+# SC2086: Lots of quoting unneeded.
+# SC2115: We need the echo in order to properly expand the parameter.
+# SC2207: mapfile is a Bash thing.
 
 ##########################################################################################
 ##########################################################################################
@@ -16,72 +25,61 @@ autoload colors
 colors
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=2
-vPatch=7
-vHash='$Hash$'
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
+typeset -ir v_major=0
+typeset -ir v_minor=2
+typeset -ir v_patch=8
+# shellcheck disable=SC2016
+typeset -r v_hash='$Hash$'
 
-VERBOSE=0
-
-############# BEGIN external shell commands used in this script. #############
-# This script uses these 6 external commands.
-# Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
-our_commands=( cat column getopt hostname sort tr )
-# Find the executables we need; this uses some basic shell and a ZSH trick:
-# the (U) in the eval says to evaluate the parameter as all upper case
-# letters. This snippet generates shell parameters representing the upper case
-# equivalent of the command names and sets the parameter values to the full path
-# of the commands.
-# Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
-typeset C D
-for C in ${our_commands[*]} ; do
-  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
-  for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
-    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
-  done
-  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
-done
-unset our_commands C D
-############## END external shell commands used in this script. ##############
+typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
 
 # Tell them how to use this command.
 usage() {
   myName=${1}
 
   ${CAT} << EOF
-${myName:t}: Generate a weekly report for a Rivendell Group and a
-Rivendell Service for the week ending "yesterday" (or the specified
-date). This version works only with Rivendell version 3.X.
+SUMMARY
 
-Summary: ${myName:t} [ --start-date (-S) <YYYY-MM-DD> [HH:MM:SS] ]
-                       [ --end-date (-e) <YYYY-MM-DD> [HH:MM:SS] ]
-                       [ --csv (-c) ] [ --cuts (-C) ]
-                       [ --schedcodes <Code>[,<Code>,...] (or "list") ]
-                       [ --pro-data (-p) ]
-                       [ --group (-g) <Group Name> (or "list") ]
-                       [ --all ]
-                       [ --service (-s) <Service Name> (or "list") ]
-                       [ --workstation (-w) <Workstation Name> ]
-		       [ --version (-V) ] [ --verbose (-v) ]
+${myName:t}: Generate a report for a Rivendell Group and a Rivendell
+Service for the week ending "yesterday" (or the specified date). This
+version works only with Rivendell version 3.X.
+
+SYNOPSIS
+
+${myName:t} [ --start-date (-S) YYYY-MM-DD [HH:MM:SS] ]
+              [ --end-date (-e) YYYY-MM-DD [HH:MM:SS] ]
+              [ --group (-g) <Group Name> (or "list") ]
+              [ --all ]
+              [ --service (-s) Service-Name (or "list") ]
+              [ --workstation (-w) Workstation-Name ]
+              [ --schedcodes Code[,Code,...] (or "list") ]
+              [ --csv (-c) ]
+              [ --cuts (-C) ]
+              [ --pro-data (-p) ]
+              [ --verbose (-v) ]
+	      [ --version (-V) ]
+
+DESCRIPTION
 
 The start date defaults to one week ago; the end date defaults to
 yesterday if not specified.
 
-You will be prompted for a Group if you do not provide one using the
+${myName:t} prompts for a Group name if you do not provide one using the
 --group (-g) parameter, or the --all option.
 
 The --service (-s) parameter is required unless only one Service is
-configured. In that case the sole Service is chosen for you.
+configured. In that case the sole Service is chosen for
+you. ${myName:t} prompts for a Service if you do not specify it.
 
-You may limit the search to a specific Rivendell workstation name
-with the --workstation option.
+You may limit the search to a specific Rivendell workstation name with
+the --workstation option. Use the word "all" to report playout history
+for all workstations.
 
-Adding the --schedcodes option causes ${myName:t} to include Carts
-that have any of the Scheduler Codes "<Code>,..." assigned (separate
-multiple Codes by commas). You may use the word "list" to list and
+Using the --schedcodes option causes ${myName:t} to include Carts
+that have any of the Scheduler Codes "Code,..." assigned (separate
+multiple Codes with commas). You may use the word "list" to list and
 choose from the available Scheduler Codes. This option also causes the
 output to include all Rivendell Scheduler Codes for each Cart.
 
@@ -89,9 +87,9 @@ The --pro-data (-p) option tells ${myName:t} to include performance
 rights organization (PRO) data (such as artist, album, and record
 label) in the report output.
 
-The "Len" field is represented as MM:SS when --csv is not specified,
-and is represented as number of seconds (including the fractional
-part) when --csv is specified.
+The "Len" field is reported using the form MM:SS when --csv is not
+specified, and is represented as number of seconds (including the
+fractional part) when --csv is specified.
 
 Include Cut numbers in the output with the --cuts option.
 
@@ -112,7 +110,7 @@ validGroup() {
   local knownGroups=${1} ; shift
   local requestedGroup=${1} ; shift
 
-  [[ "${requestedGroup}" == '%' ]] || [[ "${knownGroups}" =~ ".*${requestedGroup}.*" ]]
+  [[ "${requestedGroup}" == '%' ]] || [[ "${knownGroups}" =~ .*${requestedGroup}.* ]]
 }
 
 # Check the (list of) Scheduler Code(s) agains the list of known
@@ -125,7 +123,7 @@ validSchedCodes() {
   local returnValue=0
 
   for code in $(echo ${requestedSchedCodes//,/ }) ; do
-    [[ "${knownSchedCodes}" =~ ".*${code}.*" ]] || { returnValue=1 ; break ; }
+    [[ "${knownSchedCodes}" =~ .*${code}.* ]] || { returnValue=1 ; break ; }
   done
 
   return ${returnValue}
@@ -137,6 +135,8 @@ getSchedCodes() {
   local codes="${1}"
   local fieldSeparator=${2:-,}
 
+  # SC2155: Don't care about the printf return code
+  # shellcheck disable=SC2155
   local newCodes=$(printf "%s${fieldSeparator}" ${(z)codes})
 
   # To strip the trailing field separator.
@@ -157,7 +157,7 @@ maxLength() {
 				AND
 				elr.service_name = '${service}'
 				AND
-				elr.station_name = '${stationName}'
+				elr.station_name LIKE '${stationName}'
 				AND
 				elr.event_datetime > '${reportStartDate}'
 				AND
@@ -172,7 +172,7 @@ maxLength() {
 quote() {
   local item="${1}"
 
-  if (( CSV )) ; then
+  if ((CSV)) ; then
     print '\"'${item//\"/\"\"}'\"'
   else
     print ${item}
@@ -180,27 +180,51 @@ quote() {
 }
 
 # Get zsh functions necessary for this script.
-if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
-  source ${ROOT:-/}usr/local/bin/zsh-functions
+if [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
 else
-  exit $(error "Cannot read support library '${ROOT:-/}usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
+  exit $(error "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
 fi
 
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat column getopt sort tr )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
 #CSV=0
-SCHEDCODES=0
+typeset -i SCHEDCODES=0
 # This will be set to 1 if requested on invocation.
-INCLUDE_CUTS=0
+typeset -i INCLUDE_CUTS=0
 # This will be set to 4 (the number of PRO fields) if requested on
 # invocation.
-PROdata=0
+typeset -i PROdata=0
 
 # use getopt to parse the command line args
-TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n ${0:t} -- "${@}")
-if [[ ${?} != 0 ]] ; then echo "Terminating..." >&2 ; exit 1 ; fi
-# Note the quotes around "$TEMP": they are essential!
+if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
 eval set -- "${TEMP}"
-while :
-do
+while : ; do
   case "${1}" in
     -a|--all) group=ALL_GROUPS ; shift ;;
     -c|--csv) CSV=1 ; shift ;;
@@ -213,7 +237,7 @@ do
     -p|--pro*) PROdata=4 ; shift ;;
     -w|--work*) stationName="${2}" ; shift 2 ;;
     -h|--help) usage ${0} ; exit ;;
-    -V|--vers*) showVersion=1 ; shift ;;
+    -V|--vers*) SHOW_VERSION=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
     *) echo "Internal error, cannot continue!" ; exit 1 ;;
@@ -221,19 +245,26 @@ do
 done
 unset TEMP
 
-if ((showVersion)) ; then
-  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+if ((SHOW_VERSION)) ; then
+  typeset commit_hash="${v_hash}"
+  # SC2016: $Hash is not a variable.
+  # shellcheck disable=SC2016
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
-RED="${fg_bold[red]}"
-BOLD="${bold_color}"
-NORM="${reset_color}"
+# SC2154: these are set by ZSH for us.
+# shellcheck disable=SC2154
+typeset -r BOLD="${bold_color}"
+# shellcheck disable=SC2154
+typeset -r NORM="${reset_color}"
 
-if (( CSV )) ; then
-  fs=,
+if ((CSV)) ; then
+  typeset -r fs=,
 else
-  fs='\t'
+  typeset -r fs='\t'
 fi
 
 # Snag the GROUP list for future use. This code works with GROUP names
@@ -275,11 +306,11 @@ if [[ -z "${startDate}" ]] ; then
   reportStartDate=$(strftime "%F 00:00:00" $(( EPOCHSECONDS - ( 60 * 60 * 24 * 7 ) )))
 else
   # Be flexible in the start date they pass to us.
-  if [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$' ]] ; then
+  if [[ "${startDate}" =~ ^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$ ]] ; then
     reportStartDate="${startDate} 00:00:00"
-  elif [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]$' ]] ; then
+  elif [[ "${startDate}" =~ ^[23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]$ ]] ; then
     reportStartDate="${startDate}:00"
-  elif [[ "${startDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]:[0-9][0-9]$' ]] ; then
+  elif [[ "${startDate}" =~ ^[23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]:[0-9][0-9]$ ]] ; then
     reportStartDate="${startDate}"
   else
     echo "Start date '${startDate}' is invalid."
@@ -293,11 +324,11 @@ fi
 if [[ -z "${endDate}" ]] ; then
   reportEndDate=$(strftime "%F 23:59:59" $(( ${EPOCHSECONDS} - (60 * 60 * 24) )))
 else
-  if [[ "${endDate}" =~ '^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$' ]] ; then
+  if [[ "${endDate}" =~ ^[23][0-9]{3}-[01][0-9]-[0-3][0-9]$ ]] ; then
     reportEndDate="${endDate} 23:59:59"
-  elif [[ "${endDate}" =~ '[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]$' ]] ; then
+  elif [[ "${endDate}" =~ [23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]$ ]] ; then
     reportEndDate="${endDate}:59"
-  elif [[ "${endDate}" =~ '[23][0-9]{3}-[01][0-9]-[0-3][0-9] [012][0-9]:[0-9][0-9]:[0-9][0-9]$' ]] ; then
+  elif [[ "${endDate}" =~ [23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]:[0-9][0-9]$ ]] ; then
     reportEndDate="${endDate}"
   else
     echo "End date '${endDate}' is invalid."
@@ -314,64 +345,67 @@ if [[ -n "${group}" ]] ; then
   if [[ "${group}" == 'ALL_GROUPS' ]] ; then
     group='%'
     whereClauseOp='LIKE'
-  elif [[ "${group}" =~ 'list' ]] ; then
+  elif [[ "${group}" = 'list' ]] ; then
     echo "Current Groups:"
     echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-    read group\?"Enter a Group to report: "
+    read -r group\?"Enter a Group to report: "
   fi
 else
   echo "Current Groups:"
   echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-  read group\?"Enter a Group to report: "
+  read -r group\?"Enter a Group to report: "
 fi
 
-validGroup "${rivendellGroupList}" ${group} || {
+validGroup "${rivendellGroupList[*]}" ${group} || {
   echo "${BOLD}${group} is not in the list. Please use a valid Group name.${NORM}" 1>&2
   exit 2
 }
 
 # List the SERVICES if there are more than one, otherwise use the lone SERVICE.
-if [[ -z "${service}" ]] || [[ "${service}" =~ 'list' ]] ; then
+if [[ -z "${service}" ]] || [[ "${service}" = 'list' ]] ; then
   if (( ${#rivendellServiceList} > 1 )) ; then
     echo "Current Services:"
     echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-    read service\?"Enter a Service on which to report: "
+    read -r service\?"Enter a Service on which to report: "
   else
     service=${rivendellServiceList[1]}
   fi
 fi
 
-# List the STATION names if there are more than one, otherwise use the
-# lone STATION_NAME.
+# List the STATION names if they did not specify one, and if there is
+# more than one, otherwise use the lone STATION_NAME.
 if [[ -z "${stationName}" ]] || [[ "${stationName}" = 'list' ]] ; then
   if (( ${#rivendellStations} > 1 )) ; then
-    echo "Stations:"
+    echo "Workstations:"
     echo ${(F)rivendellStations} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-    read stationName\?"Enter a Station for which to report: "
+    read -r stationName\?"Enter a Station for which to report: "
   else
-    stationName=${rivendellStations[1]}
+    stationName="${rivendellStations[1]}"
   fi
-else
-  stationName=$(${HOSTNAME} -s)
+fi
+if [[ "${stationName}" = 'all' ]] ; then
+  stationName='%'
 fi
 
 # List the Scheduler Codes and prompt for one (or more) to use in this report.
-if [[ "${schedCodes}" =~ 'list' ]] ; then
+if [[ "${schedCodes}" = 'list' ]] ; then
   echo "Current Scheduler Codes:"
   echo ${(F)rivendellSchedCodeList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
-  read schedCodes\?"Enter one or more Scheduler Code(s) to report (separate with ',' (comma): "
+  read -r schedCodes\?"Enter one or more Scheduler Code(s) to report (separate with ',' (comma): "
 fi
 if [[ -n "${schedCodes}" ]] ; then
   # Purge spaces just in case ...
   schedCodes=${schedCodes// /}
 
-  validSchedCodes "${rivendellSchedCodeList}" "${schedCodes}" || {
+  validSchedCodes "${rivendellSchedCodeList[*]}" "${schedCodes}" || {
     echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" 1>&2
     exit 3
   }
   typeset -a scA
   scA=( $(echo ${schedCodes//,/ }) )
   schedCodesJoinClause="LEFT JOIN CART_SCHED_CODES AS csch ON (elr.cart_number = csch.cart_number)"
+  # SC2027: shellcheck does not quite understand quoting for ZSH.
+  # shellcheck disable=SC2027
   schedCodesAndClause="AND csch.sched_code IN ($(echo "'"${(j:',':)scA}"'"))"
   SCHEDCODES=1
 
@@ -388,7 +422,7 @@ selectCountStatement="SELECT
   (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})
   AND elr.service_name = '${service}'
   AND
-  elr.station_name = '${stationName}'
+  elr.station_name LIKE '${stationName}'
   AND
   elr.event_datetime > '${reportStartDate}'
   AND
@@ -399,8 +433,8 @@ selectCountStatement="SELECT
 eventCount=$(doSQL "${selectCountStatement}")
 
 # The report title.
-groupClause="$([[ ${group} =~ ^%$ ]] && print all Groups || print Group ${group})"
-reportTitleText="Service: ${service}: ${eventCount} Event$(((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
+groupClause="$(if [[ ${group} =~ ^%$ ]] ; then print all Groups ; else print Group ${group} ; fi)"
+reportTitleText="Service: ${service}: ${eventCount} Event$( ((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
 ((CSV)) || print "${reportTitleText}\n"
 
 # Get the maximum length of each of these columns.
@@ -412,7 +446,7 @@ fwPub=$(maxLength publisher)
 
 # The report header with optional column headings, based on invocation
 # options.
-if (( CSV )) ; then
+if ((CSV)) ; then
   typeset header='"Air Date","Cart #"'
   ((INCLUDE_CUTS)) && header=${header}',"Cut #"'
   header=${header}',"Len","Title"'
@@ -425,13 +459,15 @@ else
   headerFormat="${headerFormat}${fs}%5s${fs}%${fwTitle}s"
   ((PROdata)) && headerFormat="${headerFormat}${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s"
   ((SCHEDCODES)) && headerFormat="${headerFormat}${fs}%s"
+  # SC2059: the variable contains the printf format string.
+  # shellcheck disable=SC2059
   printf "${headerFormat}\n" \
 	 "Air Date" "Cart #" \
-	 $(((INCLUDE_CUTS)) && print "Cut #") \
+	 $( ((INCLUDE_CUTS)) && print "Cut #") \
 	 "Len" \
 	 "Cart Title" \
-	 $(((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
-	 $(((SCHEDCODES)) && print "SchedCodes")
+	 $( ((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
+	 $( ((SCHEDCODES)) && print "SchedCodes")
 fi
 
 # Find all matching events in ELR_LINES.
@@ -446,7 +482,7 @@ if okDatabaseStructure ELR_LINES:event_datetime+cut_number+artist+album+title+le
   selectStatement="${selectStatement} WHERE elr.cart_number IN"
   selectStatement="${selectStatement} (SELECT number FROM CART WHERE group_name ${whereClauseOp} '${group}' ${schedCodesAndClause})"
   selectStatement="${selectStatement} AND elr.service_name = '${service}'"
-  selectStatement="${selectStatement} AND elr.station_name = '${stationName}'"
+  selectStatement="${selectStatement} AND elr.station_name LIKE '${stationName}'"
   selectStatement="${selectStatement} AND elr.event_datetime > '${reportStartDate}'"
   selectStatement="${selectStatement} AND elr.event_datetime <= '${reportEndDate}'"
   selectStatement="${selectStatement} ORDER BY elr.event_datetime"
@@ -463,7 +499,7 @@ typeset -A artist album label publisher
 oIFS="${IFS}"
 IFS=$'\t'
 # Output fields are <Tab>-separated.
-doSQL "${selectStatement}" | while read line ; do
+doSQL "${selectStatement}" | while read -r line ; do
   # Because some fields might be the "empty string" and we don't like
   # that. And we do it twice because there might be two empty fields
   # in a row.
@@ -491,39 +527,39 @@ doSQL "${selectStatement}" | while read line ; do
   set -
 
   # Do not convert to MM:SS if we are in CSV mode.
-  if (( CSV )) ; then
+  if ((CSV)) ; then
     cartMinSec=${cartLength}
   else
     cartMinSec=$(printf "%02d:%02d" $(( cartLength / 60 )) $(( cartLength % 60 )))
   fi
 
   # Insert a blank line between days.
-  [[ ${airDateTime% *} =~ ${lastAirDate} ]] || print
+  [[ "${airDateTime% *}" = "${lastAirDate}" ]] || print
 
-  if (( CSV )) ; then
-    printf "%s${fs}%d$(((INCLUDE_CUTS)) && print ${fs}%d)${fs}%s${fs}%s$(((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
+  if ((CSV)) ; then
+    printf "%s${fs}%d$( ((INCLUDE_CUTS)) && print ${fs}%d)${fs}%s${fs}%s$( ((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
 	   $(quote "${airDateTime}") \
 	   "${cartNumber}" \
-	   $(((INCLUDE_CUTS)) && print "${cutNumber}") \
+	   $( ((INCLUDE_CUTS)) && print "${cutNumber}") \
 	   "${cartMinSec}" \
 	   $(quote "${cartTitle}") \
-	   $(((${PROdata})) && quote "${cartArtist}") \
-	   $(((${PROdata})) && quote "${cartAlbum}") \
-	   $(((${PROdata})) && quote "${cartLabel}") \
-	   $(((${PROdata})) && quote "${cartPublisher}") \
-	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
+	   $( ((${PROdata})) && quote "${cartArtist}") \
+	   $( ((${PROdata})) && quote "${cartAlbum}") \
+	   $( ((${PROdata})) && quote "${cartLabel}") \
+	   $( ((${PROdata})) && quote "${cartPublisher}") \
+	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   else
-    printf "%20s${fs}%06d$(((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
+    printf "%20s${fs}%06d$( ((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
-	   $(((INCLUDE_CUTS)) && print "${cutNumber}") \
+	   $( ((INCLUDE_CUTS)) && print "${cutNumber}") \
 	   ${cartMinSec} \
 	   $(quote "${cartTitle}") \
-	   $(((${PROdata})) && quote "${cartArtist}") \
-	   $(((${PROdata})) && quote "${cartAlbum}") \
-	   $(((${PROdata})) && quote "${cartLabel}") \
-	   $(((${PROdata})) && quote "${cartPublisher}") \
-	   $(((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
+	   $( ((${PROdata})) && quote "${cartArtist}") \
+	   $( ((${PROdata})) && quote "${cartAlbum}") \
+	   $( ((${PROdata})) && quote "${cartLabel}") \
+	   $( ((${PROdata})) && quote "${cartPublisher}") \
+	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   fi
 
   # Save the meta data and the maximum field widths (we already know it for Title).
@@ -542,36 +578,33 @@ doSQL "${selectStatement}" | while read line ; do
 
 done
 
-if ! (( CSV )) ; then
-
+if ! ((CSV)) ; then
   # Restore the default value of ${IFS} in order to format the header.
   IFS="${oIFS}"
 
   print "\nPerformance Totals:"
-  printf "%6s${fs}%3s${fs}%${fwTitle}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((SCHEDCODES)) && echo ${fs}%s)\n" \
+  printf "%6s${fs}%3s${fs}%${fwTitle}s$( ((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$( ((SCHEDCODES)) && echo ${fs}%s)\n" \
 	 'Cart #' \
 	 'Plays' \
 	 'Cart Title' \
-	 $(((${PROdata})) && print -l Artist Album Label Publisher) \
-	 $(((SCHEDCODES)) && print SchedCodes)
+	 $( ((${PROdata})) && print -l Artist Album Label Publisher) \
+	 $( ((SCHEDCODES)) && print SchedCodes)
 
   # set IFS back to a single <TAB> and a single newline
   IFS=$'\t\n'
 
   for cart in $(echo ${(k)cartCount} | ${TR} ' ' '\012' | ${SORT} -n) ; do
-
-    printf "%06d${fs}%5d${fs}%${fwTitle}s$(((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$(((${SCHEDCODES})) && echo ${fs}%s)\n" \
-	   ${cart} \
-	   ${cartCount[${cart}]} \
+    printf "%06d${fs}%5d${fs}%${fwTitle}s$( ((${PROdata})) && echo ${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s)$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+	   "${cart}" \
+	   "${cartCount[${cart}]}" \
 	   "${title[${cart}]}" \
-	   $(((${PROdata})) && print "${artist[${cart}]}") \
-	   $(((${PROdata})) && print "${album[${cart}]}") \
-	   $(((${PROdata})) && print "${label[${cart}]}") \
-	   $(((${PROdata})) && print "${publisher[${cart}]}") \
-	   $(((${SCHEDCODES})) && getSchedCodes "${schedcodes[${cart}]}" ", ")
+	   $( ((${PROdata})) && print "${artist[${cart}]}") \
+	   $( ((${PROdata})) && print "${album[${cart}]}") \
+	   $( ((${PROdata})) && print "${label[${cart}]}") \
+	   $( ((${PROdata})) && print "${publisher[${cart}]}") \
+	   $( ((${SCHEDCODES})) && getSchedCodes "${schedcodes[${cart}]}" ", ")
 
   done
-
 fi
 
 exit
