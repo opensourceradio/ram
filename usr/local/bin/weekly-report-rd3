@@ -240,7 +240,7 @@ while : ; do
     -V|--vers*) SHOW_VERSION=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
-    *) echo "Internal error, cannot continue!" ; exit 1 ;;
+    *) echo "Internal error, cannot continue!" >&2 ; exit 1 ;;
   esac
 done
 unset TEMP
@@ -313,7 +313,7 @@ else
   elif [[ "${startDate}" =~ ^[23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]:[0-9][0-9]$ ]] ; then
     reportStartDate="${startDate}"
   else
-    echo "Start date '${startDate}' is invalid."
+    echo "Start date '${startDate}' is invalid." >&2
     usage ${0:t}
     exit 2
   fi
@@ -331,7 +331,7 @@ else
   elif [[ "${endDate}" =~ [23][0-9]{3}-[01][0-9]-[0-3][0-9][[:space:]][012][0-9]:[0-9][0-9]:[0-9][0-9]$ ]] ; then
     reportEndDate="${endDate}"
   else
-    echo "End date '${endDate}' is invalid."
+    echo "End date '${endDate}' is invalid." >&2
     usage ${0:t}
     exit 2
   fi
@@ -346,13 +346,13 @@ if [[ -n "${group}" ]] ; then
     group='%'
     whereClauseOp='LIKE'
   elif [[ "${group}" = 'list' ]] ; then
-    echo "Current Groups:"
-    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    echo "Current Groups:" >&2
+    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
     read -r group\?"Enter a Group to report: "
   fi
 else
-  echo "Current Groups:"
-  echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  echo "Current Groups:" >&2
+  echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
   read -r group\?"Enter a Group to report: "
 fi
 
@@ -364,8 +364,8 @@ validGroup "${rivendellGroupList[*]}" ${group} || {
 # List the SERVICES if there are more than one, otherwise use the lone SERVICE.
 if [[ -z "${service}" ]] || [[ "${service}" = 'list' ]] ; then
   if (( ${#rivendellServiceList} > 1 )) ; then
-    echo "Current Services:"
-    echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    echo "Current Services:" >&2
+    echo ${(F)rivendellServiceList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
     read -r service\?"Enter a Service on which to report: "
   else
     service=${rivendellServiceList[1]}
@@ -376,8 +376,8 @@ fi
 # more than one, otherwise use the lone STATION_NAME.
 if [[ -z "${stationName}" ]] || [[ "${stationName}" = 'list' ]] ; then
   if (( ${#rivendellStations} > 1 )) ; then
-    echo "Workstations:"
-    echo ${(F)rivendellStations} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+    echo "Workstations:" >&2
+    echo ${(F)rivendellStations} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
     read -r stationName\?"Enter a Station for which to report: "
   else
     stationName="${rivendellStations[1]}"
@@ -389,8 +389,8 @@ fi
 
 # List the Scheduler Codes and prompt for one (or more) to use in this report.
 if [[ "${schedCodes}" = 'list' ]] ; then
-  echo "Current Scheduler Codes:"
-  echo ${(F)rivendellSchedCodeList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+  echo "Current Scheduler Codes:" >&2
+  echo ${(F)rivendellSchedCodeList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
   read -r schedCodes\?"Enter one or more Scheduler Code(s) to report (separate with ',' (comma): "
 fi
 if [[ -n "${schedCodes}" ]] ; then
@@ -398,7 +398,7 @@ if [[ -n "${schedCodes}" ]] ; then
   schedCodes=${schedCodes// /}
 
   validSchedCodes "${rivendellSchedCodeList[*]}" "${schedCodes}" || {
-    echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" 1>&2
+    echo "${BOLD}'${schedCodes//,/, }' is invalid. Please specify valid Scheduler Codes.${NORM}" >&2
     exit 3
   }
   typeset -a scA
