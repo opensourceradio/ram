@@ -1,7 +1,8 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2034,SC2190,SC2207
+# shellcheck shell=bash disable=SC2016,SC2034,SC2154,SC2190,SC2207
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # SC2034: shellcheck does not know about ZSH param expansions.
+# SC2154: the only "unassigned" parameters *should be* upper case command names.
 # SC2190: ZSH associative arrays work differently from Bash associative arrays.
 # SC2207: mapfile or read -a are Bash-isms.
 
@@ -11,7 +12,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=7
+declare -ri v_patch=8
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -62,6 +63,27 @@ function kill_with_privilege() {
 	return_value=1
     done
     return "${return_value}"
+}
+
+# get_yes_no() repeatedly prompts with ${our_prompt} to /dev/tty until
+# the user responds affirmatively or negatively (reading from
+# /dev/tty). Returns 0 ("success") for a "yes"-like response and 1
+# ("non-success") for a "no"-like response to the given prompt.
+function get_yes_no() {
+    local -r our_prompt="${1}"
+    local -i again=0
+
+    local response=''
+    until [[ "${(L)response}" =~ ^(no*|y(es)*)$ ]] ; do
+	((again)) && print "Please respond with 'yes' ('y') or 'no' ('n')." > /dev/tty
+	print "${our_prompt} [y or n] \c" > /dev/tty
+	# SC2034: response is used, but in a non-Bash way, see below.
+	# shellcheck disable=SC2034
+	read -r response < /dev/tty
+	again=1
+    done
+    [[ "${(L)response}" =~ n ]] && return 1
+    return 0
 }
 
 # Show how to use this command.
@@ -182,12 +204,8 @@ fi
 # indexed by the PID.
 typeset -A procs
 IFS=$'\n\t'
-# NOTE: the whitespace between %p and %a is a single <TAB> SC2009: I
-# want a <TAB> separating the PID from the args. I use
-# PS_PERSONALITY=aix because this seems to be the only way to get a
-# <Tab> separator in the output.
-# shellcheck disable=SC2009
-procs=($(PS_PERSONALITY=aix ${PS} -eo '%p	%a' | ${GREP} -v "${GREP}" | ${GREP} "rdimport" | ${SED} -e 's/^  *//'))
+# NOTE: the whitespace between %p (PID) and %a (ARGS) should be a single <TAB>.
+procs=($(PS_PERSONALITY=aix ${PS} -eo "%p$(print '\t\c')%a" | ${GREP} -v "${GREP}" | ${GREP} "rdimport" | ${SED} -e 's/^  *//'))
 ((VERBOSE > 1)) && printf "rdimport processes:\n%s" "${(v)procs[*]}" >&2
 
 # path_specs is an associative array containing the dropbox cart number
@@ -211,14 +229,7 @@ for id in ${(k)path_specs[*]} ; do
 	((VERBOSE > 1)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
 	    if ((INTERACTIVE)) ; then
-		read -r response\?"Reset dropbox '${path_specs[${id}]#*${myFS}}'? "
-		[[ -z "${response}" ]] && response=n
-		until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
-		    print "Please respond with 'yes' or 'no'."
-		    read -r response\?"Reset dropbox '${path_specs[${id}]#*${myFS}}'? "
-		    [[ -z "${response}" ]] && response=n
-		done
-		if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+		if get_yes_no "Reset dropbox '${path_specs[${id}]#*${myFS}}'? " ; then
 		    if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
 			printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
 		    fi
@@ -231,19 +242,12 @@ for id in ${(k)path_specs[*]} ; do
 	    fi
 	else
 	    if ((INTERACTIVE)) ; then
-		read -r response\?"Restart dropboxes? "
-		[[ -z "${response}" ]] && response=n
-		until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
-		    print "Please respond with 'yes' or 'no'."
-		    read -r response\?"Restart dropboxes? "
-		    [[ -z "${response}" ]] && response=n
-		done
-		if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+		if get_yes_no "Restart dropboxes? " ; then
 		    if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
-			# The Rivendell 3+ way to restart all dropboxes.
+			# The Rivendell v3 way to restart all dropboxes.
 			${SENDUSR1} "${pidof_rdservice}"
 		    else
-			# The pre-Rivendell 3 way to restart all dropboxes.
+			# The pre-Rivendell v3 way to restart all dropboxes.
 			kill_with_privilege "$(${PIDOF} rdcatchd)"
 			# SC2046: we want the words of pidof to be split.
 			# shellcheck disable=SC2046
@@ -262,18 +266,31 @@ for id in ${(k)path_specs[*]} ; do
 done
 
 # Other way around: check if all running processes have a dropbox
-# defined. We do this by extracting the dropbox ID from the rdimport
-# process and comparing that to the list of dropbox IDs from the
-# database. We also look for dropboxes that have no Path Spec defined.
+# defined. extract the dropbox IDs from the rdimport processes and
+# compare them to the list of dropbox IDs from the database. Also look
+# for dropboxes that have no Path Spec defined.
+typeset -i pid
 ((VERBOSE)) && print "Checking whether all running dropbox processes have a dropbox configured..." >&2
-for proc in ${(v)procs[*]} ; do
-    # This expansion assumes '--persistent-dropbox-id=' is followed
-    # immediately by '--drop-box' in the ps(1) output.
-    typeset process_dropbox_id="${${proc#*persistent-dropbox-id=}% --drop-box*}"
-    typeset process_path_spec="${proc/* \///}"
+for pid in ${(k)procs[*]} ; do
+    # BUG ALERT: This expansion assumes '--drop-box' follows
+    # '--persistent-dropbox-id=' in the ps(1) output.
+    typeset process_dropbox_id="${${procs[${pid}]#*persistent-dropbox-id=}% --drop-box*}"
+    typeset process_path_spec="${procs[${pid}]/* \///}"
     if [[ "${process_path_spec#/usr/bin/rdimport }" =~ ^/ ]] ; then
 	if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
 	    printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
+	if ((INTERACTIVE)) ; then
+	    if get_yes_no "Terminate process ID ${pid}? " ; then
+		kill_with_privilege "${pid}"
+		print "Done."
+	    else
+		printf "OK, but you probably want to terminate process ID %d\n." "${pid}"
+	    fi
+	else
+	    ((VERBOSE)) && printf "Terminating process ID %s... " "${pid}" >&2
+	    kill_with_privilege "${pid}"
+	    ((VERBOSE)) && print "done." >&2
+	fi
 	fi
     else
 	# Deal with dropboxes that are missing a Path Spec.
@@ -283,16 +300,18 @@ for proc in ${(v)procs[*]} ; do
 done
 
 # Check for valid directory names. Spaces and special characters are
-# not allowed.
+# discouraged (and may even break dropboxes).
 ((VERBOSE)) && print "Checking for 'forbidden' directory names..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
     typeset path_spec_dir=${path_spec%/*}
     if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
 	${CAT} <<EndOfText >&2
-One ore more directory components in dropbox path spec
+
+One ore more directory components in Dropbox PATH spec
 ${p}
 contains one of the characters |, &, {, }, # \$, <, >, and ?.
-Please fix this dropbox.
+Please consider choosing a PATH spec without these characters.
+
 EndOfText
     fi
 done
@@ -308,7 +327,7 @@ for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
 done
 
 typeset -a spinners
-# SC1003: Not escaping a single-quote, we are quoting an escaped backslash.
+# SC1003: Not escaping a single-quote, quoting an escaped backslash.
 # shellcheck disable=SC1003
 spinners=('|' '/' '-' '\\')
 typeset -ir spinner_count="${#spinners}"
@@ -351,14 +370,7 @@ for pid in ${possibly_hung_xport_procs[*]} ; do
 	printf "NOTICE: import process ID %d was started %s.\n" "${pid}" \
 	       "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
 	if ((INTERACTIVE)) ; then
-	    read -r response\?"Terminate process ID ${pid}? "
-	    [[ -z "${response}" ]] && response=n
-	    until [[ "${response}" =~ [NnYy]([EeOo][Ss]*)* ]] ; do
-		print "Please respond with 'yes' or 'no'."
-		read -r response\?"Terminate process ID ${pid}? "
-		[[ -z "${response}" ]] && response=n
-	    done
-	    if [[ "${response}" =~ [Yy]([Ee][Ss])* ]] ; then
+	    if get_yes_no "Terminate process ID ${pid}? " ; then
 		kill_with_privilege "${pid}"
 	    fi
 	    print "Killed."
