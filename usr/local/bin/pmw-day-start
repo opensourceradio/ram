@@ -1,5 +1,5 @@
 #!/bin/zsh
-# shellcheck disable=SC2086
+# shellcheck shell=bash
 
 ##############################################################################
 ##
@@ -26,13 +26,15 @@
 
 zmodload zsh/datetime
 
-myName=${0##*/}
+myName="${0:t}"
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=2
-vPatch=4
-vHash='$Hash$'
+declare -ir v_major=0
+declare -ir v_minor=2
+declare -ir v_patch=5
+# SC2016: $Hash$ is not a shell variable.
+# shellcheck disable=SC2016
+declare -r v_hash='$Hash$'
 
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 5 external commands.
@@ -45,14 +47,17 @@ our_commands=( cat getopt hostname logger rmlsend )
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer) and replacing it  with C-uM-|mk-ourCommands (shell-command-on-region).
-for C in ${our_commands} ; do
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break }
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  [[ -x $(eval print \$${(U)C//-/_}) ]] || { print "Cannot find ${C}! Done."; return 1 }
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-unset our_commands
+unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
 ##############################################################################
@@ -61,8 +66,10 @@ unset our_commands
 
 # How to use this command.
 usage() {
-  local myName=${1}
+  local myName="${1}"
 
+  # SC2154: CAT is set by mk-ourCommands.
+  # shellcheck disable=SC2154
   ${CAT} <<EOF
 ${myName}:
 
@@ -95,29 +102,44 @@ EOF
 ##############################################################################
 ## Process command line options.
 ##############################################################################
-TEMP=$(${GETOPT} -o hs:vV --long help,service:,verbose,version, -n "${0:t}" -- "${@}")
-if (( ${?} != 0 )) ; then echo "Error parsing command line options (${?}). Terminating..." >&2 ; return 1 ; fi
-# Note the quotes around ${TEMP}: they are essential!
+
+declare -i show_version=0
+declare -i VERBOSE=0
+
+# SC2154: GETOPT is set by mk-ourCommands.
+# shellcheck disable=SC2154
+if ! TEMP=$(${GETOPT} -o hs:vV --long help,service:,verbose,version, -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
 eval set -- "${TEMP}"
 while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
   case "${1}" in
-    -h|--help*) usage ${myName} ; exit ;;
+    -h|--help*) usage "${myName}" ; exit ;;
     -s|--serv*) SERVICE_NAME="${2}" ; shift 2 ;;
     -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
-    -V|--vers*) showVersion=1 ; shift ;;
+    -V|--vers*) show_version=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "${0##*/}: ${GETOPT} internal error!" >&2 ; return 1 ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
   esac
 done
+unset TEMP
 
-if ((showVersion)) ; then
-  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+if ((show_version)) ; then
+  typeset commit_hash="${v_hash}"
+  # SC2016: $Hash$ is not a shell variable.
+  # shellcheck disable=SC2016
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
 # Redirect STDOUT and STDERR to separate files.
-exec 1> /var/tmp/${0##*/}.out
-exec 2> /var/tmp/${0##*/}.err
+exec 1> "/var/tmp/${myName}.out"
+exec 2> "/var/tmp/${myName}.err"
 
 # Enable ZSH XTRACE and SOURCE_TRACE options if --verbose. All output
 # will go to ${0}.err (see above).
@@ -130,29 +152,35 @@ if [[ -n "${1}" ]] ; then
 fi
 
 # Get zsh functions necessary for this script.
-if [[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] ; then
+if [[ -r /usr/bin/zsh-functions ]] ; then
   # shellcheck disable=SC1090
-  source ${ROOT:-/}usr/local/bin/zsh-functions
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  # shellcheck disable=SC1090
+  source /usr/local/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: Cannot find /usr/local/bin/zsh-functions. Cannot continue."
+  # SC2154: LOGGER is set by mk-ourCommands.
+  # shellcheck disable=SC2154
+  ${LOGGER} --stderr -t "${myName}" -p local7.err -i "ERROR: Cannot find zsh-functions. Cannot continue."
   exit 3
 fi
 
 # Calculate the the name of tomorrow's Log based on the current time.
+# SC2154: EPOCHSECONDS is set for us by ZSH.
+# shellcheck disable=SC2154
 timeNow=${EPOCHSECONDS}
 oneDay=$(( 60 * 60 * 24 ))
-hours=$(( $(strftime "%H" ${timeNow}) * 60 * 60 ))
-minutes=$(( $(strftime "%M" ${timeNow}) * 60 ))
-seconds=$(strftime "%S" ${timeNow})
+hours=$(( $(strftime "%H" "${timeNow}") * 60 * 60 ))
+minutes=$(( $(strftime "%M" "${timeNow}") * 60 ))
+seconds=$(strftime "%S" "${timeNow}")
 secondsPastMidnight=$(( hours + minutes + seconds ))
-tomorrow=$(( EPOCHSECONDS - secondsPastMidnight + oneDay ))
+tomorrow=$(( timeNow - secondsPastMidnight + oneDay ))
 
 # Retrieve the default Serivce name for this workstation. Use the name
 # Production if no default Service is set.
 defaultService=$(doSQL "SELECT default_service FROM RDAIRPLAY WHERE station='$(${HOSTNAME} -s)'")
 SERVICE_NAME="${SERVICE_NAME:-${defaultService:-Production}}"
 
-[[ -n "${SERVICE_NAME}" ]] && serviceNameConstraint=""
 # Get the Log name template for this Service from the SERVICES table.
 # This will be placed in an associative array indexed on the SERVICE name.
 typeset -A logNameTemplate
@@ -168,17 +196,18 @@ for service in ${(k)logNameTemplate} ; do
   # "Seconds since the Epoch". "Manually" replace the %s with the
   # Service Name in the Log Template before substituting the date
   # stuff in the Log Template.
-  if [[ ${logNameTemplate[${service}]} =~ %s ]] ; then
+  if [[ "${logNameTemplate[${service}]}" =~ %s ]] ; then
     logNameTemplate[${service}]=${logNameTemplate[${service}]//\%s/${service}}
   fi
 
-  # Older shell versions are not up to snuff with respect to strftime(3).
-  # shellcheck disable=SC2079
+  # SC2079: ZSH (()) arithmetic expressions can do floating point math.
+  # SC2154: ZSH_VERSION is set by ZSH.
+  # shellcheck disable=SC2079,SC2154
   if (( ${ZSH_VERSION[1,3]} < 5.6 )) ; then
     # shellcheck disable=SC2046
-    nextLog=$(date --date=$(strftime "%F" ${tomorrow}) "+${logNameTemplate[${service}]}")
+    nextLog=$(date --date=$(strftime "%F" "${tomorrow}") "+${logNameTemplate[${service}]}")
   else
-    nextLog=$(strftime "${logNameTemplate[${service}]}" ${tomorrow})
+    nextLog=$(strftime "${logNameTemplate[${service}]}" "${tomorrow}")
   fi
 
   # Rivendell versions prior to version 3 tacked "_LOG" to the end of
@@ -199,6 +228,8 @@ for service in ${(k)logNameTemplate} ; do
     # MN 1: Make Next, the first cart in the Log (line ID 0, should be a "Start Immediately", or "Make Next")
     # auxLog: if the shell variable auxLog is set, Make Next the first cart in Auxiliary Log 1 (line ID 0)
     # PM 2: Set Mode, RDAirPlay mode "Auto"
+    # SC2154: RMLSEND is set by mk-ourCommands.
+    # shellcheck disable=SC2154
     if rmlsendOutput=$(${RMLSEND} --from-file=- 2>&1) <<EOF
 PW 1!
 LL 1 ${nextLog} -1!
@@ -207,14 +238,15 @@ MN 1 0!
 ${auxLog:+MN 2 0!}
 PM 2!
 EOF
-
     then
-      ${LOGGER} --stderr -t ${0##*/} -p local7.info -i "INFO: rmlsend loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: '${rmlsendOutput}'}"
+      ${LOGGER} --stderr -t "${myName}" -p local7.info \
+		-i "INFO: rmlsend loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: ${rmlsendOutput}}"
     else
-      ${LOGGER} --stderr -t ${0##*/} -p local7.err -i "ERROR: rmlsend may not have loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: '${rmlsendOutput}'}"
+      ${LOGGER} --stderr -t "${myName}" -p local7.err \
+		-i "ERROR: rmlsend may not have loaded tomorrow's Log '${nextLog}'.${rmlsendOutput:+ rmlsend says: ${rmlsendOutput}}"
     fi
   else
-    ${LOGGER} --stderr -t ${0##*/} -p local7.warn -i "WARNING: the Log '${nextLog}' is not in the Rivendell database. Did you generate the Log?"
+    ${LOGGER} --stderr -t "${myName}" local7.warn -i "WARNING: the Log '${nextLog}' is not in the Rivendell database. Did you generate the Log?"
   fi
 done
 
