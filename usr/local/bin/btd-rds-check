@@ -1,0 +1,171 @@
+#!/bin/zsh
+# shellcheck shell=bash
+
+##############################################################################
+##############################################################################
+##
+## rds-check
+##
+## Check the timestamp on ${RDS_UPDATE_FILE}, if older that ${AGE_LIMIT},
+## send a generic string to the RDS encoder
+##
+##############################################################################
+##############################################################################
+
+zmodload zsh/datetime
+zmodload zsh/stat
+
+my_name="${0:t}"
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ir v_major=0
+declare -ir v_minor=1
+declare -ir v_patch=0
+# SC2016: $Hash$ is not a shell variable.
+# shellcheck disable=SC2016
+declare -r v_hash='$Hash$'
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat fmt getopt logger php )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+##############################################################################
+## Locally defined subroutines
+##############################################################################
+
+# How to use this command.
+usage() {
+  local my_name="${1}"
+
+  # SC2154: CAT is set by mk-ourCommands.
+  # shellcheck disable=SC2154
+  ${CAT} <<EOF
+${my_name}:
+
+Summary
+
+${my_name} [ --age (-a) <Age-In-Seconds> ]
+              [ --help (-h) ] [ --version (-V) ] [ --verbose (-v) ]
+              [ <Timestamp-Filename> ]
+Description
+
+$(${FMT} <<< "${my_name} calls /var/www/html/index.php with a generic string if the age of the named Timestamp File (defaults to /run/user/1000/rds-updated) is older than Age-In-Seconds (defaults to 300).")
+
+$(${FMT} <<< "/run/user/1000/rds-updated is also touched in /var/www/html/index.php. Keep this filename consistent in this script and the PHP script.")
+
+$(${FMT} <<< "Since this script is called from cron(8), the granularity is no higher than one minute. Choose a frequency that fits the typical track duration.")
+
+$(${FMT} <<< "Specifying the --verbose option causes ${my_name} to enable the ZSH XTRACE and SOURCE_TRACE options.")
+
+EOF
+}
+
+##############################################################################
+## Process command line options.
+##############################################################################
+
+declare -i show_version=0
+declare -i VERBOSE=0
+declare -i AGE_LIMIT=300
+declare RDS_UPDATE_FILE=/run/user/1000/rds-updated
+declare -r RDS_TEXT="WPRK: Best in Basement Radio"
+
+# SC2154: GETOPT is set by mk-ourCommands.
+# shellcheck disable=SC2154
+if ! TEMP=$(${GETOPT} -o a:hvV --long age:,help,verbose,version, -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -a|--age) AGE_LIMIT="${2}" ; shift 2 ;;
+    -h|--help*) usage "${my_name}" ; exit ;;
+    -v|--verb*) VERBOSE=1 ; PASSFILE=none ; shift ;;
+    -V|--vers*) show_version=1 ; shift ;;
+    --) shift ; break ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
+unset TEMP
+
+if ((show_version)) ; then
+  typeset commit_hash="${v_hash}"
+  # SC2016: $Hash$ is not a shell variable.
+  # shellcheck disable=SC2016
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+  exit 0
+fi
+
+# Redirect STDOUT and STDERR to separate files.
+exec 1> "/var/tmp/${my_name}.out"
+exec 2> "/var/tmp/${my_name}.err"
+
+# Enable ZSH XTRACE and SOURCE_TRACE options if --verbose. All output
+# will go to ${0}.err (see above).
+((VERBOSE)) && setopt xtrace source_trace
+
+if [[ -n "${1}" ]] ; then
+    if [[ -f "${1}" ]] ; then
+	RDS_UPDATE_FILE="${1}"
+	# SC2154: LOGGER is set by mk-ourCommands.
+	# shellcheck disable=SC2154
+	((VERBOSE)) && ${LOGGER} --stderr -t "${my_name}" -p local7.info -i "INFO: checking time of ${RDS_UPDATE_FILE}."
+    fi
+fi
+
+# SC2154: EPOCHSECONDS is set ZSH
+# shellcheck disable=SC2154
+time_now="${EPOCHSECONDS}"
+
+if ! zstat -H timestamp_stats "${RDS_UPDATE_FILE}" ; then
+    # shellcheck disable=SC2154
+    ${LOGGER} --stderr -t "${my_name}" -p local7.err -i "ERROR: Cannot find ${RDS_UPDATE_FILE}. Cannot continue."
+    exit 1
+fi
+
+# SC2154: timestamp_stats is set above by zstats.
+# shellcheck disable=SC2154
+declare -ir update_age=$((time_now - timestamp_stats[mtime]))
+if ((update_age > AGE_LIMIT)) ; then
+	# SC2154: PHP is set by mk-ourCommands.
+	# shellcheck disable=SC2154
+    if ! ${PHP} /var/www/html/index.php our_text="${RDS_TEXT}" ; then
+	# shellcheck disable=SC2154
+	${LOGGER} --stderr -t "${my_name}" -p local7.notice -i "NOTICE: return code from ${PHP}: ${?}. RDS text may not be updated."
+    else
+	# shellcheck disable=SC2154
+	${LOGGER} --stderr -t "${my_name}" -p local7.info -i "INFO: updated RDS Text."
+    fi
+    # shellcheck disable=SC2154
+    ((VERBOSE)) && ${LOGGER} --stderr -t "${my_name}" -p local7.info -i "INFO: updated RDS Text."
+else
+    # shellcheck disable=SC2154
+    ((VERBOSE)) && ${LOGGER} --stderr -t "${my_name}" -p local7.info -i "INFO: did not update RDS Text, age is: ${update_age}."
+fi
+
+exit
