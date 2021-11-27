@@ -190,7 +190,7 @@ sub main {
     #   3  00:08:57  SEGUE  010292   Music        4:01  Wrote a Song for Everyone
     #   4  00:12:50  SEGUE  010481   Music        3:46  That's All Right
     # ...
-    @complete_log_lines = `echo "load $log_name\nlist\nquit" | rdclilogedit --silent`;
+    @complete_log_lines = `print "load $log_name\nlist\nquit" | rdclilogedit --silent`;
     if (scalar @complete_log_lines == 0) {
 	printf STDERR "Unable to load Log '%s'\n", $log_name;
 	exit;
@@ -211,8 +211,10 @@ sub main {
     # current time.
     foreach my $log_line (@complete_log_lines) {
 	printf STDERR "\t%s\n", $log_line if ($verbose > 1);
+	next if ($log_line =~ /---/);
 	($line_id, $start_time, $rest_of_line) = split(' ', $log_line);
 	($next_line_id, $next_start_time, $next_rest_of_line) = split(' ', $complete_log_lines[$line_index + 1]);
+	last if ($next_start_time =~ /---/);
 	($hhmmss = $start_time) =~ s/T//;
 	$next_start_time =~ s/T//;
 	my ($hh, $mm, $ss) = split(/:/, $hhmmss);
