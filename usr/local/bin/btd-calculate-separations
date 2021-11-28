@@ -1,7 +1,8 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2086,SC2162
+# shellcheck shell=bash disable=SC2016,SC2086,SC2154,SC2162
 # SC2016: The single quotes are inside a double-quoted string
 # SC2086: I know about the double-quoting issues
+# SC2154: all referenced variables are assigned indirectly
 # SC2162: I do not care about read and its backslashes
 
 # btd-calculate-separations
@@ -38,7 +39,7 @@ fi
 usage() {
   myName="${1:t}"
 
-  fmt << EOF
+  ${FMT} << EOF
 
 ${myName}: Calculate and display Artist and Title Separations for Rivendell Events,
 and optionally update the values in the Rivendell database.
@@ -46,7 +47,7 @@ and optionally update the values in the Rivendell database.
 SUMMARY
 EOF
 
-  cat << EOF
+  ${CAT} << EOF
 
 ${myName} [ --verbose (-v) ] [ --version (-V) ]
                           [ --help (-h) ]
@@ -54,7 +55,7 @@ ${myName} [ --verbose (-v) ] [ --version (-V) ]
                           [ --group (-g) <Rivendell-Group-Name> ]
                           [ --set [ --interactive (-i) ]]
 EOF
-  fmt << EOF
+  ${FMT} << EOF
 
 DESCRIPTION
 
@@ -129,15 +130,14 @@ recommended_separation() {
   # ratio as a fraction of the total number of items. Using Perl's
   # log() function and this locally defined log2() subroutine, the
   # more items given, the smaller the fraction. So for 5000 items,
-  # ratio is 416 (8.3%); for 10 items, ratio is 3 (30%). It is also a
-  # ZSH-specific thing, tell shellcheck(1) to ignore it.
+  # ratio is 416 (8.3%); for 10 items, ratio is 3 (30%).
   if ((number_of_items > 1)) ; then
-    ratio=$(echo ${number_of_items} | perl -ne 'sub log2 {my $n=shift; return log($n)/log(2);} printf qq{%d}, int($_ * (1/log2($_)));')
+    ratio=$(echo ${number_of_items} | ${PERL} -ne 'sub log2 {my $n=shift; return log($n)/log(2);} printf qq{%d}, int($_ * (1/log2($_)));')
   fi
 
   ((VERBOSE)) && echo "recommended_separation: ${type}: ratio: ${ratio}" >&2
 
-  (( recommended = number_of_items - ratio ))
+  ((recommended = number_of_items - ratio))
 
   echo "${recommended}"
 }
@@ -154,10 +154,10 @@ set_separations() {
   local -A separations
   local query="update EVENTS"
 
-  if (( RUN_INTERACTIVE )) ; then
+  if ((RUN_INTERACTIVE)) ; then
     for type in title artist ; do
-      # The shellcheck does not seem to know about ZSH-style nested
-      # parameter expansion, or quotes outside command substitution.
+      # SC1083: shellcheck does not know about ZSH-style nested parameter expansion
+      # SC2248: ...or quotes outside command substitution.
       # shellcheck disable=SC1083,SC2248
       until [[ "${response}" =~ [[:digit:]]+ ]] ; do
 	printf "Enter a value for %6s Separation (press <Enter> to use %s): " ${(C)type} "$(eval echo \${${type}_separation})" > /dev/tty
@@ -194,8 +194,7 @@ set_separations() {
   if ((RUN_INTERACTIVE)) ; then
     trap 'echo ; echo ; echo ; trap - ; return ;' 2
     printf "About to update the database. Press <Enter> to continue, or Ctrl-C to cancel: " > /dev/tty
-    # shellcheck disable=SC2034
-    read value_not_used < /dev/tty
+    read _ < /dev/tty
   fi
 
   doSQL "${query}"
@@ -219,7 +218,31 @@ typeset -i SET_SEPARATIONS=0
 typeset -i RUN_INTERACTIVE=0
 RDGROUP=''
 
-if ! TEMP=$(getopt -o Vvhg:is: --long version,verbose,help,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 4 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( cat fmt getopt perl )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+if ! TEMP=$(${GETOPT} -o Vvhg:is: --long version,verbose,help,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -236,12 +259,12 @@ while : ; do
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "${0##*/}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+    *) echo "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
   esac
 done
 
 if ((showVersion)) ; then
-  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -285,7 +308,7 @@ if [[ -z "${RDGROUP}" ]] || [[ "${RDGROUP}" =~ list ]] ; then
 fi
 
 # Set the shell internal field separator to just <Tab>
-IFS='	'
+IFS=$'\t'
 
 # Will hold the length of the longest Event Name for better looking
 # output.
@@ -329,7 +352,6 @@ outer_query="${outer_query} order by e.NAME"
 # ZSH coprocesses.
 coproc doSQL "${outer_query}" >&p
 while read -p event_name title_sep artist_sep sched_group have_code have_code2 ; do
-
   ((VERBOSE)) &&
     printf "Event: %${max_event_name_len}s: G:%12s T:%5d, A:%5d: %s%s\n" \
 	   "${event_name}" \
@@ -354,10 +376,7 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
       exit 2
     fi
     ((VERBOSE>1)) && echo "Inner query: ${inner_query}" >&2
-    # Disable this shellcheck because the quoting is done on the
-    # string, not the command expansion.
-    # shellcheck disable=SC2046
-    read tracks artists <<<$(doSQL "${inner_query}")
+    read tracks artists <<<"$(doSQL """${inner_query}""")"
     ((VERBOSE>1)) && echo "Track count: ${tracks}" >&2
     ((VERBOSE>1)) && echo "Artist count: ${artists}" >&2
 
@@ -380,7 +399,6 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
     if ((SET_SEPARATIONS)) ; then
       set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation} "${RUN_INTERACTIVE}"
     fi
-
 done
 
 exit
