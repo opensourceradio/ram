@@ -17,11 +17,13 @@ setopt NO_CASE_MATCH
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=2
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 # Get zsh functions necessary for this script.
-if [[ -r /usr/local/bin/zsh-functions ]] ; then
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
 else
   echo "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your astrologist!" >&2
