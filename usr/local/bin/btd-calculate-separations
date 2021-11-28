@@ -27,7 +27,7 @@ if [[ -r /usr/bin/zsh-functions ]] ; then
 elif [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
 else
-  echo "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your astrologist!" >&2
+  print "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your astrologist!" >&2
   exit 2
 fi
 
@@ -106,7 +106,7 @@ tracks_per_week() {
   query="${query} order by sc.HOUR"
 
   if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name ; then
-    ((VERBOSE>1)) && echo "${query}" >&2
+    ((VERBOSE>1)) && print "${query}" >&2
     return 1
   fi
 
@@ -132,14 +132,14 @@ recommended_separation() {
   # more items given, the smaller the fraction. So for 5000 items,
   # ratio is 416 (8.3%); for 10 items, ratio is 3 (30%).
   if ((number_of_items > 1)) ; then
-    ratio=$(echo ${number_of_items} | ${PERL} -ne 'sub log2 {my $n=shift; return log($n)/log(2);} printf qq{%d}, int($_ * (1/log2($_)));')
+    ratio=$(print ${number_of_items} | ${PERL} -ne 'sub log2 {my $n=shift; return log($n)/log(2);} printf qq{%d}, int($_ * (1/log2($_)));')
   fi
 
-  ((VERBOSE)) && echo "recommended_separation: ${type}: ratio: ${ratio}" >&2
+  ((VERBOSE)) && print "recommended_separation: ${type}: ratio: ${ratio}" >&2
 
   ((recommended = number_of_items - ratio))
 
-  echo "${recommended}"
+  print "${recommended}"
 }
 
 # Set the Artist and Title separations in the database to the
@@ -160,10 +160,10 @@ set_separations() {
       # SC2248: ...or quotes outside command substitution.
       # shellcheck disable=SC1083,SC2248
       until [[ "${response}" =~ [[:digit:]]+ ]] ; do
-	printf "Enter a value for %6s Separation (press <Enter> to use %s): " ${(C)type} "$(eval echo \${${type}_separation})" > /dev/tty
+	printf "Enter a value for %6s Separation (press <Enter> to use %s): " ${(C)type} "$(eval print \${${type}_separation})" > /dev/tty
 	read response < /dev/tty
 	if [[ -z "${response}" ]] ; then
-	  response=$(eval echo \${${type}_separation})
+	  response=$(eval print \${${type}_separation})
 	fi
 	# As of Rivendell version 3.4.1, these values come from the
 	# Rivendell source code file rivendell/lib/rdevent_line.cpp.
@@ -184,15 +184,15 @@ set_separations() {
   query="${query} ARTIST_SEP=${separations[artist]}"
   query="${query} where NAME='${event_name}'"
 
-  ((VERBOSE)) && echo "set_separations: Query: ${query}" >&2
+  ((VERBOSE)) && print "set_separations: Query: ${query}" >&2
 
   if ! okDatabaseStructure EVENTS:name+title_sep+artist_sep ; then
-    echo "set_separations: ERROR: Unknown database schema. Please report this to the authorities." >&2
+    print "set_separations: ERROR: Unknown database schema. Please report this to the authorities." >&2
     return 1
   fi
 
   if ((RUN_INTERACTIVE)) ; then
-    trap 'echo ; echo ; echo ; trap - ; return ;' 2
+    trap 'print ; print ; print ; trap - ; return ;' 2
     printf "About to update the database. Press <Enter> to continue, or Ctrl-C to cancel: " > /dev/tty
     read _ < /dev/tty
   fi
@@ -243,7 +243,7 @@ unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
 if ! TEMP=$(${GETOPT} -o Vvhg:is: --long version,verbose,help,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
-  echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
 eval set -- "${TEMP}"
@@ -259,12 +259,12 @@ while : ; do
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
-    *) echo "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
   esac
 done
 
 if ((showVersion)) ; then
-  echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  print "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -279,8 +279,8 @@ rivendellServiceList=( $(doSQL "select NAME from SERVICES order by NAME") )
 if [[ -z "${SERVICE}" ]] || [[ "${SERVICE}" =~ list ]] ; then
   if (( ${#rivendellServiceList} > 1 )) ; then
     until [[ ${rivendellServiceList[*]} =~ .*${SERVICE}.* ]] ; do
-      echo "Current Services:"
-      echo ${(F)rivendellServiceList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      print "Current Services:"
+      print ${(F)rivendellServiceList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
       read SERVICE\?"Enter a Service for the Events: "
     done
   else
@@ -298,8 +298,8 @@ rivendellGroupList=( $(doSQL "select NAME from GROUPS order by NAME") )
 if [[ -z "${RDGROUP}" ]] || [[ "${RDGROUP}" =~ list ]] ; then
   if (( ${#rivendellGroupList} > 1 )) ; then
     until [[ ${rivendellGroupList[*]} =~ .*${RDGROUP}.* ]] ; do
-      echo "Available Groups:"
-      echo ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      print "Available Groups:"
+      print ${(F)rivendellGroupList} | column -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
       read RDGROUP\?"Enter an Event Group: "
     done
   else
@@ -322,10 +322,10 @@ query="${query} and e.IMPORT_SOURCE = 3"
 query="${query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
 query="${query} order by e.NAME"
 if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name+title_sep+artist_sep+sched_group+have_code+have_code2 ; then
-  echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+  print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
   exit 1
 fi
-((VERBOSE>2)) && echo "Length query: ${query}" >&2
+((VERBOSE>2)) && print "Length query: ${query}" >&2
 # The quoting is the way I want it.
 # shellcheck disable=SC2046
 read -r max_event_name_len <<<$(doSQL "${query}")
@@ -342,7 +342,7 @@ fi
 outer_query="${outer_query} and e.IMPORT_SOURCE = 3"
 outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
 outer_query="${outer_query} order by e.NAME"
-((VERBOSE>1)) && echo "Outer query: ${outer_query}" >&2
+((VERBOSE>1)) && print "Outer query: ${outer_query}" >&2
 
 # Use the ZSH "coproc" mechanism to perform the query. We do this
 # because reading the column data directly in the while() loop causes
@@ -372,13 +372,13 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
       inner_query="${inner_query} "$(printf "and sc.CART_NUMBER in (select CART_NUMBER from CART_SCHED_CODES where SCHED_CODE = '%s')" "${have_code2}")
     fi
     if ! okDatabaseStructure CART:number+artist,CART_SCHED_CODES:cart_number+sched_code ; then
-      echo "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+      print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
       exit 2
     fi
-    ((VERBOSE>1)) && echo "Inner query: ${inner_query}" >&2
+    ((VERBOSE>1)) && print "Inner query: ${inner_query}" >&2
     read tracks artists <<<"$(doSQL """${inner_query}""")"
-    ((VERBOSE>1)) && echo "Track count: ${tracks}" >&2
-    ((VERBOSE>1)) && echo "Artist count: ${artists}" >&2
+    ((VERBOSE>1)) && print "Track count: ${tracks}" >&2
+    ((VERBOSE>1)) && print "Artist count: ${artists}" >&2
 
     recommended_title_separation=$(recommended_separation title "${tracks}")
     recommended_artist_separation=$(recommended_separation artist "${artists}")
