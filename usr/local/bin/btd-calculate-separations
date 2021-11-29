@@ -16,10 +16,10 @@ zmodload zsh/mathfunc
 setopt NO_CASE_MATCH
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=2
-vPatch=2
-vHash='$Hash$'
+declare -ri v_major=0
+declare -ri v_minor=2
+declare -ri v_patch=3
+declare -r v_hash='$Hash$'
 
 # Get zsh functions necessary for this script.
 if [[ -r /usr/bin/zsh-functions ]] ; then
@@ -194,7 +194,7 @@ set_separations() {
   if ((RUN_INTERACTIVE)) ; then
     trap 'print ; print ; print ; trap - ; return ;' 2
     printf "About to update the database. Press <Enter> to continue, or Ctrl-C to cancel: " > /dev/tty
-    read _ < /dev/tty
+    read < /dev/tty
   fi
 
   doSQL "${query}"
@@ -264,7 +264,10 @@ while : ; do
 done
 
 if ((showVersion)) ; then
-  print "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+  typeset commit_hash="${v_hash}"
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
