@@ -348,8 +348,8 @@ outer_query="${outer_query} order by e.NAME"
 # because reading the column data directly in the while() loop causes
 # SIGINT to drop out of the loop. We want to continue with the next
 # iteration of the loop if the user cancels updating the database for
-# an Event. See `man zshbuiltins` and `man zshmisc` for details about
-# ZSH coprocesses.
+# an Event. See `man zshbuiltins` (coproc, read -p) and `man zshmisc`
+# for details about ZSH coprocesses.
 coproc doSQL "${outer_query}" >&p
 while read -p event_name title_sep artist_sep sched_group have_code have_code2 ; do
   ((VERBOSE)) &&
@@ -360,45 +360,45 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
 	   "${have_code:+Must have '${have_code}'}" \
 	   "${have_code2:+ and also have '${have_code2}'}" >&2
 
-    tracks_per_week=$(tracks_per_week "${event_name}" "${have_code}" "${have_code2}")
+  tracks_per_week=$(tracks_per_week "${event_name}" "${have_code}" "${have_code2}")
 
-    # Now that we have a list of required Scheduler Codes for the
-    # Event, find the total number of Carts and the total number of
-    # Carts with Artists with that (those) code(s).
-    inner_query="select count(distinct c.NUMBER),count(distinct c.ARTIST) from CART c"
-    inner_query="${inner_query} join CART_SCHED_CODES sc on c.NUMBER = sc.CART_NUMBER where c.GROUP_NAME = '${sched_group}'"
-    inner_query="${inner_query} and sc.SCHED_CODE = '${have_code}'"
-    if [[ -n "${have_code2}" ]] ; then
-      inner_query="${inner_query} "$(printf "and sc.CART_NUMBER in (select CART_NUMBER from CART_SCHED_CODES where SCHED_CODE = '%s')" "${have_code2}")
-    fi
-    if ! okDatabaseStructure CART:number+artist,CART_SCHED_CODES:cart_number+sched_code ; then
-      print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
-      exit 2
-    fi
-    ((VERBOSE>1)) && print "Inner query: ${inner_query}" >&2
-    read tracks artists <<<"$(doSQL """${inner_query}""")"
-    ((VERBOSE>1)) && print "Track count: ${tracks}" >&2
-    ((VERBOSE>1)) && print "Artist count: ${artists}" >&2
+  # Now that we have a list of required Scheduler Codes for the
+  # Event, find the total number of Carts and the total number of
+  # Carts with Artists with that (those) code(s).
+  inner_query="select count(distinct c.NUMBER),count(distinct c.ARTIST) from CART c"
+  inner_query="${inner_query} join CART_SCHED_CODES sc on c.NUMBER = sc.CART_NUMBER where c.GROUP_NAME = '${sched_group}'"
+  inner_query="${inner_query} and sc.SCHED_CODE = '${have_code}'"
+  if [[ -n "${have_code2}" ]] ; then
+    inner_query="${inner_query} "$(printf "and sc.CART_NUMBER in (select CART_NUMBER from CART_SCHED_CODES where SCHED_CODE = '%s')" "${have_code2}")
+  fi
+  if ! okDatabaseStructure CART:number+artist,CART_SCHED_CODES:cart_number+sched_code ; then
+    print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
+    exit 2
+  fi
+  ((VERBOSE>1)) && print "Inner query: ${inner_query}" >&2
+  read tracks artists <<<"$(doSQL """${inner_query}""")"
+  ((VERBOSE>1)) && print "Track count: ${tracks}" >&2
+  ((VERBOSE>1)) && print "Artist count: ${artists}" >&2
 
-    recommended_title_separation=$(recommended_separation title "${tracks}")
-    recommended_artist_separation=$(recommended_separation artist "${artists}")
+  recommended_title_separation=$(recommended_separation title "${tracks}")
+  recommended_artist_separation=$(recommended_separation artist "${artists}")
 
-    printf "Event: %-${max_event_name_len}s Code: %-12s%-25s Tracks: %-5d Per Week: %-5d Artists:%5d Separation: Title %5d Artist %4d\n" \
-	   "${event_name}" \
-	   "${have_code}" \
-	   "${have_code2:+ and Code: ${have_code2}}" \
-	   ${tracks} \
-	   ${tracks_per_week} \
-	   ${artists} \
-	   ${title_sep} \
-	   ${artist_sep}
-    space_count=$((max_event_name_len+27+11+5+5+5 + 7+7+9+10+9))
-    printf "%${space_count}sRecommended: title %5d artist %4d\n" \
-	   " " ${recommended_title_separation} ${recommended_artist_separation}
+  printf "Event: %-${max_event_name_len}s Code: %-12s%-25s Tracks: %-5d Per Week: %-5d Artists:%5d Separation: Title %5d Artist %4d\n" \
+	 "${event_name}" \
+	 "${have_code}" \
+	 "${have_code2:+ and Code: ${have_code2}}" \
+	 ${tracks} \
+	 ${tracks_per_week} \
+	 ${artists} \
+	 ${title_sep} \
+	 ${artist_sep}
+  space_count=$((max_event_name_len+27+11+5+5+5 + 7+7+9+10+9))
+  printf "%${space_count}sRecommended: title %5d artist %4d\n" \
+	 " " ${recommended_title_separation} ${recommended_artist_separation}
 
-    if ((SET_SEPARATIONS)) ; then
-      set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation} "${RUN_INTERACTIVE}"
-    fi
+  if ((SET_SEPARATIONS)) ; then
+    set_separations "${event_name}" ${recommended_title_separation} ${recommended_artist_separation} "${RUN_INTERACTIVE}"
+  fi
 done
 
 exit
