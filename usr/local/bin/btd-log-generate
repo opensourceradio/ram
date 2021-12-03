@@ -1,7 +1,11 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2190
+# shellcheck shell=bash disable=SC1105,SC2016,SC2154,SC2190,SC2205,SC2211,SC2284
 # SC2016: "$Hash" is not a variable.
+# SC2154: all referenced variables are assigned indirectly.
 # SC2190: ZSH associative arrays are different from BASH.
+# SC2205: this is an arithmetic expression, not a subshell
+# SC2211: this is not a glob, we are checking the return value of the previous command (${?})
+# SC2284: this is an arithmetic expression, not a subshell
 
 ##############################################################################
 ##############################################################################
@@ -18,7 +22,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=5
+declare -ri v_patch=7
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -33,12 +37,16 @@ declare PRESERVE="-P"
 # Default number of days for which to generate Logs.
 declare -i DAYS=1
 
+# Location of "hook" scripts -- run after log generation.
+btd_log_generate_hook_dir="/usr/local/etc/btd/log-generate-hooks.d"
+
 function usage() {
   local my_name="${1:t}"
 
   cat <<EOF
-${my_name} [ --days <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+${my_name} [ --days (-d) <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
                  [ --force (-f) ] [ --service <name> ]
+                 [ --hook-dir <directory-path> ]
                  [ --help (-h) ] [ --version (-v) ]
 
 $(${FMT} <<<"${my_name} uses rdlogmanager(1) to generate Logs for all SERVICES. With no optional arguments, ${my_name} generates Logs for 'tomorrow' (the day after the current day). Also with no optional arguments, on Fridays ${my_name} generates Logs for all SERVICES for Saturday, Sunday and Monday.")
@@ -53,6 +61,8 @@ $(${FMT} <<<"Alternatively, you may instruct ${my_name} to generate a specific n
 
 $(${FMT} <<<"${my_name} saves the output of rdlogmanager(1) in the Desktop folder of the invoking user, and also emails the output to the addresses listed in the MAILTO shell variable.")
 
+$(${FMT} <<<"${my_name} can process logs after they are generated. Simply place a ZSH-compatible script in ${btd_log_generate_hook_dir}. Filenames starting with '.' and '_' are ignored. Scripts should exit with non-zero status if something goes wrong. Specify an alternate hook directory with the --hook-dir option. Scripts in ${btd_log_generate_hook_dir} are executed in lexicographic order by hook filename.")
+
 $(${FMT} <<<"Enable ZSH debugging with the --debug (-D) option.")
 
 $(${FMT} <<<"See rdlogmanager(1) and 'rdlogmanager --help' for additional details.")
@@ -60,18 +70,35 @@ $(${FMT} <<<"See rdlogmanager(1) and 'rdlogmanager --help' for additional detail
 EOF
 }
 
+# run_post_gen_hooks runs scripts on the named log.
+function run_post_gen_hooks() {
+  local -r log_name="${1}"
+  local -i return_value=0
+  if [[ -d "${btd_log_generate_hook_dir}" ]] ; then
+    # Run all post log-generation hooks.
+    for hook in "${btd_log_generate_hook_dir}"/* ; do
+      # Skip files starting with "." and "_".
+      [[ "${hook:t}" =~ ^[._] ]] && continue
+      if ! ${ZSH} "${hook}" "${log_name}" ; then
+	return_value="${?}"
+      fi
+    done
+  fi
+  return "${return_value}"
+}
+
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 7 external commands.
+# This script uses these 8 external commands.
 # Look for them in their upper case, parameter expanded form.
 typeset -a our_commands
-our_commands=( cp fmt getopt logger mktemp rdlogmanager rm )
+our_commands=( chown cp fmt getopt logger mktemp rdlogmanager rm zsh )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
@@ -84,7 +111,7 @@ done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if ! TEMP=$(${GETOPT} -o Dd:e:fhs:v --long debug,days:,force,help,version,service:,start:,end: -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o Dd:e:fhs:v --long debug,days:,force,help,hook-dir:,version,service:,start:,end: -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating." >&2
   return 1
 fi
@@ -92,8 +119,9 @@ eval set -- "${TEMP}"
 while :
 do
   case "${1}" in
-    -d|--day*) DAYS=${2} ; shift 2 ;;
-    -f|--forc*) unset PRESERVE ; shift ;;
+    -d|--days) DAYS=${2} ; shift 2 ;;
+    -f|--force) unset PRESERVE ; shift ;;
+    --hook-dir) btd_log_generate_hook_dir="${2}" ; shift 2 ;;
     --service) SERVICE=${2} ; shift 2 ;;
     -s|--start) START_DATE=${2} ; shift 2 ;;
     -e|--end) END_DATE=${2} ; shift 2 ;;
@@ -117,10 +145,10 @@ fi
 exec 1> "/var/tmp/${0:t}.out"
 exec 2> "/var/tmp/${0:t}.err"
 
-if [[ -r /usr/local/bin/zsh-functions ]] ; then
-  source /usr/local/bin/zsh-functions
-elif [[ -r /usr/bin/zsh-functions ]] ; then
+if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
 else
   ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
   exit 3
@@ -128,7 +156,7 @@ fi
 
 ((DEBUG)) && setopt xtrace
 
-# Exit values from rdlogmanager(1).
+# Exit values from rdlogmanager(1). Taken from Rivendell 3.6.2.
 declare -A rdlogmanager_exit_values
 rdlogmanager_exit_values=(
   0  "Normal exit"
@@ -147,16 +175,20 @@ rdlogmanager_exit_values=(
 declare -ri right_now=${EPOCHSECONDS}
 declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
-# Gather all the Services from Rivendell unless
-# they asked for a specific Service
-typeset -a services
+# Gather all the Services from Rivendell unless they asked for a
+# specific Service. services is an associative array indexed by the
+# service name. The value is the log name "template".
+declare oIFS="${IFS}"
+IFS=$'\t\n'
+typeset -A services
 if [[ -n "${SERVICE}" ]] ; then
-  services=( "${SERVICE}" )
-else
-  # SC2207: ZSH does not have BASH mapfile.
-  # shellcheck disable=SC2207
-  services=( $(doSQL "SELECT name FROM SERVICES") )
+  declare -r service_selection_clause=" where name = ${SERVICE}"
 fi
+# SC2207: ZSH does not have BASH mapfile.
+# shellcheck disable=SC2207
+services=( $(doSQL "select NAME,NAME_TEMPLATE from SERVICES${service_selection_clause}") )
+IFS="${oIFS}"
+unset oIFS
 
 declare output_file
 if ! output_file=$(${MKTEMP}) ; then
@@ -224,19 +256,34 @@ declare -ri start_day_offset=$(( ( start_date_seconds - tomorrow_seconds - one_d
 declare -ri end_day_offset=$(( ( end_date_seconds - tomorrow_seconds - one_day ) / one_day ))
 
 for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); day_offset++ )) ; do
-  for service in ${services[*]} ; do
-    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1 ; then
+  for service in ${(k)services[*]} ; do
+    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" "${PRESERVE}" 2>&1 ; then
       ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (${day_offset}) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+    fi
+    if ((? == 0)) ; then
+      if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """${start_date_seconds}")" ; then
+	${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks returned with non-zero value: ${?}"
+      fi
     fi
 
     # Also create Logs for Sunday and Monday if ${today} is
     # 'Friday' and we do not have an End Date.
     if [[ "${today}" == Friday ]] && [[ -z "${END_DATE}" ]] ; then
-      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 ${PRESERVE} 2>&1 ; then
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 "${PRESERVE}" 2>&1 ; then
 	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Sunday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
       fi
-      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 ${PRESERVE} 2>&1 ; then
+      if ((? == 0)) ; then
+	if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """$((start_date_seconds + one_day))")" ; then
+	  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks returned with non-zero value: ${?}"
+	fi
+      fi
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 "${PRESERVE}" 2>&1 ; then
 	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Monday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+      fi
+      if ((? == 0)) ; then
+	if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """$((start_date_seconds + (one_day*2)))")" ; then
+	  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks returned with non-zero value: ${?}"
+	fi
       fi
     fi
   done
@@ -247,7 +294,6 @@ done > "${output_file}"
 # "reference" installation methodology.
 if [[ -d ~rd/Desktop ]] ; then
   ${CP} "${output_file}" ~rd/Desktop/RD-Log-Generate.txt
-  ${CHOWN} rd: ~rd/Desktop/RD-Log-Generate.txt
   ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ~rd/Desktop/RD-Log-Generate.txt."
 fi
 
