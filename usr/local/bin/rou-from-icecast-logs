@@ -1,0 +1,537 @@
+#!/usr/bin/perl
+
+##############################################################################
+##############################################################################
+##
+## rou-from-icecast-logs
+##
+## Produce SoundExchange Reports of Use from Icecast error logs.
+##
+## Copyright 2021 David Klann <dklann@broadcasttool.com>
+##
+##############################################################################
+##############################################################################
+
+package main;
+
+use strict;
+use warnings;
+use v5.10;
+
+use constant vMAJOR => 0;
+use constant vMINOR => 1;
+use constant vPATCH => 0;
+use constant vHASH => '$Hash$';
+
+use Data::Dumper;
+use Time::Local;
+use Time::Piece;
+use Date::Parse;
+use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
+
+use Getopt::Long qw(:config no_ignore_case);
+Getopt::Long::Configure ("bundling");
+use Pod::Usage;
+
+use constant ICECASTLOGDIR => $ENV{ICECASTLOGDIR} || q(/var/log/icecast);
+use constant OUTPUTDIR => $ENV{OUTPUTDIR} || q(/var/tmp);
+use constant DEFAULT_MOUNTPOINTS => ('stream', 'high', 'low',);
+use constant ONE_DAY => 60 * 60 * 24;
+
+# Pattern is YYYY-MM-DD
+use constant DATE_PATTERN => qr(\d{4}-\d{2}-\d{2});
+
+# The stations
+my $sx_entity_map = {
+    'khas-aac' => 'HASTINGSLINK',
+    'kkpr-aac' => 'KKPR.COM',
+    'kkpr' => 'KKPR.COM',
+    'kliq-aac' => 'KLIQFM.COM',
+    'kxpn-aac' => '',
+    'impact89fm' => 'WDBM',
+};
+# These columns are from a sample report sent to SX from Platte River
+# Radio in March 2020.
+my $sx_prr_rou_columns = {
+    1 => {
+        'heading'     => 'NAME_OF_SERVICE',
+	    'description' => 'The code used to distinguish the category of transmission operated by the service.',
+    },
+    2 => {
+        'heading'     => 'TRANSMISSION_CATEGORY',
+	    'description' => 'The code used to distinguish the category of transmission operated by the service.',
+    },
+    3 => {
+        'heading'     => 'ARTIST',
+	    'description' => 'Name of the featured artist for each sound recording.',
+    },
+    4 => {
+        'heading'     => 'TITLE',
+	    'description' => 'Title of the sound recording.',
+    },
+    5 => {
+        'heading'     => 'ISRC',
+	    'description' => 'International Standard Recording Code (ISRC).',
+    },
+    6 => {
+        'heading'     => 'AIRED_COUNT',
+	    'description' => 'The overall number of times a sound recording is offered regardless of the number of listeners receiving the sound recording.',
+    },
+    7 => {
+        'heading'     => 'LISTENERS',
+	    'description' => 'Number of times that a sound recording is received by a unique listener.',
+    },
+};
+
+sub show_version;
+sub look_ahead;
+sub get_log_files;
+sub in_date_range;
+sub mon;
+sub main;
+
+main;
+
+1;
+
+sub main {
+    my $retVal = undef;
+    my($result, $log_directory, $start_date, $end_date, $output_dir, $mount_points, $zip_file, $version, $verbose, $debug, $help, $man) =
+	(0,     undef,          undef,       undef,     undef,       undef,         undef,     undef,    0,        0,      undef, undef);
+    my @report_lines = ();
+    my $mountpoints = undef;
+    my $zip = undef;
+
+    $result = GetOptions(
+	"end-date|e=s"      => \$end_date,
+	"log-directory|l=s" => \$log_directory,
+	"mount-points|m=s"  => \$mount_points,
+	"output-dir|o=s"    => \$output_dir,
+	"start-date|s=s"    => \$start_date,
+	"zip-file|z=s"      => \$zip_file,
+	"verbose|v+"        => \$verbose,
+	'version|V'         => \$version,
+	"debug|d+"          => \$debug,
+	"help|h"            => \$help,
+	"man|M"             => \$man,
+	);
+    die "GetOptions returned " . $result . ". Stopped" if (! $result);
+
+    pod2usage(1)             if (defined($help) && $help);
+    pod2usage(-verbose => 2) if (defined($man) && $man);
+
+    showVersion($0) if (defined($version));
+
+    if (! $start_date || ! $end_date) {
+	say STDERR "Please specify a starting date and an ending date for this report.";
+    }
+
+    $verbose = $debug if ($debug);
+
+    if ($mount_points) {
+	foreach my $m (split(/, */, $mount_points)) {
+	    $mountpoints->{$m} = ();
+	}
+    } else {
+	foreach my $m (DEFAULT_MOUNTPOINTS) {
+	    $mountpoints->{$m} = ();
+	}
+    }
+    say STDERR Dumper $mountpoints if ($debug);
+
+    $log_directory = $log_directory || ICECASTLOGDIR;
+
+    my $mountpoint_RE = join('|', sort(keys(%{$mountpoints})));
+    say STDERR "mountpoint_RE: ", $mountpoint_RE if ($debug);
+
+    my $start = str2time($start_date);
+    my $end = str2time($end_date);
+    $end += ONE_DAY;
+
+    my $track_counter = undef;
+
+    my $listeners = 0;
+    my $logged_datetime = undef;
+    my $logged_mountpoint = undef;
+    my $logged_listeners = 0;
+    my $logged_artist = undef;
+    my $logged_title = undef;
+
+    my $prev_mountpoint = '';
+    my $prev_artist = '';
+    my $prev_title = '';
+
+    my $debug_loop_counter = 0;
+
+    say STDERR sprintf("main: Start date: %s: %s End date: %s: %s", $start_date, $start, $end_date, $end) if ($verbose);
+
+    my $log_lines = get_log_files($start_date, $end_date, $log_directory, $verbose);
+
+    $output_dir = $output_dir || OUTPUTDIR;
+
+    if (defined($zip_file)) {
+	$zip = Archive::Zip->new();
+    }
+
+    # First pass through the log lines, Get the tracks played and their playcounts.
+    # DATE        TIME      LEVEL INFORMATION                             MOUNTPOINT           ARTIST                   TITLE
+    #[2021-10-27  16:03:20] INFO admin/command_metadata Metadata song on /kliq-aac set to "ELTON JOHN & DUA LIPA - COLD HEART"
+    foreach my $log_line (@{$log_lines}) {
+	# Avoid capturing groups in these matches ("n" flag).
+	next unless ($log_line =~ m#\s+metadata song on /($mountpoint_RE) set to#in);
+	next if ($log_line =~ m#\s+set to " -#in); # Ignore entries with empty artist field.
+	next if ($log_line =~ m#lovelight\s+radio#in); # Syndicated show?
+	next if ($log_line =~ m#brownfield#in);	      # Ag reports.
+	next if ($log_line =~ m#bob & sheri show#in);  # Morning show.
+	next if ($log_line =~ m#cbs news#in); # Network news.
+	# These should get weeded out in the above 'next unless' test.
+	# next if ($log_line =~ m#noon news#in); # News.
+	# next if ($log_line =~ m#(fm|k(has|ics|kpr|liq|xpn)) .* news#in); # News.
+	# next if ($log_line =~ m#weather (forecast|sounder)#in);	# Weather.
+	# next if ($log_line =~ m#local content#in);	# Local content?
+	# next if ($log_line =~ m#american top 40#in);	# Syndicated show?
+
+	print STDERR $log_line if ($debug > 1);
+	if ($log_line =~ m#\s+song on /($mountpoint_RE) set to "(.*?) - (.*)"#i) {
+	    $logged_mountpoint = $1;
+	    $logged_artist = $2;
+	    $logged_title = $3;
+	    say STDERR "PASS 1: song change for '$logged_mountpoint': '$logged_artist', '$logged_title'." if ($debug);
+
+	    # We got a new title: update the playcount.
+	    $track_counter->{$logged_mountpoint}->{'artists'}->{$logged_artist}->{$logged_title}->{'playcount'} += 1;
+	    $track_counter->{$logged_mountpoint}->{'artists'}->{$logged_artist}->{$logged_title}->{'listens'} = 0;
+	}
+    }
+    print STDERR Dumper $track_counter if ($debug > 1);
+
+    # Second pass through the log lines. Get the listener counts
+    # DATE        TIME      LEVEL INFORMATION                         MOUNTPOINT    LISTENER COUNT
+    #[2021-10-27  16:02:37] INFO source/source_read listener count on /kxpn-aac now 32
+    foreach my $log_line (@{$log_lines}) {
+	# Avoid capturing groups in these matches ("n" flag).
+	next unless ($log_line =~ m#\s+(listener count|metadata song) on /($mountpoint_RE) (now|set to)\s+#in);
+	next if ($log_line =~ m#\s+set to " -#in); # Ignore entries with empty artist field.
+	next if ($log_line =~ m#lovelight\s+radio#in); # Syndicated show?
+	next if ($log_line =~ m#brownfield#in);	      # Ag reports.
+	next if ($log_line =~ m#bob & sheri show#in);  # Morning show.
+	next if ($log_line =~ m#cbs news#in); # Network news.
+	# These should get weeded out in the above 'next unless' test.
+	# next if ($log_line =~ m#noon news#in); # News.
+	# next if ($log_line =~ m#(fm|k(has|ics|kpr|liq|xpn)) .* news#in); # News.
+	# next if ($log_line =~ m#weather (forecast|sounder)#in);	# Weather.
+	# next if ($log_line =~ m#local content#in);	# Local content?
+	# next if ($log_line =~ m#american top 40#in);	# Syndicated show?
+
+	print STDERR "PASS 2: $log_line" if ($debug > 1);
+	if ($log_line =~ m#.*\s+listener count on /($mountpoint_RE) now (\d+)#i) {
+	    $logged_mountpoint = $1;
+	    $logged_listeners = $2;
+	    say STDERR "PASS 2: Listeners for $logged_mountpoint: $logged_listeners." if ($debug);
+	    # Save the current listener count only if it is higher
+	    # than a previous value so we get the highest listener
+	    # count.
+	    if ((!defined($track_counter->{$logged_mountpoint}->{'max_listeners'})) ||
+		$logged_listeners > $track_counter->{$logged_mountpoint}->{'max_listeners'}) {
+		$track_counter->{$logged_mountpoint}->{'max_listeners'} = $logged_listeners;
+		say STDERR sprintf("PASS 2: New MAX Count for mountpoint: '%s' listener count: %d",
+				   $logged_mountpoint,
+				   $track_counter->{$logged_mountpoint}->{'max_listeners'}
+		    ) if ($debug);
+	    }
+
+	    $track_counter->{$logged_mountpoint}->{'current_listeners'} = $logged_listeners;
+	}
+	# We got a new track: add the listener count to the previous
+	# track entry, and reset the max_listeners parameter.
+	if ($log_line =~ m#\s+song on /($mountpoint_RE) set to "(.*?) - (.*)"#i) {
+	    $logged_mountpoint = $1;
+	    $logged_artist = $2;
+	    $logged_title = $3;
+	    say STDERR "PASS 2: song change for '$logged_mountpoint': '$logged_artist', '$logged_title'." if ($debug);
+	    my $listeners_this_time = 0;
+
+	    # All the listener counts up to this point have been for
+	    # the *previous track*. Add 'max_listeners' to total
+	    # 'listens' for the previous title if there was a
+	    # 'max_listeners' value, otherwise, just add Zero.
+	    if (defined($track_counter->{$prev_mountpoint}->{'max_listeners'})) {
+		$listeners_this_time = $track_counter->{$prev_mountpoint}->{'max_listeners'};
+	    }
+	    $track_counter->{$prev_mountpoint}->{'artists'}->{$prev_artist}->{$prev_title}->{'listens'} += $listeners_this_time;
+
+	    # Reset the max listener count for *this* mountpoint.
+	    $track_counter->{$logged_mountpoint}->{'max_listeners'} = $track_counter->{$logged_mountpoint}->{'current_listeners'};
+
+	    # Remember this track and mountpoint.
+	    $prev_mountpoint = $logged_mountpoint;
+	    $prev_artist = $logged_artist;
+	    $prev_title = $logged_title;
+	}
+    }
+    say STDERR Dumper $track_counter if ($debug > 1);
+
+    # The report header row. TODO, FIX ME: this does not work as of
+    # 2021-11-03 (for the October ROU). It creates column headers
+    # containing the *keys* not the headings.
+    push(@report_lines, q(^) . join(q(^|^), map {$sx_prr_rou_columns->{$_}->{'heading'}} sort(keys(%{$sx_prr_rou_columns}))) . q(^));
+    foreach my $mp (sort(keys(%{$track_counter}))) {
+	foreach my $artist (sort(keys(%{$track_counter->{$mp}->{'artists'}}))) {
+	    if (!defined($track_counter->{$mp}->{'artists'}->{$artist})) {
+		say "MISSING ARTIST ", $artist, q( in $track_counter->{$mp}->{'artists'}) if ($verbose);
+		next;
+	    }
+	    foreach my $title (sort(keys(%{$track_counter->{$mp}->{'artists'}->{$artist}}))) {
+		if (!defined($track_counter->{$mp}->{'artists'}->{$artist})) {
+		    say "MISSING TITLE ", $title, q( in $track_counter->{$mp}->{'artists'}->{$artist}) if ($verbose);
+		    next;
+		}
+		printf STDERR "%s: '%s' by '%s': %d (playcount %d)\n", $mp, $title, $artist,
+		    $track_counter->{$mp}->{'artists'}->{$artist}->{$title}->{'listens'},
+		    $track_counter->{$mp}->{'artists'}->{$artist}->{$title}->{'playcount'} if ($verbose);
+		my $l = sprintf "^%s^|^B^|^%s^|^%s^|^%s^|^%d^|^%d^",
+		    $sx_entity_map->{$mp},
+		    $artist,
+		    $title,
+		    "",
+		    $track_counter->{$mp}->{'artists'}->{$artist}->{$title}->{'playcount'},
+		    $track_counter->{$mp}->{'artists'}->{$artist}->{$title}->{'listens'};
+		push(@report_lines, $l);
+	    }
+	}
+    }
+
+    # Stash the file into the zip archive if so requested. The zipped
+    # filename is the basename of the zip archive filename with .txt
+    # appended.
+    if (defined($zip_file)) {
+	my $zip_member_file = undef;
+	($zip_member_file = $zip_file) =~ s:(.*)\.zip:$1.txt:;
+	my $zip_string = join("\r\n", @report_lines, '');
+
+	my $string_member = $zip->addString($zip_string, $zip_member_file);
+	$string_member->desiredCompressionMethod(COMPRESSION_DEFLATED);
+	say STDERR "main: Added '$zip_member_file' to '$zip_file'." if ($verbose);
+	unless ($zip->writeToFileNamed($zip_file) == AZ_OK) {
+	    die "Error writing to Zip archive '$zip_file'. Stopped";
+	}
+    } else {
+	my $outFH = undef;
+	open(my $out_fh, ">", "$output_dir/rou-report.txt") || die "Cannot open $output_dir/rou-report.txt for writing ($!). Stopped";
+	print $out_fh q(^) . join(q(^|^), sort(keys(%{$sx_prr_rou_columns}))) . q(^);
+	foreach my $line (@report_lines) {
+	    print $out_fh $line, "\r\n";
+	}
+	close($out_fh);
+    }
+}
+
+# Get the contents of the log files that contain entries in the range
+# of our start and end dates.
+# Returns an array ref containing all relevant log file entries.
+sub get_log_files {
+    my $start_date = shift;
+    my $end_date = shift;
+    my $log_directory = shift;
+    my $verbose = shift;
+
+    my @log_file_names = ();
+    my @valid_log_lines = ();
+
+    # strptime() returns this array: ($ss,$mm,$hh,$day,$month,$year,$zone)
+    my @start = strptime($start_date);
+    my $startYYYYMMDD = sprintf("%04d%02d%02d", $start[5] + 1900, $start[4] + 1, $start[3]);
+    my @end = strptime($end_date);
+    my $endYYYYMMDD = sprintf("%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
+    say STDERR sprintf("startYYYYMMDD: %s, endYYYYMMDD: %s", $startYYYYMMDD, $endYYYYMMDD) if ($verbose > 1);
+
+    opendir(my $dirH, $log_directory) ||
+	die "Cannot open icecast log directory '$log_directory'. Stopped";
+
+    while (readdir $dirH) {
+	next unless (/^error/);
+	my $lf = undef;
+	my $lf_date = undef;
+	my $lfFH = undef;
+	say STDERR "considering: ", $_ if ($verbose > 1);
+
+	# Log filename may end with a timestamp suffix, or simply
+	# ".log". Skip log files with timestamps outside our date
+	# range. We always want to examine "error.log".
+	if (m/^error\.log(\.(\d{8})_\d+)/) {
+	    ($lf_date = $_) =~ s/^error\.log(\.(\d{8})_\d+)*/$2/;
+	    say STDERR sprintf("get_log_files: lf_date is %s", $lf_date) if ($verbose > 1);
+	    next if ($lf_date && ($lf_date < $startYYYYMMDD || $lf_date > $endYYYYMMDD));
+	}
+
+	say STDERR "get_log_files: Looking at $_" if ($verbose);
+
+	open($lfFH, "<", $log_directory . "/" . $_) ||
+	    die "Cannot open " . $log_directory . "/" . $_ . " for reading. Stopped";
+	my @lines = <$lfFH>;
+	close($lfFH);
+	say STDERR sprintf("get_log_files: %s has %d lines", $_, $#lines) if ($verbose > 1);
+
+	# Push all lines if the first and last lines in the file are
+	# in the date range, else pick through each line.
+	if (in_date_range($lines[0], $start_date, $end_date, $verbose) && in_date_range($lines[$#lines - 1], $start_date, $end_date, $verbose)) {
+	    push(@valid_log_lines, @lines);
+	} else {
+	    for my $line (@lines) {
+		push(@valid_log_lines, $line) if (in_date_range($line, $start_date, $end_date, $verbose));
+	    }
+	}
+    }
+
+    closedir $dirH;
+
+    say STDERR Dumper @log_file_names if ($verbose > 1);
+    say STDERR sprintf("getLogFiles: found %d log lines", $#valid_log_lines) if ($verbose);
+
+    \@valid_log_lines;
+}
+
+# Determine whether the line is within the start_date and end_date
+# range.  Returns true if so, otherwise false.
+sub in_date_range {
+    my $line = shift;
+    my $start_date = shift;
+    my $end_date = shift;
+    my $verbose = shift;
+
+    my $s = str2time($start_date);
+    my $e = str2time($end_date);
+    $e += ONE_DAY;		# include end_date
+
+    my ($j1, $date_time, $j2) = split(/[\[\]]/, $line);
+    if (defined($date_time)) {
+	my $line_date = str2time($date_time);
+	say STDERR "in_date_range: $line_date in date range $s - $e" if (($verbose > 1) && ($line_date >= $s && $line_date <= $e));
+	return 1 if ($line_date >= $s && $line_date <= $e);
+    } else {
+	say STDERR q($date_time), " not found in ", q($line: '), $line, q(') if ($verbose);
+    }
+
+    0;
+}
+
+sub show_version {
+    my $program_name = shift;
+
+    my $hash = undef;
+
+    ($hash = vHASH) =~ s/\$Hash: //;
+    # Handle "prerelease" versions.
+    $hash =~ s/\$Hash\$/prerelease/;
+
+    my $version_string =
+	vMAJOR . "." .
+	vMINOR . "." .
+	vPATCH . "-" .
+	$hash;
+
+    $program_name =~ s{.*/}{};
+
+    say STDOUT "$program_name: version $version_string";
+
+    exit;
+}
+
+__END__;
+
+=head1 NAME
+
+B<rou-from-icecast-logs> - munge icecast logs into NPR soundexchange format
+
+=head1 SYNOPSIS
+
+  rou-from-icecast-logs [ --help ] [ --man ] [ --debug ] [ --verbose ]
+                        [ --log-directory (-l) <directory-path> ]
+                        [ --mount-points (-m) <comma-separated-list> ]
+                        [ --output-directory (-o) <full-path-to-a-directory> ]
+                        [ --zip-file (-z) <zip-file> ]
+                        --start-date <start-date> --end-date <end-date>
+
+=head1 DESCRIPTION
+
+B<rou-from-icecast-logs> reads icecast access log files and writes
+tab-separated fields into (DOS-format) text files, one per icecast
+mount-point.
+
+B<--start-date> and B<--end-date> are required.
+
+By default B<rou-from-icecast-logs> searches for log files in the
+directory I</var/log/icecast>. You may set and export the environment
+variable I<ICECASTLOGDIR> to a directory containing your icecast log
+files or use the B<--log-directory> option to specify that directory.
+
+=head1 OPTIONS
+
+Long options consist of (possibly hyphenated) English words and begin
+with I<-->; short options consist of a single letter and begin with a
+single hyphen I<->.
+
+=over 8
+
+=item B<--start-date (-s) E<lt>start-dateE<gt>>
+
+(REQUIRED) specify the starting date for the log messages.
+Format: DD/Mon/YYYY where Mon is the 3-letter abbreviation for the month name
+
+=item B<--end-date (-e) E<lt>end-dateE<gt>>
+
+(REQUIRED) specify the ending date for the log messages.
+Format: DD/Mon/YYYY where Mon is the 3-letter abbreviation for the month name
+
+=item B<--help (-h)>
+
+show a brief usage message
+
+=item B<--man (-M)>
+
+show the complete manual page for this command
+
+=item B<--debug (-d)>
+
+launch B<rou-from-icecast-logs> in verbose debugging mode. Specify
+multiple times for more debugging.
+
+=item B<--verbose (-v)>
+
+launch B<rou-from-icecast-logs> in verbose mode (not quite as verbose as B<--debug>)
+
+=item B<--mount-points (-m) E<lt>comma-separated-listE<gt>>
+
+Specify one or more mount points for which to report. All mount points
+must match actual mount points provided by the Icecast server.
+
+=item B<--log-directory (-l) E<lt>directory-nameE<gt>>
+
+name the directory path that contains the Icecast log files..
+The default is in the perl constant ICECASTLOGDIR (I</var/log/icecast>).
+
+=item B<--zip-file (-z) E<lt>zip-filenameE<gt>>
+
+name the Zip archive file in which to place the output files. There is
+no default.
+
+=item B<--output-directory (-o) E<lt>full-path-to-a-directoryE<gt>>
+
+Specify the directory name for the output files. This option is
+mutually exclusive with B<--zip-file>. That is, you may either request
+individual files named for the mount points, I<or> you may request a
+zip archive containing all the mount-point files.
+
+=back
+
+=head1 SEE ALSO
+
+=over 8
+
+=item perl(1)
+
+=item icecast(1)
+
+=back
+
+=cut
