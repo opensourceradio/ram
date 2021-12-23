@@ -133,8 +133,8 @@ sub main() {
 	#                                      Log line item:      day     month   year    hour   minute  second
 	#                                     Array elements:       0       1       2       3       4       5
 	#                ADDR                 USER     AUTH
-	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-\w]+\s+[-\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+	my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+	my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
 	say STDERR q($a: ), $a if ($debug);
 	say STDERR q($b: ), $b if ($debug);
 	$a[2] <=> $b[2] ||
