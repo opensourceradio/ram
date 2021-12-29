@@ -8,7 +8,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri vMajor=0
 declare -ri vMinor=1
-declare -ri vPatch=1
+declare -ri vPatch=2
 declare -r vHash='$Hash$'
 
 ##############################################################################
@@ -153,10 +153,14 @@ ${XMLSTARLET} select --template \
     cut_name="${basename%.wav}"
     GAIN=$(((change + ADJ) * 100))
     ((VERBOSE)) && printf "For /var/snd/%s at %f adjust %f (actual: %.2f)\n" "${basename}" "${lufs}" "${change}" $((GAIN / 100))
-    # SC2140: the quoting is correct, just unusual
-    # shellcheck disable=SC2140
-    ((DRY_RUN)) && printf 'doSQL "update CUTS set PLAY_GAIN = %d where CUT_NAME = '"'"%s"'"'"\n' "${GAIN}" "${cut_name}"
-    ((DRY_RUN)) || doSQL "update CUTS set PLAY_GAIN = ${GAIN} where CUT_NAME = '${cut_name}'"
+    if okDatabaseStructure CUTS:PLAY_GAIN ${VERBOSE} ; then
+      # SC2140: the quoting is correct, just unusual
+      # shellcheck disable=SC2140
+      ((DRY_RUN)) && printf 'doSQL "update CUTS set PLAY_GAIN = %d where CUT_NAME = '"'"%s"'"'"\n' "${GAIN}" "${cut_name}"
+      ((DRY_RUN)) || doSQL "update CUTS set PLAY_GAIN = ${GAIN} where CUT_NAME = '${cut_name}'"
+    else
+      printf "Unable to update the Rivendell database. Missing CUTS.PLAY_GAIN." >&2
+    fi
   done
 
 exit
