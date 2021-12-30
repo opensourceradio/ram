@@ -12,7 +12,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=9
+declare -ri v_patch=11
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -47,31 +47,31 @@ typeset -ri ONE_DAY=$((60 * 60 * 24))
 # Returns with non-zero status if we are unable to kill any of the
 # passed PIDs.
 function kill_with_privilege() {
-    local -i pid
+    local -i proc_id
     local -ir attempt_limit=5
     local -i count=0
     local sig=INT
     local -i return_value=0
-    for pid ; do
+    for proc_id ; do
 	while ((count < attempt_limit)) ; do
 	    ((count > (attempt_limit/2))) && sig=KILL
-	    ((VERBOSE)) && printf "Attempting to terminate process ID %d with signal SIG%s..." "${pid}" "${sig}" >&2
-	    ${KILL} -"${sig}" "${pid}"
+	    ((VERBOSE)) && printf "Attempting to terminate process ID %d with signal SIG%s..." "${proc_id}" "${sig}" >&2
+	    ${KILL} -"${sig}" "${proc_id}"
 	    ${SLEEP} 0.5
-	    if ! [[ -d "/proc/${pid}" ]] ; then
-		continue 2	# next pid in the for loop
+	    if ! [[ -d "/proc/${proc_id}" ]] ; then
+		continue 2	# next proc_id in the for loop
 	    fi
-	    ((VERBOSE)) && printf "No go; attempting to terminate process ID %d with privileges using signal SIG%s... " "${pid}" "${sig}" >&2
-	    ${SUDO} "${KILL}" -"${sig}" "${pid}"
+	    ((VERBOSE)) && printf "No go; attempting to terminate process ID %d with privileges using signal SIG%s... " "${proc_id}" "${sig}" >&2
+	    ${SUDO} "${KILL}" -"${sig}" "${proc_id}"
 	    ${SLEEP} 0.5
-	    if ! [[ -d "/proc/${pid}" ]] ; then
-		continue 2	# next pid in the for loop
+	    if ! [[ -d "/proc/${proc_id}" ]] ; then
+		continue 2	# next proc_id in the for loop
 	    fi
 	    ${SLEEP} 0.5
 	    ((VERBOSE)) && print >&2
 	    ((count++))
 	done
-	printf '\nUnable to terminate process %s. Please seek help!\n' "${pid}" >&2
+	printf '\nUnable to terminate process %s. Please seek help!\n' "${proc_id}" >&2
 	return_value=1
     done
     ((VERBOSE && (count == attempt_limit))) && print >&2
@@ -95,7 +95,7 @@ function get_yes_no() {
 	read -r response < /dev/tty
 	again=1
     done
-    [[ "${(L)response}" =~ n ]] && return 1
+    [[ "${(L)response}" =~ ^no*$ ]] && return 1
     return 0
 }
 
@@ -201,9 +201,13 @@ if ((SHOW_VERSION)) ; then
     print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
     exit 0
 fi
+if ((INTERACTIVE)) ; then
+    if get_yes_no "Do you want to check for files that have not been imported?" ; then
+	CHECK_STRANDED_FILES=1
+    fi
+fi
 ((VERBOSE)) && printf "%s: beginning audit of Rivendell dropboxes.\n" "${0:t}" >&2
 
-typeset oIFS="${IFS}"
 # hostname -s *must* match the station name in the STATIONS table.
 typeset -r station=$(hostname -s)
 typeset -r myFS='^:^'
@@ -224,6 +228,7 @@ fi
 # procs is an associative array containing the full command line,
 # indexed by the PID.
 typeset -A procs
+typeset oIFS="${IFS}"
 IFS=$'\n\t'
 # NOTE: the whitespace between %p (PID) and %a (ARGS) should be a single <TAB>.
 procs=($(PS_PERSONALITY=aix ${PS} -eo "%p$(print '\t\c')%a" | ${GREP} -v "${GREP}" | ${GREP} "rdimport" | ${SED} -e 's/^  *//'))
@@ -250,7 +255,7 @@ for id in ${(k)path_specs[*]} ; do
 	((VERBOSE > 1)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
 	    if ((INTERACTIVE)) ; then
-		if get_yes_no "Reset dropbox '${path_specs[${id}]#*${myFS}}'? " ; then
+		if get_yes_no "Reset dropbox '${path_specs[${id}]#*${myFS}}'?" ; then
 		    if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
 			printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
 		    fi
@@ -263,7 +268,7 @@ for id in ${(k)path_specs[*]} ; do
 	    fi
 	else
 	    if ((INTERACTIVE)) ; then
-		if get_yes_no "Restart dropboxes? " ; then
+		if get_yes_no "Restart dropboxes?" ; then
 		    if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
 			# The Rivendell v3 way to restart all dropboxes.
 			${SENDUSR1} "${pidof_rdservice}"
@@ -285,31 +290,32 @@ for id in ${(k)path_specs[*]} ; do
 	fi
     fi
 done
+IFS="${oIFS}"
 
 # Other way around: check if all running processes have a dropbox
 # defined. extract the dropbox IDs from the rdimport processes and
 # compare them to the list of dropbox IDs from the database. Also look
 # for dropboxes that have no Path Spec defined.
-typeset -i pid
+typeset -i proc_id
 ((VERBOSE)) && print "Checking whether all running dropbox processes have a dropbox configured..." >&2
-for pid in ${(k)procs[*]} ; do
+for proc_id in ${(k)procs[*]} ; do
     # BUG ALERT: This expansion assumes '--drop-box' follows
     # '--persistent-dropbox-id=' in the ps(1) output.
-    typeset process_dropbox_id="${${procs[${pid}]#*persistent-dropbox-id=}% --drop-box*}"
-    typeset process_path_spec="${procs[${pid}]/* \///}"
+    typeset process_dropbox_id="${${procs[${proc_id}]#*persistent-dropbox-id=}% --drop-box*}"
+    typeset process_path_spec="${procs[${proc_id}]/* \///}"
     if [[ "${process_path_spec#/usr/bin/rdimport }" =~ ^/ ]] ; then
 	if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
 	    printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
 	if ((INTERACTIVE)) ; then
-	    if get_yes_no "Terminate process ID ${pid}? " ; then
-		kill_with_privilege "${pid}"
+	    if get_yes_no "Terminate process ID ${proc_id}?" ; then
+		kill_with_privilege "${proc_id}"
 		print "Done."
 	    else
-		printf "OK, but you probably want to terminate process ID %d\n." "${pid}"
+		printf "OK, but you probably want to terminate process ID %d\n." "${proc_id}"
 	    fi
 	else
-	    ((VERBOSE)) && printf "Terminating process ID %s... " "${pid}" >&2
-	    kill_with_privilege "${pid}"
+	    ((VERBOSE)) && printf "Terminating process ID %s... " "${proc_id}" >&2
+	    kill_with_privilege "${proc_id}"
 	    ((VERBOSE)) && print "done." >&2
 	fi
 	fi
@@ -380,24 +386,24 @@ done
 ((VERBOSE)) && print "Checking for 'hung' rdxport.cgi processes..." >&2
 declare -a possibly_hung_xport_procs
 possibly_hung_xport_procs=( $(${PIDOF} 'rdxport.cgi') )
-printf "Found %d possibly 'hung' Import processes...\n" "${#possibly_hung_xport_procs}"
-for pid in ${possibly_hung_xport_procs[*]} ; do
+printf "Found %d possibly 'hung' Import processes...\n" ${#possibly_hung_xport_procs}
+unset proc_id
+for proc_id in ${possibly_hung_xport_procs[*]} ; do
     # SC2086: shellcheck sometimes gets confused about quotes
     # shellcheck disable=SC2086
-    typeset process_start_time=$(${DATE} --date="$(${PS} -p ${pid} --format 'lstart=')" +%s)
+    typeset process_start_time=$(${DATE} --date="$(${PS} -p ${proc_id} --format 'lstart=')" +%s)
     if ((process_start_time < (CURRENT_TIME - ONE_DAY))) ; then
 	# SC2086: shellcheck is easily confused by quoting
 	# shellcheck disable=SC2086
-	printf "NOTICE: import process ID %d was started %s.\n" "${pid}" \
+	printf "NOTICE: import process ID %d was started %s.\n" "${proc_id}" \
 	       "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
 	if ((INTERACTIVE)) ; then
-	    if get_yes_no "Terminate process ID ${pid}? " ; then
-		kill_with_privilege "${pid}"
+	    if get_yes_no "Terminate process ID ${proc_id}?" ; then
+		kill_with_privilege "${proc_id}"
 	    fi
-	    print "Killed."
 	else
-	    ((VERBOSE)) && printf "Killing process ID %s: " "${pid}" >&2
-	    kill_with_privilege "${pid}"
+	    ((VERBOSE)) && printf "Killing process ID %s: " "${proc_id}" >&2
+	    kill_with_privilege "${proc_id}"
 	    ((VERBOSE)) && print "done." >&2
 	fi
     fi
@@ -430,6 +436,8 @@ done
 # registered in DROPBOX_PATHS. This likely means the file was never
 # successfully imported. It may also mean the file does not match the
 # pattern in DROPBOX.PATH.
+oIFS="${IFS}"
+IFS=$'\t\n'
 x=1
 if ((CHECK_STRANDED_FILES)) ; then
     typeset -A file_history
@@ -466,9 +474,20 @@ if ((CHECK_STRANDED_FILES)) ; then
 	    printf "The following %s in dropbox folder '%s' appear%c to be stranded:\n" \
 		   "${thing}" "${path_dir}" "${plural}"
 	    print "\t${(oj:\n\t:)possibly_stranded[*]}"
+	    if get_yes_no "Do you want to reset this dropbox?" ; then
+		((VERBOSE)) && print "Resetting dropbox..." >&2
+		for file_path in ${possibly_stranded[*]} ; do
+		    doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'"
+		done
+	    fi
 	fi
     done
     ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
+fi
+
+if ((INTERACTIVE)) ; then
+    print "Dropbox audit complete. Press <Enter> to exit." > /dev/tty
+    read -r < /dev/tty
 fi
 
 exit
