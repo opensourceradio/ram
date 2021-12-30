@@ -20,7 +20,7 @@ use v5.10;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 1;
-use constant vPATCH => 0;
+use constant vPATCH => 1;
 use constant vHASH => '$Hash$';
 
 use Data::Dumper;
@@ -84,8 +84,8 @@ my $sx_prr_rou_columns = {
 };
 
 sub show_version;
-sub look_ahead;
 sub get_log_files;
+sub filter_log_lines;
 sub in_date_range;
 sub mon;
 sub main;
@@ -324,6 +324,32 @@ sub main {
 	}
 	close($out_fh);
     }
+}
+
+# filter_log_lines removes lines that should not be part of an ROU.
+sub filter_log_lines {
+    my $log_lines = shift;
+    my $verbose = shift;
+
+    my @filtered_lines = ();
+
+    for my $log_line (@{$log_lines}) {
+	# Avoid capturing groups in these matches ("n" flag).
+	next unless ($log_line =~ m#\s+metadata song on /($mountpoint_RE) set to#in);
+	next if ($log_line =~ m#\s+set to " -#in); # Ignore entries with empty artist field.
+	next if ($log_line =~ m#lovelight\s+radio#in); # Syndicated show?
+	next if ($log_line =~ m#brownfield#in);	       # Ag reports.
+	next if ($log_line =~ m#bob & sheri show#in);  # Morning show.
+	next if ($log_line =~ m#cbs news#in);	       # Network news.
+	# These should get weeded out in the above 'next unless' test.
+	# next if ($log_line =~ m#noon news#in); # News.
+	# next if ($log_line =~ m#(fm|k(has|ics|kpr|liq|xpn)) .* news#in); # News.
+	# next if ($log_line =~ m#weather (forecast|sounder)#in);	# Weather.
+	# next if ($log_line =~ m#local content#in);	# Local content?
+	# next if ($log_line =~ m#american top 40#in);	# Syndicated show?
+	push(@filtered_lines, $log_line);
+    }
+    return \@filtered_lines;
 }
 
 # Get the contents of the log files that contain entries in the range
