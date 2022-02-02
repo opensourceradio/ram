@@ -29,13 +29,15 @@ x=$(rdDatabaseVersion)
 read -q ok\?"Database version is '${x}'. Press a key to continue: "
 unset x
 
-echo "okDatabaseStructure: expect VALID structure\c" && read -q ok\?"Press a key to continue: "
-x=$(okDatabaseStructure CART:number,CUTS:cart_number+cut_name+length)
+echo "okDatabaseStructure: expect VALID structure (0): \c" && read -q ok\?"Press a key to continue: "
+okDatabaseStructure CART:number,CUTS:cart_number+cut_name+length
+x=${?}
 read -q ok\?"database structure is '${x}'. Press a key to continue: "
 unset x
 
-echo "okDatabaseStructure: expect INVALID structure\c" && read -q ok\?"Press a key to continue: "
-x=$(okDatabaseStructure CART:name+group_name+title,CUTS:number+cut_name+duration)
+echo "okDatabaseStructure: expect INVALID structure (non-0): \c" && read -q ok\?"Press a key to continue: "
+okDatabaseStructure CART:name+group_name+title,CUTS:number+cut_name+duration
+x=${?}
 read -q ok\?"database structure is '${x}'. Press a key to continue: "
 unset x
 
@@ -75,7 +77,7 @@ read -q ok\?"Press a key to continue: "
 unset x
 
 echo "rdListCart 1002: \c" && read -q ok\?"Press a key to continue: "
-setopt xtrace
+((VERBOSE)) && setopt xtrace
 # without cuts, not verbose
 x="$(rdListCart 1002)"
 # without cuts, not verbose, explicit
@@ -131,7 +133,7 @@ read -q ok\?"Next Cart Number for Group '${group:-Music}' is '${x}'. Press a key
 unset x
 
 echo "rdDropboxStatus test 1 1: \c" && read -q ok\?"Press a key to continue: "
-setopt xtrace
+((VERBOSE)) && setopt xtrace
 rdDropboxStatus test 1 1
 setopt noxtrace
 read -q ok\?"Press a key to continue: "
@@ -149,7 +151,7 @@ unset x
 
 # reset a dropbox
 echo "rdResetDropbox test ${dropbox_id} 1 1" && read -q ok\?"Press a key to continue: "
-setopt xtrace
+((VERBOSE)) && setopt xtrace
 rdResetDropbox test "${dropbox_id}" 1 1 || echo "rdResetDropbox unsuccessful."
 setopn noxtrace
 read -q ok\?"Press a key to continue: "
