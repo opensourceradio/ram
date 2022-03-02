@@ -30,6 +30,7 @@ use Time::Piece;
 use Date::Parse;
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use DBI;
+use Digest::SHA qw(sha1_hex);
 use Getopt::Long qw(:config no_ignore_case);
 Getopt::Long::Configure ("bundling");
 use Pod::Usage;
@@ -53,8 +54,7 @@ my $sx_entity_map = {
     'kxpn-aac' => '',
     'impact89fm' => 'WDBM',
 };
-# These columns are from a sample report sent to SX from Platte River
-# Radio in March 2020.
+# These columns are from a sample report sent to SX in March 2020.
 my $sx_prr_rou_columns = {
     1 => {
         'heading'     => 'NAME_OF_SERVICE',
@@ -175,6 +175,8 @@ sub main {
 
     say STDERR sprintf("main: Start date: %s: %s End date: %s: %s", $start_date, $start, $end_date, $end) if ($verbose);
 
+    my $a_t_hashes = get_artist_title_hashes(\@reportable_groups, $verbose);
+
     my $log_lines = get_log_files($start_date, $end_date, $log_directory, $verbose);
 
     $output_dir = $output_dir || $OUTPUTDIR;
@@ -208,7 +210,8 @@ sub main {
             $logged_title = $3;
             say STDERR "PASS 1: song change for '$logged_mountpoint': '$logged_artist', '$logged_title'." if ($debug);
 
-            next unless reportable($logged_title, $logged_artist, \@reportable_groups, $verbose);
+            my $digest = sha1_hex($logged_artist . $logged_title);
+            next unless grep /$digest/, @$a_t_hashes;
             say STDERR "PASS 1:  '$logged_title' by '$logged_artist' is reportable." if ($verbose);
 
             # We got a new title: update the playcount.
@@ -429,35 +432,33 @@ sub in_date_range {
     return 0;
 }
 
-# reportable looks up the title in the Rivendell database and
-# returns True if the title is in either MUSIC or XMASMUSIC.
-#
-# NOTE: this function attempts to open a Rivendell database
-#       connection on localhost port 33006. SSH port forwarding may be required.
-sub reportable {
-        my $title = shift;
-        my $artist = shift;
+# get_artist_title_hashes creates an array of SHA1 hashes of the
+# artist and title for all the tracks in the named groups.
+sub get_artist_title_hashes {
         my $reportable_groups = shift;
-	my $verbose = shift;
+        my $verbose = shift;
 
         my $dbh = DBI->connect('DBI:mysql:Rivendell:127.0.0.1:33006', 'rduser', 'letmein');
         my($sth, $query) = (undef, undef);
+        my @row = ();
+        my @a_t_hashes = ();
 
-	$artist = quotemeta($artist);
-	$title = quotemeta($title);
+        # Place single quotes around the group names before adding
+        # them to the "in" clause of the select statement.
+        my @quoted_group_names = map "'$_'", @$reportable_groups;
 
-        $query = qq(select NUMBER, GROUP_NAME from CART where ARTIST = '$artist' and TITLE = '$title');
-	say STDERR "About to execute: $query" if ($verbose);
+        $query = qq/select sha1(concat(ARTIST, TITLE)) from CART where GROUP_NAME in (/;
+        $query .= join(",", @quoted_group_names);
+        $query .= qq/)/;
+        say STDERR "About to execute: $query" if ($verbose);
 
         $sth = $dbh->prepare($query);
         $sth->execute();
-        my($cart_number, $group_name) = $sth->fetchrow_array();
+        while (@row = $sth->fetchrow_array()) {
+            push(@a_t_hashes, $row[0]);
+        }
         $sth->finish();
-
-        my $reportable = grep {fc($_) eq fc($group_name)} @$reportable_groups;
-
-        return 1 if ($reportable);
-        return 0;
+        return \@a_t_hashes;
 }
 
 sub show_version {
