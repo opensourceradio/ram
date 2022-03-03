@@ -1,9 +1,11 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2079,SC2154,SC2162
+# shellcheck shell=bash disable=SC2016,SC2079,SC2086,SC2154,SC2162,SC2248
 # SC2016: The single quotes are inside a double-quoted string
 # SC2079: ZSH (( )) does support decimals
+# SC2086: shellcheck quoting
 # SC2154: I know about all the referenced but not assigned variables
 # SC2162: I do not care about read and its backslashes
+# SC2248: shellcheck quoting
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri vMajor=0
@@ -59,6 +61,10 @@ Taking input from a file generated with
 
     bs1770gain --ebu --xml /var/snd
 
+or
+
+    bs1770gain --atsc --xml /var/snd
+
 set the cut gain in the Rivendell database (CUTS.PLAY_GAIN) to the
 recommended values, plus or minus an optional additional amount.
 
@@ -84,8 +90,10 @@ declare -F 2 ADJ
 # Get zsh functions necessary for this script.
 if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
 else
-  exit "$(error 'Cannot read support library /usr/bin/zsh-functions. Please consult your tarot card reader!')"
+  exit "$(error 'Cannot read support library /usr/bin/zsh-functions (or /usr/local/bin/zsh-functions). Please consult your tarot card reader!')"
 fi
 
 ############# BEGIN external shell commands used in this script. #############
@@ -135,7 +143,13 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-bs1770_xml_file=${1:?"Please name an XML file containing the output of 'bs1770gain --ebu --xml /var/snd'"}
+typeset -r bs1770_xml_file=${1:?"Please name an XML file containing the output of 'bs1770gain --ebu --xml /var/snd'"}
+
+typeset units="db"
+
+if ${GREP} -q 'dbfs=' "${bs1770_xml_file}" ; then
+  units="db"
+fi
 
 # Use this to indicate to both the running instance of ZSH and to
 # xmlstarlet(1) the field separator.
