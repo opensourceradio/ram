@@ -1,10 +1,12 @@
 #!/bin/zsh
-#shellcheck shell=bash disable=SC1105,SC2046,SC2079,SC2086,SC2154
+#shellcheck shell=bash disable=SC1105,SC2034,SC2046,SC2079,SC2086,SC2154,SC2248
 # SC1105: using (( )) correctly for ZSH
+# SC2034: the version parameters ARE used
 # SC2046: We do not care about the word splitting in unquoted $() expansion
 # SC2079: ZSH arithmetic expressions can do floating point
 # SC2086: all instances of parameters are double-quoted the way I want them
 # SC2154: reference parameters are set by ZSH for us
+# SC2248: shellcheck's quoting recommendations are insane (for ZSH)!
 
 ##########################################################################################
 ##########################################################################################
@@ -26,12 +28,12 @@ autoload colors
 colors
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -ri vMajor=0
-declare -ri vMinor=3
-declare -ri vPatch=2
+typeset -ri v_major=0
+typeset -ri v_minor=4
+typeset -ri v_patch=0
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
-declare -r vHash='$Hash$'
+typeset -r v_hash='$Hash$'
 
 # Get zsh functions necessary for this script.
 if [[ -r /usr/local/bin/zsh-functions ]] ; then
@@ -58,7 +60,7 @@ SUMMARY
 ${myName} [ --verbose (-v) ] [ --version (-V) ] [ --dry-run (-d) ]
               [ --keep-evergreen (-k) ]
               { --all (-a) |
-                --played (-p) |
+                --played (-p) <minimum-play-count> |
                 --shorter (-s) <seconds> |
                 --longer (-L) <seconds> |
                 --import-time (-i) "{older|newer} than <Time Spec>" |
@@ -72,7 +74,7 @@ Cart <Cart Number> according to one of the five required
 options. Options are:
 
     --all (-a) - drop all Cuts
-    --played (-p) - drop Cuts with a play count greater than Zero
+    --played (-p) <minimum-play-count> - drop Cuts with a play count greater than or equal to <minimum-play-count>
     --shorter <seconds> (-s) - drop Cuts shorter than <seconds> in duration
     --longer <seconds> (-L) - drop Cuts longer than <seconds> in duration
     --import-time "{older|newer} than <Time Spec>" (-i) - drop Cuts imported
@@ -149,7 +151,9 @@ unset our_commands
 
 declare -i VERBOSE=0
 declare -i DRYRUN=0
+declare -i SHOW_VERSION=0
 declare -i KEEP_EVERGREEN=0
+declare -i MINIMUM_PLAY_COUNT=1
 declare DROP_SPEC=
 declare MINIMUM_DURATION=
 declare MAXIMUM_DURATION=
@@ -158,7 +162,7 @@ declare IMPORT_OP=
 declare LAST_PLAY_DATETIME=
 declare LAST_PLAY_OP=
 
-if ! TEMP=$(${GETOPT} -o adhi:kL:l:ps:Vv --long help,all,dry-run,import-time:,keep-evergreen,last-played:,longer:,played,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o adhi:kL:l:p:s:Vv --long help,all,dry-run,import-time:,keep-evergreen,last-played:,longer:,played:,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -166,7 +170,7 @@ eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
     -a|--all) DROP_SPEC=all ; shift ;;
-    -p|--play*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}played ; shift ;;
+    -p|--played) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}played ; MINIMUM_PLAY_COUNT="${2}" ; shift 2 ;;
     -s|--shor*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}shorter ; MINIMUM_DURATION="${2}" ; shift 2 ;;
     -i|--impor*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}importDatetime ; IMPORT_DATETIME="${2}" ; shift 2 ;;
     -k|--keep*) KEEP_EVERGREEN=1 ; shift ;;
@@ -175,15 +179,20 @@ while : ; do
     -d|--dry*) DRYRUN=1 ; shift ;;
     -h|--help*) usage ${0:t} ; exit ;;
     -v|--verb*) VERBOSE=1 ; shift ;;
-    -V|--vers*) showVersion=1 ; shift ;;
+    -V|--vers*) SHOW_VERSION=1 ; shift ;;
     --) shift ; break ;;
     *) exit $(error "${0:t}: Trouble making sense of options processing. This should not happen. Contact Support.") ;;
   esac
 done
 unset TEMP
 
-if ((showVersion)) ; then
-  print "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
+if ((SHOW_VERSION)) ; then
+  typeset commit_hash="${v_hash}"
+  # SC2016: quoting is how I want it
+  # shellcheck disable=SC2016
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -327,7 +336,13 @@ if [[ -n "${cutListXML}" ]] ; then
 	  fi
 	  ;;
 	played)
-	  if ((cutPlayCount > 0)) ; then
+	  if ((MINIMUM_PLAY_COUNT < 1)) ; then
+	    r_code=$(error "Delete played Cuts: the minimum play count must be greater than or equal to 1. You specified '${MINIMUM_PLAY_COUNT}'. Please try again.")
+	    usage "${0:t}"
+	    exit ${r_code}
+	  fi
+	  ((VERBOSE)) && print "Looking for Cuts in Cart ${targetCart} with a minimum play count of '${MINIMUM_PLAY_COUNT}'." >&2
+	  if ((cutPlayCount >= MINIMUM_PLAY_COUNT)) ; then
 	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (previously played ${cutPlayCount} times)." >&2
 	    dropThisCut=1
 	  fi
