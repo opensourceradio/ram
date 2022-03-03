@@ -153,7 +153,7 @@ unset x
 echo "rdResetDropbox test ${dropbox_id} 1 1" && read -q ok\?"Press a key to continue: "
 ((VERBOSE)) && setopt xtrace
 rdResetDropbox test "${dropbox_id}" 1 1 || echo "rdResetDropbox unsuccessful."
-setopn noxtrace
+setopt noxtrace
 read -q ok\?"Press a key to continue: "
 unset dropbox_id
 
@@ -170,20 +170,23 @@ echo "Created Empty Cart '${x}' in Group '${testgroup:-TEST}'." && read -q ok\?"
 cart_number_to_drop=$(rdCartNumberFromTitle "drop this cart too" 0)
 unset x
 
-# THIS IS DESTRUCTIVE!
-echo "rdDropCut 999007 1 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
-rdDropCut  999007 1 1
-read -q ok\?"Press a key to continue: "
+# # THIS IS DESTRUCTIVE!
+# read -q ok\?"Do you have Cart number 999007? \c"
+# echo "rdDropCut 999007 1 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
+# rdDropCut  999007 1 1
+# read -q ok\?"Press a key to continue: "
 # THIS IS DESTRUCTIVE!
 echo "rdDropCart ${cart_number_to_drop} 1: \c" && read -q ok\?"THIS IS DESTRUCTIVE: Press a key to continue: "
 rdDropCart "${cart_number_to_drop}" 1
 unset cart_number_to_drop
 
-echo "sendNotification() without attachment. \c" && read -q ok\?"Press a key to continue: "
+echo "sendNotification() without attachment (conf.msmtp must be configured). \c" &&
+  read -q ok\?"Press a key to continue: "
 x=$(sendNotification test dklann@grunch.org TEST-MESSAGE "This is a test message")
 read -q ok\?"Did you get an email at dklann@grunch.org? Press a key to continue: "
 unset x
-echo "sendNotification() with attachment. \c" && read -q ok\?"Press a key to continue: "
+echo "sendNotification() with attachment (conf.msmtp must be configured). \c" &&
+  read -q ok\?"Press a key to continue: "
 x=$(sendNotification test dklann@grunch.org TEST-MESSAGE-ATTACH "This is a test message" /etc/issue.net)
 read -q ok\?"Did you get an email (with attachment) at dklann@grunch.org? Press a key to continue: "
 unset x
