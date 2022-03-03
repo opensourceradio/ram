@@ -210,9 +210,13 @@ sub main {
             $logged_title = $3;
             say STDERR "PASS 1: song change for '$logged_mountpoint': '$logged_artist', '$logged_title'." if ($debug);
 
-            my $digest = sha1_hex($logged_artist . $logged_title);
-            next unless grep /$digest/, @$a_t_hashes;
-            say STDERR "PASS 1:  '$logged_title' by '$logged_artist' is reportable." if ($verbose);
+            my $digest = sha1_hex(lc($logged_artist) . lc($logged_title));
+            if (grep /$digest/, @$a_t_hashes) {
+                say STDERR "PASS 1:  '$logged_title' by '$logged_artist' is reportable." if ($verbose);
+            } else {
+                say STDERR "PASS 1:  '$logged_title' by '$logged_artist' is NOT reportable." if ($verbose);
+                next;
+            }
 
             # We got a new title: update the playcount.
             $track_counter->{$logged_mountpoint}->{'artists'}->{$logged_artist}->{$logged_title}->{'playcount'} += 1;
@@ -287,11 +291,11 @@ sub main {
     }
     say STDERR Dumper $track_counter if ($debug > 1);
 
-    # The report header row. TODO, FIX ME: this does not work as of
-    # 2021-11-03 (for the October ROU). It creates column headers
-    # containing the *keys* not the headings.
+    # The report header row.
     push(@report_lines, q(^) . join(q(^|^), map {$sx_prr_rou_columns->{$_}->{'heading'}} sort(keys(%{$sx_prr_rou_columns}))) . q(^));
+
     foreach my $mp (sort(keys(%{$track_counter}))) {
+        next unless ($mp);
         foreach my $artist (sort(keys(%{$track_counter->{$mp}->{'artists'}}))) {
             if (!defined($track_counter->{$mp}->{'artists'}->{$artist})) {
                 say "MISSING ARTIST ", $artist, q( in $track_counter->{$mp}->{'artists'}) if ($verbose);
@@ -360,7 +364,7 @@ sub get_log_files {
     my $startYYYYMMDD = sprintf("%04d%02d%02d", $start[5] + 1900, $start[4] + 1, $start[3]);
     my @end = strptime($end_date);
     my $endYYYYMMDD = sprintf("%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
-    say STDERR sprintf("startYYYYMMDD: %s, endYYYYMMDD: %s", $startYYYYMMDD, $endYYYYMMDD) if ($verbose > 1);
+    say STDERR sprintf("get_log_files: startYYYYMMDD: %s, endYYYYMMDD: %s", $startYYYYMMDD, $endYYYYMMDD) if ($verbose > 1);
 
     opendir(my $dirH, $log_directory) ||
         croak("Cannot open icecast log directory '$log_directory'. Stopped");
@@ -370,7 +374,7 @@ sub get_log_files {
         my $lf = undef;
         my $lf_date = undef;
         my $lfFH = undef;
-        say STDERR "considering: ", $_ if ($verbose > 1);
+        say STDERR "get_log_files: considering: ", $_ if ($verbose > 1);
 
         # Log filename may end with a timestamp suffix, or simply
         # ".log". Skip log files with timestamps outside our date
@@ -403,7 +407,7 @@ sub get_log_files {
     closedir $dirH;
 
     say STDERR Dumper @log_file_names if ($verbose > 1);
-    say STDERR sprintf("getLogFiles: found %d log lines", $#valid_log_lines) if ($verbose);
+    say STDERR sprintf("get_log_files: found %d log lines", $#valid_log_lines) if ($verbose);
 
     return \@valid_log_lines;
 }
@@ -447,7 +451,7 @@ sub get_artist_title_hashes {
         # them to the "in" clause of the select statement.
         my @quoted_group_names = map "'$_'", @$reportable_groups;
 
-        $query = qq/select sha1(concat(ARTIST, TITLE)) from CART where GROUP_NAME in (/;
+        $query = qq/select sha1(lower(concat(ARTIST, TITLE))) from CART where GROUP_NAME in (/;
         $query .= join(",", @quoted_group_names);
         $query .= qq/)/;
         say STDERR "About to execute: $query" if ($verbose);
