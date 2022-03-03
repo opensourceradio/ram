@@ -12,7 +12,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=11
+declare -ri v_patch=12
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -68,7 +68,7 @@ function kill_with_privilege() {
 		continue 2	# next proc_id in the for loop
 	    fi
 	    ${SLEEP} 0.5
-	    ((VERBOSE)) && print >&2
+	    print
 	    ((count++))
 	done
 	printf '\nUnable to terminate process %s. Please seek help!\n' "${proc_id}" >&2
