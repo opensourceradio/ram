@@ -16,7 +16,7 @@ log_name="${1:?Need a log name to update.}"
 
 typeset -ri VERBOSE=${VERBOSE:-0}
 
-((VERBOSE)) && print "Setting Log Chain for ${log_name} to Timed, MakeNext with a Stop transition." >&2
+((VERBOSE)) && print "Setting Log Chain for ${log_name} to Timed, MakeNext with a Play transition." >&2
 
 chain_line_number=$(print "load ${log_name}\nlist\nquit" | rdclilogedit --silent | awk '/LOG CHN/{print $1}')
 ((VERBOSE)) && print "${log_name} LOG CHN is on log line ${chain_line_number}." >&2
