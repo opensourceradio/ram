@@ -190,7 +190,7 @@ sub main {
     #   3  00:08:57  SEGUE  010292   Music        4:01  Wrote a Song for Everyone
     #   4  00:12:50  SEGUE  010481   Music        3:46  That's All Right
     # ...
-    @complete_log_lines = `print "load $log_name\nlist\nquit" | rdclilogedit --silent`;
+    @complete_log_lines = `echo "load $log_name\nlist\nquit" | rdclilogedit --silent`;
     if (scalar @complete_log_lines == 0) {
 	printf STDERR "Unable to load Log '%s'\n", $log_name;
 	exit;
