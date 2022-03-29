@@ -149,7 +149,7 @@ sub main() {
       )
     {
         next unless ($logLine =~ m#get\s+/($mountpointRE)\s+#i);
-        say STDERR $logLine if ($debug > 1);
+        say STDERR "main: $logLine" if ($debug > 1);
 
         # Bug Alert: the sub-expression "(\d{2})00" represents the
         # timezone offset in the date/time field. It currently assumes
@@ -169,6 +169,11 @@ sub main() {
             my $client           = $8;
             my $duration         = $9;
             my ($mday, $mon, $year) = split(/\//, $date);
+
+            if ($duration < 1) {
+                say STDERR sprintf("main: skipping short duration connection (%d)", $duration) if ($verbose);
+                next;
+            }
 
             say STDERR "ipAddress: $ipAddress + referer: $referer + client: $client" if ($debug);
 
