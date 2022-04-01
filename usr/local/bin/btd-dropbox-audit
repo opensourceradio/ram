@@ -419,14 +419,14 @@ for id in ${(k)path_specs[*]} ; do
 	if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
 	    if [[ -z "${log_specs#*${myFS}}" ]] ; then
 		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-		       "${id}" "${path_specs[${id}]}"
+		       "${id}" "${path_specs[${id}]#*${myFS}}"
 	    fi
 	fi
     else
 	log_path=$(doSQL "select LOG_PATH from DROPBOXES where ID=${id}")
 	if [[ -z "${log_path}" ]] ; then
 		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-		       "${id}" "${path_specs[${id}]}"
+		       "${id}" "${path_specs[${id}]#*${myFS}}"
 	fi
     fi
 done
