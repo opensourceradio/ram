@@ -12,7 +12,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=12
+declare -ri v_patch=13
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -111,7 +111,8 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --stranded-files (-s) ] [ --interactive (-i) ]
-                  [ --help (-h) ] [ --version (-v) ]
+                  [ --verbose (-v) ]
+                  [ --help (-h) ] [ --version (-V) ]
 
 DESCRIPTION
 
@@ -344,7 +345,7 @@ EndOfText
 done
 
 # Check for existence of dropbox directories.
-((VERBOSE)) && print "Checking for dropbox directories..." >&2
+((VERBOSE)) && print "Checking for missing dropbox directories (folders)..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
     typeset path_spec_dir=${path_spec%/*}
     if ! [[ -d ${path_spec_dir} ]] ; then
@@ -453,6 +454,10 @@ if ((CHECK_STRANDED_FILES)) ; then
     # shellcheck disable=SC2086
     for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
 	typeset -a possibly_stranded
+	if ! [[ -d "${path_dir}" ]] ; then
+	    ((VERBOSE)) && printf "Skipping missing Rivendell dropbox folder '%s'\n" "${path_dir}" >&2
+	    continue
+	fi
 	possibly_stranded=(
 	    $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
 		  declare escaped_line=""
