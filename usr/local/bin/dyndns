@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck shell=bash disable=SC2086
+# SC2086: shellcheck is too aggressive with quoting recommendations
 
 ##############################################################################
 ##############################################################################
@@ -12,8 +14,8 @@
 ##############################################################################
 
 declare DOMAIN=''
-declare HOSTNAME=''
-declare -r WHATS_MY_IP_URL='https://whatsmyip.grunch.org/'
+declare THE_HOST_NAME=''
+declare -r WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
 
 # See API_BASE_ROUTE below for the API route.
 declare -r API_PROTO='https'
@@ -23,11 +25,13 @@ declare -r API_HOST='api.digitalocean.com'
 declare -r DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && cat ${HOME}/.config/doctl/api-access)
 declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
+declare -i INTERACTIVE=0
+declare -i FORCE=0
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=2
+declare -r vPatch=3
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -45,7 +49,8 @@ usage() {
 ${myName}: update DNS records for a non-static public IP address.
 
 Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
-                [ --help ]
+                [ --help ] [ --interactive (-i) ]
+                [ --force ]
                 [ --domain (-d) <DOMAIN> ]
 		[ --hostname (-h) <HOSTNAME> ]
                 [ --ipv6 (-6) ]
@@ -82,6 +87,12 @@ ${myName} always attempts to update both the IPv4 address record
 host. ${myName} simply skips the 'AAAA' record update if it cannot
 determine the host's IPv6 address.
 
+Use the --force (short option, -f) option to force an update to the domain
+record.
+
+When called with the --interactive (short option, -i) option, ${myName} directs
+all output to the terminal (STDERR) rather than a file.
+
 EOF
 }
 
@@ -107,6 +118,8 @@ do_curl() {
 
 # Given a domain record (aka "zone"), return the ID value associated
 # with the key/value pair.
+# https://docs.digitalocean.com/reference/api/api-reference/#operation/get_domain_record
+# (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
 get_domain_record_id() {
   local -r json_string="${1}" ; shift
   local -r type="${1}" ; shift
@@ -140,7 +153,7 @@ get_domain_record_id() {
 ##############################################################################
 ##############################################################################
 
-if ! TEMP=$(getopt -o d:h:Vv --long domain:,hostname:,help,version,verbose -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o d:fh:iVv --long domain:,force,hostname:,interactive,help,version,verbose -n "${0##*/}" -- "${@}") ; then
   printf 'getopt(1) Fatal Error (%s). Terminating...\n' "${?}" >&2
   exit 1
 fi
@@ -148,7 +161,9 @@ eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
     -d|--domain) DOMAIN="${2}" ; shift 2 ;;
-    -h|--host*) HOSTNAME="${2}" ; shift 2 ;;
+    -f|--force) FORCE=1 ; shift ;;
+    -h|--host*) THE_HOST_NAME="${2}" ; shift 2 ;;
+    -i|--inter*) INTERACTIVE=1 ; shift ;;
     --help*) usage "${0##*/}" ; exit ;;
     -V|--vers*) showVersion=1 ; shift ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
@@ -163,8 +178,10 @@ if ((showVersion)) ; then
 fi
 
 # This is meant to be run regularly from cron(8), so deal with output.
-exec 1> "/var/tmp/${0##*/}.out"
-exec 2> "/var/tmp/${0##*/}.err"
+if ((INTERACTIVE == 0)) ; then
+  exec 1> "/var/tmp/${0##*/}.out"
+  exec 2> "/var/tmp/${0##*/}.err"
+fi
 
 ((VERBOSE)) && set -o xtrace
 ((VERBOSE > 1)) && set -o errtrace functrace
@@ -173,15 +190,15 @@ declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
 # This hostname/domain was the original purpose of this script.
 DOMAIN="${DOMAIN:-btd.support}"
-HOSTNAME="${HOSTNAME:-changeme}"
+THE_HOST_NAME="${THE_HOST_NAME:-changeme}"
 
 # Our last-known public IP address(es) is(are) cached in local
 # storage. The cache consists of one or (at the most) two lines. The
 # first line shoult be the IPv4 address, the optional second line is
 # the IPv6 address.
+declare -a last_ip
 # SC2046: we *want* words to be split.
 # shellcheck disable=SC2046
-declare -a last_ip
 mapfile -t last_ip <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
 
 # Hit David Klann's personal server to get the current public IPv4
@@ -224,7 +241,7 @@ fi
 
 # Check the first cached value against the just-retrieved IPv4
 # address.
-if [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
+if ((FORCE)) || [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
 
   # Save this new IP address in the cache.
   printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
@@ -233,15 +250,23 @@ if [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
   # only know how to *update* existing records (as of this version of
   # the script).
   # TODO: create a new A record if it does not exist.
-  # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
-  if ! A_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'A' 'name' "${HOSTNAME}") ||
-     [[ -z "${A_RECORD_ID}" ]] ; then
+  # https://docs.digitalocean.com/reference/api/api-reference/#operation/get_domain_record
+  # (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
+  if ! A_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'A' 'name' "${THE_HOST_NAME}") ; then
     printf '%s: FATAL: unable to get domain "A" record ID.\n' "${0##*/}" >&2
+    exit 1
+  fi
+  if [[ -z "${A_RECORD_ID}" ]] ; then
+    printf '%s: FATAL: unable to parse JSON to discern the domain "A" record ID for '%s' (JSON: %s).\n' \
+	   "${0##*/}" \
+	   ${THE_HOST_NAME} \
+	   "${DOMAIN_JSON}" >&2
     exit 1
   fi
 
   # Update the 'A' record for this hostname.
-  # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
+  # https://docs.digitalocean.com/reference/api/api-reference/#operation/patch_update_domain_record
+  # (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
   if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${A_RECORD_ID}" '{"data":"'"${current_ipv4}"'"}') ||
      ! [[ "${RESPONSE}" =~ .*${A_RECORD_ID}.* ]] ; then
     curl_exit_value="${?}"
@@ -255,7 +280,7 @@ else
 fi
 # Check the for a second cached value against the just-retrieved IPv6
 # address.
-if [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
+if ((FORCE)) || [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
 
   # Save this new IPv6 address in the cache.
   typeset -r temp_file="$(mktemp)"
@@ -270,7 +295,7 @@ if [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
   # Get the 'AAAA' record ID from D.O. This is not a fatal problem.
   # TODO: create a new AAAA record if we have an IPv6 address.
   # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
-  if ! AAAA_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'AAAA' 'name' "${HOSTNAME}") ||
+  if ! AAAA_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'AAAA' 'name' "${THE_HOST_NAME}") ||
      [[ -z "${AAAA_RECORD_ID}" ]] ; then
     printf '%s: WARNING: unable to get domain "AAAA" record ID.\n' "${0##*/}" >&2
   fi
