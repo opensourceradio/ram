@@ -30,7 +30,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 typeset -ri v_major=0
 typeset -ri v_minor=4
-typeset -ri v_patch=0
+typeset -ri v_patch=1
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
@@ -61,6 +61,7 @@ ${myName} [ --verbose (-v) ] [ --version (-V) ] [ --dry-run (-d) ]
               [ --keep-evergreen (-k) ]
               { --all (-a) |
                 --played (-p) <minimum-play-count> |
+                --expired (-e) |
                 --shorter (-s) <seconds> |
                 --longer (-L) <seconds> |
                 --import-time (-i) "{older|newer} than <Time Spec>" |
@@ -75,6 +76,7 @@ options. Options are:
 
     --all (-a) - drop all Cuts
     --played (-p) <minimum-play-count> - drop Cuts with a play count greater than or equal to <minimum-play-count>
+    --expired (-e) - drop Cuts that for which the End Air Date/Time has passed
     --shorter <seconds> (-s) - drop Cuts shorter than <seconds> in duration
     --longer <seconds> (-L) - drop Cuts longer than <seconds> in duration
     --import-time "{older|newer} than <Time Spec>" (-i) - drop Cuts imported
@@ -162,7 +164,7 @@ declare IMPORT_OP=
 declare LAST_PLAY_DATETIME=
 declare LAST_PLAY_OP=
 
-if ! TEMP=$(${GETOPT} -o adhi:kL:l:p:s:Vv --long help,all,dry-run,import-time:,keep-evergreen,last-played:,longer:,played:,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o adehi:kL:l:p:s:Vv --long help,all,dry-run,expired,import-time:,keep-evergreen,last-played:,longer:,played:,shorter:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -171,6 +173,7 @@ while : ; do
   case "${1}" in
     -a|--all) DROP_SPEC=all ; shift ;;
     -p|--played) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}played ; MINIMUM_PLAY_COUNT="${2}" ; shift 2 ;;
+    -e|--expired) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}expired ; shift ;;
     -s|--shor*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}shorter ; MINIMUM_DURATION="${2}" ; shift 2 ;;
     -i|--impor*) DROP_SPEC=${DROP_SPEC:+${DROP_SPEC},}importDatetime ; IMPORT_DATETIME="${2}" ; shift 2 ;;
     -k|--keep*) KEEP_EVERGREEN=1 ; shift ;;
@@ -208,7 +211,7 @@ if [[ -z "$(rdListCart ${targetCart} 0 0)" ]] ; then
   exit $(error "CART number '${targetCart}' does not seem to exist in the library.")
 fi
 if [[ -z "${DROP_SPEC}" ]] ; then
-  exit $(error "Please specify one of '--all', '--played', '--shorter', --import-time, or --last-played to drop Cuts for Cart ${targetCart}.")
+  exit $(error "Please specify one of '--all', '--played', '--expired', '--shorter', --import-time, or --last-played to drop Cuts for Cart ${targetCart}.")
 fi
 
 # Split out the comparison and Time Spec for Import Date and Last
@@ -222,18 +225,22 @@ if [[ -n "${LAST_PLAY_DATETIME}" ]] ; then
   LAST_PLAY_DATETIME=${LAST_PLAY_DATETIME##*than }
 fi
 
+# Current date and time for "--expired" comparison.
+rightNow=${EPOCHSECONDS}
+
 print "Preparing to drop cuts in CART ${targetCart}."
 
 declare cutListXML
+declare -i cutCount
 declare -A cutList
 cutListXML=$(rdListCuts "${targetCart}")
 ((VERBOSE)) && cutCount=$(print "${cutListXML}" | ${XMLSTARLET} select --template --value-of 'count(/cutList/cut/cutName)')
 ((VERBOSE)) && print "Considering ${cutCount} Cut$( ((cutCount == 0 || cutCount > 1)) && print 's' ) from Cart '${targetCart}'" >&2
 if [[ -n "${cutListXML}" ]] ; then
-  # cutList is an associative array keyed by Cut Number, with values
-  # containing the colon-separated fields "length" (int), "originDatetime"
-  # (int, Epoch seconds), "lastPlayDateTime" (int, Epoch seconds),
-  # "playCounter" (int), and "evergreen" (bool).
+  # cutList is an associative array keyed by Cut Number, with values containing
+  # the colon-separated fields "length" (int), "originDatetime" (int, Epoch
+  # seconds), "lastPlayDateTime" (int, Epoch seconds), "endDatetime" (int, Epoch
+  # seconds), "playCounter" (int), and "evergreen" (bool).
   # SC2034: cutList is actually used, but in a way shellcheck doesn't know about
   # SC2190: ZSH associative arrays are different from BASH
   # SC2207: ZSH does not prefer "mapfile" or "read -a"
@@ -242,22 +249,25 @@ if [[ -n "${cutListXML}" ]] ; then
     $(print "${cutListXML}" |
 	${XMLSTARLET} select --template \
 		      --match 'cutList/cut' \
-		      --value-of 'cutNumber' -o ' ' \
-		      --value-of 'length' -o ':' \
+		      --value-of 'cutNumber' --output ' ' \
+		      --value-of 'length' --output ':' \
 		      --if 'originDatetime=""' \
 		      --value-of '0' \
 		      --else \
-		      --value-of 'date:seconds(originDatetime)' -o ':' \
-		      --break \
+		      --value-of 'date:seconds(originDatetime)' \
+		      --break --output ':' \
 		      --if 'lastPlayDatetime=""' \
 		      --value-of '0' \
 		      --else \
 		      --value-of 'date:seconds(lastPlayDatetime)' \
-		      --break \
-		      -o ':' \
-		      -v 'playCounter' \
-		      -o ':' \
-		      -v 'evergreen' \
+		      --break --output ':' \
+		      --if 'endDatetime=""' \
+		      --value-of '0' \
+		      --else \
+		      --value-of 'date:seconds(endDatetime)' \
+		      --break --output ':' \
+		      --value-of 'playCounter' --output ':' \
+		      --value-of 'evergreen' \
 		      --nl)
   )
   ((VERBOSE && cutCount > 10)) && print >&2
@@ -277,8 +287,9 @@ if [[ -n "${cutListXML}" ]] ; then
     cutLength=${cutColumnList[1]}
     cutImportDate=${cutColumnList[2]}
     cutLastPlayDate=${cutColumnList[3]}
-    cutPlayCount=${cutColumnList[4]}
-    evergreen=${cutColumnList[5]}
+    cutEndDatetime=${cutColumnList[4]}
+    cutPlayCount=${cutColumnList[5]}
+    evergreen=${cutColumnList[6]}
 
     if eval "${evergreen}" && ((KEEP_EVERGREEN)) ; then
        ((VERBOSE)) && print "Keeping evergreen Cut '${cut}' in CART '${targetCart}'" >&2
@@ -293,6 +304,14 @@ if [[ -n "${cutListXML}" ]] ; then
 	all)
 	  dropThisCut=1
 	  ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (dropping all Cuts)." >&2
+	  ;;
+	expired)
+	  if ((cutEndDatetime < rightNow)) ; then
+	    dropThisCut=1
+	    ((VERBOSE)) && print "Dropping Cut '${cut}' from Cart '${targetCart}' (Cut expiration: '${cutEndDatetime}')." >&2
+	  else
+	    ((VERBOSE)) && print "NOT dropping Cut '${cut}' from Cart '${targetCart}' (Cut is not expired: '${cutEndDatetime}')." >&2
+	  fi
 	  ;;
 	importDatetime)
 	  case "${(L)IMPORT_COMPARE}" in
