@@ -12,7 +12,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=13
+declare -ri v_patch=14
 declare -r v_hash='$Hash$'
 
 # Prefer the instance in /usr/bin (that gets installed with the
@@ -370,13 +370,15 @@ for id in ${(k)path_specs[*]} ; do
     if ((to_cart > 0)) ; then
 	typeset -i cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
 	if ((cut_count < 1)) ; then
-	    typeset cart_title=$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
+	    typeset cart_title
+	    read -r cart_title<<<$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
 	    if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
 		printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
 		       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
 	    fi
 	    printf "\r \nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
 		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+	    unset cart_title
 	fi
     fi
 done
