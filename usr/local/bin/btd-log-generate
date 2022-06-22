@@ -22,7 +22,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=7
+declare -ri v_patch=8
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -88,10 +88,10 @@ function run_post_gen_hooks() {
 }
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 8 external commands.
+# This script uses these 9 external commands.
 # Look for them in their upper case, parameter expanded form.
 typeset -a our_commands
-our_commands=( chown cp fmt getopt logger mktemp rdlogmanager rm zsh )
+our_commands=( chmod cp fmt getopt logger mktemp rdlogmanager rm zsh )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -182,7 +182,7 @@ declare oIFS="${IFS}"
 IFS=$'\t\n'
 typeset -A services
 if [[ -n "${SERVICE}" ]] ; then
-  declare -r service_selection_clause=" where name = ${SERVICE}"
+  declare -r service_selection_clause=" where name = '${SERVICE}'"
 fi
 # SC2207: ZSH does not have BASH mapfile.
 # shellcheck disable=SC2207
@@ -290,11 +290,23 @@ for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); da
 done > "${output_file}"
 
 # Save a copy in the user "rd"'s Desktop folder if such a folder exists.
+#
 # BUG ALERT: This works only for Rivendell installations that follow the
 # "reference" installation methodology.
-if [[ -d ~rd/Desktop ]] ; then
-  ${CP} "${output_file}" ~rd/Desktop/RD-Log-Generate.txt
-  ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ~rd/Desktop/RD-Log-Generate.txt."
+#
+# BUG ALERT: The directory for ${final_output_file} must already exist and be
+# writeable by the user ID running this script. See parameter 'RnRmlOwner' in
+# /etc/rd.conf if running from RDCatch.
+typeset -r final_output_file="/home/rd/Desktop/RD-Log-Generate.txt"
+if [[ -d "${final_output_file%/*}" ]] ; then
+  if ${CP} "${output_file}" "${final_output_file}" ; then
+    ${CHMOD} a+r "${final_output_file}"
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ${final_output_file}."
+  else
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: unable to copy output file to '${final_output_file}' (${?})."
+  fi
+else
+  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' does not exist. See '${output_file}'."
 fi
 
 # Send email to the addresses in $MAILTO with the same output as is on
