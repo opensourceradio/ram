@@ -147,6 +147,12 @@ get_domain_record_id() {
   fi
 }
 
+# is_cache_valid compares the retrieved IP address with the cached IP
+# address. Returns true (Zero) if they are the same, else false (non-Zero).
+is_cache_valid() {
+
+}
+
 ##############################################################################
 ##############################################################################
 ##     SCRIPT       MAIN       LINE
@@ -192,21 +198,20 @@ declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 DOMAIN="${DOMAIN:-btd.support}"
 THE_HOST_NAME="${THE_HOST_NAME:-changeme}"
 
-# Our last-known public IP address(es) is(are) cached in local
-# storage. The cache consists of one or (at the most) two lines. The
-# first line shoult be the IPv4 address, the optional second line is
-# the IPv6 address.
-declare -a last_ip
+# Our last-known public IP address(es) is(are) cached in local storage. The
+# cache consists of one or (at most) two lines. The first line shoult be the
+# IPv4 address, the optional second line is the IPv6 address.
+declare -a cached_ip_list
 # SC2046: we *want* words to be split.
 # shellcheck disable=SC2046
-mapfile -t last_ip <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
+mapfile -t cached_ip_list <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
 
 # Hit David Klann's personal server to get the current public IPv4
 # and IPv6 addresses.
 current_ipv4=$(curl -4 --silent -o - "${WHATS_MY_IP_URL}")
 current_ipv6=$(curl -6 --silent -o - "${WHATS_MY_IP_URL}")
 
-if [[ -z "${last_ip[0]}" ]] ; then
+if [[ -z "${cached_ip_list[0]}" ]] ; then
   # Maybe the first time doing this? Be sure /var/cache/public is
   # world writeable!
   if [[ -n "${current_ipv4}" ]] ; then
@@ -216,7 +221,7 @@ if [[ -z "${last_ip[0]}" ]] ; then
     exit 3
   fi
 fi
-if [[ -z "${last_ip[1]}" ]] ; then
+if [[ -z "${cached_ip_list[1]}" ]] ; then
   # Save the inet6 address if we have one. I *think* we do not care if
   # current_ipv6 is not set. It depends on whether the invoking host
   # *has* an inet6 address.
@@ -241,7 +246,7 @@ fi
 
 # Check the first cached value against the just-retrieved IPv4
 # address.
-if ((FORCE)) || [[ "${last_ip[0]}" != "${current_ipv4}" ]] ; then
+if ((FORCE)) || [[ "${cached_ip_list[0]}" != "${current_ipv4}" ]] ; then
 
   # Save this new IP address in the cache.
   printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
@@ -280,7 +285,7 @@ else
 fi
 # Check the for a second cached value against the just-retrieved IPv6
 # address.
-if ((FORCE)) || [[ -n "${last_ip[1]}" ]] && [[ "${last_ip[1]}" != "${current_ipv6}" ]] ; then
+if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != "${current_ipv6}" ]] ; then
 
   # Save this new IPv6 address in the cache.
   typeset -r temp_file="$(mktemp)"
