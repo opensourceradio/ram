@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 5;
+use constant vPATCH => 6;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -39,7 +39,7 @@ main;
 sub main() {
     my $retVal = undef;
     my ($result, $logDirectory, $startDate, $endDate, $outputDir, $mount_points, $rawOutput, $zipFile, $version, $verbose, $debug, $help, $man) =
-      (0, undef, undef, undef, undef, undef, 0, undef, undef, 0, 0, undef, undef);
+        (0, undef, undef, undef, undef, undef, 0, undef, undef, 0, 0, undef, undef);
     my @logContents = ();
     my $mountpoints = undef;
     my $zip         = undef;
@@ -139,14 +139,14 @@ sub main() {
             my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
             say STDERR q($a: ), $a if ($debug);
             say STDERR q($b: ), $b if ($debug);
-            $a[2]              <=> $b[2]
-              || mon($a[1], 0) <=> mon($b[1], 0)
-              || $a[0]         <=> $b[0]
-              || $a[3]         <=> $b[3]
-              || $a[4]         <=> $b[4]
-              || $a[5]         <=> $b[5]
+            $a[2]                <=> $b[2]
+                || mon($a[1], 0) <=> mon($b[1], 0)
+                || $a[0]         <=> $b[0]
+                || $a[3]         <=> $b[3]
+                || $a[4]         <=> $b[4]
+                || $a[5]         <=> $b[5]
         } @{$logLines}
-      )
+        )
     {
         next unless ($logLine =~ m#get\s+/($mountpointRE)\s+#i);
         say STDERR "main: $logLine" if ($debug > 1);
@@ -154,10 +154,11 @@ sub main() {
         # Bug Alert: the sub-expression "(\d{2})00" represents the
         # timezone offset in the date/time field. It currently assumes
         # an integral number of hours offset from GMT (UTC).
-        #                   ADDR                  U   A    DATE                                                       REQUEST                                CODE      BYTES   REFERER     AGENT    TIME
+
+#               ADDR                  U   A    DATE                                                       REQUEST                                CODE      BYTES   REFERER     AGENT    TIME
         if ($logLine =~
             m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i
-          )
+            )
         {
             my $ipAddress = $1;
             my ($date, $hour, $minute, $second) = split(/:/, $2);
@@ -188,19 +189,10 @@ sub main() {
             next unless ($connectTime >= $start && $connectTime <= $end);
 
             say STDERR
-              sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client)
-              if ($verbose > 2);
+                sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client)
+                if ($verbose > 2);
 
-            my $entry = sprintf
-              "%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s",
-              $ipAddress,
-              $connectTime->ymd,
-              $connectTime->hms,
-              $loggedMountPoint,
-              $duration,
-              $statusCode,
-              $referer,
-              $client;
+            my $entry = sprintf("%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client);
 
             # collect the entries per-mountpoint
             push(@{ $mountpoints->{$loggedMountPoint} }, $entry);
@@ -278,7 +270,7 @@ sub getLogFiles() {
     my $endYYYYMMDD   = sprintf("%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
 
     opendir(my $dirH, $logDirectory)
-      || die "Cannot open icecast log directory '$logDirectory'. Stopped";
+        || die "Cannot open icecast log directory '$logDirectory'. Stopped";
 
     while (readdir $dirH) {
         next unless (/^access/);
@@ -297,7 +289,7 @@ sub getLogFiles() {
         say STDERR "getLogFiles: Looking at $_" if ($verbose);
 
         open($lfFH, "<", $logDirectory . "/" . $_)
-          || die "Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped";
+            || die "Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped";
         my @lines = <$lfFH>;
         close($lfFH);
         say STDERR sprintf("getLogFiles: %s has %d lines", $_, $#lines) if ($verbose > 1);
