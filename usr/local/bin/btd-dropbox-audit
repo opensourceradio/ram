@@ -252,7 +252,7 @@ for id in ${(k)path_specs[*]} ; do
 	printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" \
 	       "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
 
-	typeset -ir dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
+	typeset -i dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
 	((VERBOSE > 1)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
 	if ((dropbox_path_count > 0)) ; then
 	    if ((INTERACTIVE)) ; then
