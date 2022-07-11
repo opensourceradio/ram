@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=5
+declare -r vPatch=6
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -189,6 +189,18 @@ if [[ -z "${THE_HOST_NAME}" ]] ; then
   printf "%s: Need a host name for dynamic DNS to work." "${0##*/}"
   usage
   exit 2
+fi
+
+# Ensure the parent directory of ${IP_ADDRESS_CACHE} exists and is writeable.
+if ! [[ -d "${IP_ADDRESS_CACHE%/*}" ]] ; then
+  printf "%s: ERROR: missing '%s'. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}"
+  usage
+  exit 3
+fi
+if ! [[ -w "${IP_ADDRESS_CACHE%/*}" ]] ; then
+  printf "%s: ERROR: '%s' is not writeable. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}"
+  usage
+  exit 4
 fi
 
 # This is meant to be run regularly from cron(8), so deal with output.
