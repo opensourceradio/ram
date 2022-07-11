@@ -13,6 +13,16 @@
 ##############################################################################
 ##############################################################################
 
+# This script complies with Semantic Versioning: http://semver.org/
+declare -r vMajor=0
+declare -r vMinor=2
+declare -r vPatch=5
+# We can do this in one step in ZSH, but Bash needs 2 statements
+# And we do *not* want $Hash expanded yet.
+# shellcheck disable=SC2016
+declare -r vHash='$Hash$'
+declare -r vvHash="${vHash#\$Hash: }"
+
 declare DOMAIN=''
 declare THE_HOST_NAME=''
 declare -r WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
@@ -29,21 +39,11 @@ declare -i INTERACTIVE=0
 declare -i DRY_RUN=0
 declare -i FORCE=0
 
-# This script complies with Semantic Versioning: http://semver.org/
-declare -r vMajor=0
-declare -r vMinor=2
-declare -r vPatch=4
-# We can do this in one step in ZSH, but Bash needs 2 statements
-# And we do *not* want $Hash expanded yet.
-# shellcheck disable=SC2016
-declare -r vHash='$Hash$'
-declare -r vvHash="${vHash#\$Hash: }"
-
 ##########################################################################################
 ## Locally defined subroutines
 ##########################################################################################
 
-usage() {
+function usage() {
   myName=${1}
 
   cat << EOF
@@ -103,7 +103,7 @@ EOF
 
 # Execute curl(1) against the Digital Ocean API.
 # Returns the address.
-do_curl() {
+function do_curl() {
   local -r method="${1}" ; shift
   local -r route="${1}" ; shift
   local -r data="${1}"
@@ -125,7 +125,7 @@ do_curl() {
 # with the key/value pair.
 # https://docs.digitalocean.com/reference/api/api-reference/#operation/get_domain_record
 # (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
-get_domain_record_id() {
+function get_domain_record_id() {
   local -r json_string="${1}" ; shift
   local -r type="${1}" ; shift
   local -r key="${1}" ; shift
@@ -183,6 +183,14 @@ if ((showVersion)) ; then
   exit 0
 fi
 
+# This hostname/domain was the original purpose of this script.
+DOMAIN="${DOMAIN:-btd.support}"
+if [[ -z "${THE_HOST_NAME}" ]] ; then
+  printf "%s: Need a host name for dynamic DNS to work." "${0##*/}"
+  usage
+  exit 2
+fi
+
 # This is meant to be run regularly from cron(8), so deal with output.
 if ((INTERACTIVE == 0)) ; then
   exec 1> "/var/tmp/${0##*/}.out"
@@ -191,13 +199,6 @@ fi
 
 ((VERBOSE)) && set -o xtrace
 ((VERBOSE > 1)) && set -o errtrace functrace
-
-# This hostname/domain was the original purpose of this script.
-DOMAIN="${DOMAIN:-btd.support}"
-if [[ -z "${THE_HOST_NAME}" ]] ; then
-  printf "%s: Need a host name for dynamic DNS to work." "${0##*/}"
-  exit 2
-fi
 
 declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
