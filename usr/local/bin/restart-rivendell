@@ -1,0 +1,34 @@
+#!/bin/zsh
+# shellcheck shell=bash
+
+# Set some system parameters.
+export XDG_SESSION_CLASS=user
+export XDG_SESSION_TYPE=tty
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_USER:-/run/user/1000}
+
+# This is set in order for the user to enter the password for sudo(1).
+export SUDO_ASKPASS=/usr/bin/ssh-askpass
+
+# Stop the Rivendell processisng services.
+sudo systemctl stop rivendell.service
+
+# Pause for two seconds to ensure the services are stopped.
+sleep 2
+
+# Disable the Ubuntu Studio services (primarily JACK audio routing service).
+if uname -v | grep -i ubuntu ; then
+    systemctl --user disable --now studio.service
+fi
+
+# Pause for two seconds to ensure the services are stopped.
+sleep 2
+
+# Start the Rivendell processing services.
+sudo systemctl start rivendell.service
+
+# Display confirmation dialog if running with a display.
+if [[ -n "${DISPLAY}" ]] ; then
+  zenity --info --no-wrap --title="Rivendell Restarted" --text="Rivendell Services have been restarted."
+fi
+
+exit
