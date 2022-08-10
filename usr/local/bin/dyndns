@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=7
+declare -r vPatch=8
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -54,12 +54,12 @@ Summary: ${myName##*/} [ --verbose (-v) ] [ --version (-V) ]
                 [ --force ]
                 [ --dry-run (-D) ]
                 [ --domain (-d) <DOMAIN> ]
-		[ --hostname (-h) <HOSTNAME> ]
                 [ --ipv6 (-6) ]
+		HOSTNAME
 
 The default domain (if you do not specify one) is "btd.support".
 
-The default hostname (if you do not specify one) is "wcaa-studio".
+HOSTNAME is required.
 
 ${myName} updates the name server "A" (aka "host") record for the
 default or named domain.
@@ -158,7 +158,7 @@ function get_domain_record_id() {
 ##############################################################################
 ##############################################################################
 
-if ! TEMP=$(getopt -o Dd:fh:iVv --long dry-run,domain:,force,hostname:,interactive,help,version,verbose -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(getopt -o Dd:fh:iVv --long dry-run,domain:,force,interactive,help,version,verbose -n "${0##*/}" -- "${@}") ; then
   printf 'getopt(1) Fatal Error (%s). Terminating...\n' "${?}" >&2
   exit 1
 fi
@@ -168,7 +168,6 @@ while : ; do
     -D|--dry-run) DRY_RUN=1 ; shift ;;
     -d|--domain) DOMAIN="${2}" ; shift 2 ;;
     -f|--force) FORCE=1 ; shift ;;
-    -h|--host*) THE_HOST_NAME="${2}" ; shift 2 ;;
     -i|--inter*) INTERACTIVE=1 ; shift ;;
     --help*) usage "${0##*/}" ; exit ;;
     -V|--vers*) showVersion=1 ; shift ;;
@@ -183,13 +182,16 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-# This hostname/domain was the original purpose of this script.
-DOMAIN="${DOMAIN:-btd.support}"
+THE_HOST_NAME=${1}
 if [[ -z "${THE_HOST_NAME}" ]] ; then
   printf "%s: Need a host name for dynamic DNS to work." "${0##*/}"
   usage
   exit 2
 fi
+((VERBOSE)) && printf "%s: setting DNS records for %s\n" "${0##*/}" "${THE_HOST_NAME}"
+
+# This hostname/domain was the original purpose of this script.
+DOMAIN="${DOMAIN:-btd.support}"
 
 # Ensure the parent directory of ${IP_ADDRESS_CACHE} exists and is writeable.
 if ! [[ -d "${IP_ADDRESS_CACHE%/*}" ]] ; then
@@ -209,8 +211,8 @@ if ((INTERACTIVE == 0)) ; then
   exec 2> "/var/tmp/${0##*/}.err"
 fi
 
-((VERBOSE)) && set -o xtrace
-((VERBOSE > 1)) && set -o errtrace functrace
+((VERBOSE > 1)) && set -o xtrace
+((VERBOSE > 2)) && set -o errtrace functrace
 
 declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
@@ -236,7 +238,7 @@ if [[ -z "${cached_ip_list[0]}" ]] ; then
   # world writeable before running this script!
   if [[ -n "${current_ipv4}" ]] ; then
     if ((DRY_RUN)) ; then
-      printf "Would have added IPv4 '%s' to '%s'\n" "${current_ipv4}" "${IP_ADDRESS_CACHE}"
+      printf "Would have %sadded IPv4 '%s' to '%s'\n" "$( ((FORCE)) && echo 'forcefully ' )" "${current_ipv4}" "${IP_ADDRESS_CACHE}"
     else
       printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
     fi
@@ -251,7 +253,7 @@ if [[ -z "${cached_ip_list[1]}" ]] ; then
   # *has* an inet6 address.
   if [[ -n "${current_ipv6}" ]] ; then
     if ((DRY_RUN)) ; then
-      printf "Would have updated '%s' with '%s'\n" "${IP_ADDRESS_CACHE}" "${current_ipv6}"
+      printf "Would have %supdated '%s' with '%s'\n" "$( ((FORCE)) && echo 'forcefully ' )" "${IP_ADDRESS_CACHE}" "${current_ipv6}"
     else
       typeset temp_file="$(mktemp)"
       # SC2064: I *want* this parameter expanded now.
@@ -278,7 +280,7 @@ if ((FORCE)) || [[ "${cached_ip_list[0]}" != "${current_ipv4}" ]] ; then
 
   # Save this new IP address in the cache.
   if ((DRY_RUN)) ; then
-    printf "Would have added '%s' to '%s'.\n" "${current_ipv4}" "${IP_ADDRESS_CACHE}"
+    printf "Would have %sadded '%s' to '%s'.\n" "$( ((FORCE)) && echo 'forcefully ' )" "${current_ipv4}" "${IP_ADDRESS_CACHE}"
   else
     printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
   fi
@@ -302,7 +304,7 @@ if ((FORCE)) || [[ "${cached_ip_list[0]}" != "${current_ipv4}" ]] ; then
   fi
 
   if ((DRY_RUN)) ; then
-    printf "Would have updated A record '%s' at Digital Ocean.\n" "${A_RECORD_ID}"
+    printf "Would have %supdated A record '%s' at Digital Ocean.\n" "$( ((FORCE)) && echo 'forcefully ' )" "${A_RECORD_ID}"
   else
     # Update the 'A' record for this hostname.
     # https://docs.digitalocean.com/reference/api/api-reference/#operation/patch_update_domain_record
@@ -324,7 +326,7 @@ fi
 if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != "${current_ipv6}" ]] ; then
 
   if ((DRY_RUN)) ; then
-    printf "Would have added IPv6 address '%s' to '%s'\n" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
+    printf "Would have %sadded IPv6 address '%s' to '%s'\n" "$( ((FORCE)) && echo 'forcefully ' )" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
   else
     # Save this new IPv6 address in the cache.
     typeset temp_file="$(mktemp)"
@@ -346,7 +348,7 @@ if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != 
   fi
 
   if ((DRY_RUN)) ; then
-    printf "Would have updated AAAA record '%s' at Digital Ocean.\n" "${AAAA_RECORD_ID}"
+    printf "Would have %supdated AAAA record '%s' at Digital Ocean.\n" "$( ((FORCE)) && echo 'forcefully ' )" "${AAAA_RECORD_ID}"
   else
     # Update the 'AAAA' record for this hostname if we have an existing one.
     # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
