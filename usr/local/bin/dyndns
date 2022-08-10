@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=8
+declare -r vPatch=9
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -223,7 +223,7 @@ declare -a cached_ip_list
 if [[ -s "${IP_ADDRESS_CACHE}" ]] ; then
   # SC2046: we *want* words to be split.
   # shellcheck disable=SC2046
-  mapfile -t cached_ip_list <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}" | tr -d '\012')
+  readarray -t cached_ip_list <<<$(grep -v '^#' "${IP_ADDRESS_CACHE}")
 fi
 
 # Hit the server at WHATS_MY_IP_URL to get the current public IPv4 and IPv6
@@ -253,7 +253,7 @@ if [[ -z "${cached_ip_list[1]}" ]] ; then
   # *has* an inet6 address.
   if [[ -n "${current_ipv6}" ]] ; then
     if ((DRY_RUN)) ; then
-      printf "Would have %supdated '%s' with '%s'\n" "$( ((FORCE)) && echo 'forcefully ' )" "${IP_ADDRESS_CACHE}" "${current_ipv6}"
+      printf "Would have added IPv6 address '%s' to '%s'\n" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
     else
       typeset temp_file="$(mktemp)"
       # SC2064: I *want* this parameter expanded now.
