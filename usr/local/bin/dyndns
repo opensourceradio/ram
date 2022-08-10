@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=6
+declare -r vPatch=7
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -253,7 +253,7 @@ if [[ -z "${cached_ip_list[1]}" ]] ; then
     if ((DRY_RUN)) ; then
       printf "Would have updated '%s' with '%s'\n" "${IP_ADDRESS_CACHE}" "${current_ipv6}"
     else
-      typeset -r temp_file="$(mktemp)"
+      typeset temp_file="$(mktemp)"
       # SC2064: I *want* this parameter expanded now.
       # shellcheck disable=SC2064
       trap "rm -f ${temp_file} ; exit ;" 0
@@ -327,7 +327,7 @@ if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != 
     printf "Would have added IPv6 address '%s' to '%s'\n" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
   else
     # Save this new IPv6 address in the cache.
-    typeset -r temp_file="$(mktemp)"
+    typeset temp_file="$(mktemp)"
     # SC2064: I *want* this parameter expanded now.
     # shellcheck disable=SC2064
     trap "rm -f ${temp_file} ; exit ;" 0
