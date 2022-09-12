@@ -13,35 +13,34 @@ vHash='$Hash$'
 ##############################################################################
 ##############################################################################
 ##
-## rd-time-temp.sh
+## rd-time-temp
 ##
 ## Provide current time and temperature audio snippets to Rivendell.
 ##
-## This script uses the current system time (please make sure the
-## system time is synchronized to a working network time protocol
-## (NTP) service) and the United States National Weather Service (NWS)
-## (based on a pre-configured location) to import audio files into a
-## specific audio Cart in the Rivendell Library.
+## This script uses the current system time. For best results, make sure the
+## system time is synchronized to a working network time protocol (NTP) service)
+## and the United States National Weather Service (NWS) (based on a
+## pre-configured location) to import audio files into a specific audio Cart in
+## the Rivendell Library.
 ##
-## Audio files containing time readings can contain any meaningful
-## sounds, and must be named using four digits like this: HHMM. You
-## should at least provide audio files for every minute of every hour
-## between midnight (0000) and noon (1200). More "sophisiticated" time
-## announcement files may include the "am" and "pm" suffixes (or
-## simply "a" or "p") in order to differentiate the time of day.
+## Audio files containing time readings can contain any meaningful sounds, and
+## must be named using four digits like this: HHMM. You should at least provide
+## audio files for every minute of every hour between midnight (0000) and noon
+## (1200). More "sophisiticated" time announcement files may include the "am"
+## and "pm" suffixes (or simply "a" or "p") in order to differentiate the time
+## of day.
 ##
-## Similarly, audio files containing temperature readings are named
-## for the numeric temperature. (There is no distinction between
-## Farenheit and Celcius.) Temperature readings are retrieved using
-## the NWS four character location codes (see
-## https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for the
-## state-by-state lists of locations). This script uses the XML file,
-## not the RSS file. The URL is formed using the four-character code
-## inserted into this string (substituting for "XXXX"):
+## Similarly, audio files containing temperature readings are named for the
+## numeric temperature. (There is no distinction between Farenheit and Celcius.)
+## Temperature readings are retrieved using the NWS four character location
+## codes (see https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for the
+## state-by-state lists of locations). This script uses the XML file, not the
+## RSS file. The URL is formed using the four-character code inserted into this
+## string (substituting for "XXXX"):
 ## https://w1.weather.gov/xml/current_obs/XXXX.xml
 ##
-## Specify the NWS location code using the "-l" (or "--location")
-## command line parameter. See usage() for more details.
+## Specify the NWS location code using the "-l" (or "--location") command line
+## parameter. See usage() for more details.
 ##
 ##############################################################################
 ##############################################################################
@@ -52,21 +51,17 @@ vHash='$Hash$'
 ## REQUIREMENTS
 ##
 ## Network: This script requires access to both the local LAN (for NTP
-## synchronization), and the Internet (for current temperature
-## retrieval).
+## synchronization), and the Internet (for current temperature retrieval).
 ##
-## zsh(1): needed to run this script. Install it with `sudo yum
-## install zsh`.
+## zsh(1): needed to run this script. Install it with `sudo yum install zsh`.
 ##
-## xmlstarlet(1): this is used to parse the XML from the NWS
-## website. Install it with the command `sudo yum install xmlstarlet`
-## (from the epel repository).
+## xmlstarlet(1): this is used to parse the XML from the NWS website. Install it
+## with the command `sudo yum install xmlstarlet` (from the epel repository).
 ##
-## ffmpeg(1): The script uses the ffmpeg command to concatenate the
-## time audio file and the temperature audio file into a single
-## file. It then imports that single audio file to the Rivendell
-## library using rdimport(1). Install it with the command `sudo yum
-## install ffmpeg` (from the nux-dextop repository).
+## ffmpeg(1): The script uses the ffmpeg command to concatenate the time audio
+## file and the temperature audio file into a single file. It then imports that
+## single audio file to the Rivendell library using rdimport(1). Install it with
+## the command `sudo yum install ffmpeg` (from the nux-dextop repository).
 ##
 ##############################################################################
 ##############################################################################
@@ -122,9 +117,8 @@ for explanation and details of the xtrace option).
 EOF
 }
 
-## Make mysql calls look a bit more asthetically pleasing. The return
-## value of this shell funtion is the exit value of the mysql command
-## invocation.
+## Make mysql calls look a bit more asthetically pleasing. The return value of
+## this shell funtion is the exit value of the mysql command invocation.
 doSQL() {
   local statement="${1:?Need a database query to run.}"
   local useMyCNF=0
@@ -136,23 +130,23 @@ doSQL() {
   zmodload zsh/mapfile
 
   # Use the exported variables if we have been through this function
-  # already. This applies to each running instance of scripts that
-  # use this function. This helps prevent the need to look this
-  # stuff up every time this function is called.
+  # already. This applies to each running instance of scripts that use this
+  # function. This helps prevent the need to look this stuff up every time this
+  # function is called.
   if [[ -z "${_DB_HOST}" ]] ; then
 
-    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists,
-    # else get credentials from rd.conf if it exists, else from the
-    # environment, else use defaults here.
-    # BUG ALERT: this assumes the credentials in .my.cnf are relevant
-    # to the Rivendell database.
+    # Rivendell DB Details: Use credentials in ~/.my.cnf if it exists, else get
+    # credentials from rd.conf if it exists, else from the environment, else use
+    # defaults here.
+    # BUG ALERT: this assumes the credentials in .my.cnf are relevant to the
+    # Rivendell database.
     if [[ -r ~/.my.cnf ]] && [[ $(${GREP} -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
       cd -q || return
 
       myCnfLines=( "${mapfile[.my.cnf]}" )
 
-      # Need to check for each of these parameters in .my.cnf in
-      # order to be able to use it.
+      # Need to check for each of these parameters in .my.cnf in order to be
+      # able to use it.
       for parm in database host password user ; do
 	if echo "${myCnfLines[*]}" | ${GREP} --quiet --ignore-case "${parm}" ; then
 	  (( useMyCNF++ ))
@@ -194,9 +188,8 @@ doSQL() {
 ## Parameters:
 ## - comma-separated list of table:column[+column...] tuples
 ## - (optional) verbose boolean
-## Returns: true (0) if the database structure is OK, false (1) if the
-## table does not exist, or false (2) if a column is not found in the
-## table.
+## Returns: true (0) if the database structure is OK, false (1) if the table
+## does not exist, or false (2) if a column is not found in the table.
 okDatabaseStructure() {
   local tables_and_columns="${1}" ; shift
 
@@ -251,8 +244,8 @@ okDatabaseStructure() {
 ##############################################################################
 ##############################################################################
 
-## In which we find the ZSH implementation of strftime(3) and the
-## shell parameter EPOCHSECONDS.
+## In which we find the ZSH implementation of strftime(3) and the shell
+## parameter EPOCHSECONDS.
 zmodload zsh/datetime
 
 ## In which we find the filesystem zstat() subroutine.
@@ -289,8 +282,8 @@ LOGGER_VERBOSE=''
 ## CONFIGURATION
 ##
 ## This secton of the file contains configuration settings for this script.
-## Defaults may be overridden by setting shell environment variables by
-## the thing what calls this script.
+## Defaults may be overridden by setting shell environment variables by the
+## thing what calls this script.
 ##
 ##############################################################################
 ##############################################################################
@@ -301,16 +294,15 @@ TOP_DIR="${TOP_DIR:-/usr/local/share/time-temp}"
 TEMPERATURE_DIR="${TEMPERATURE_DIR:-${TOP_DIR}/TempAnnounce}"
 TIME_DIR="${TIME_DIR:-${TOP_DIR}/TimeAnnounce}"
 
-## United States National Weather Service current observation URL
-## base.
+## United States National Weather Service current observation URL base.
 NWS_XML_URL_BASE="https://w1.weather.gov/xml/current_obs"
 
-## Default temperature unit is Farenheit. Specify Celcius in the
-## calling environment variable TEMPERATURE_UNIT (case is ignored).
+## Default temperature unit is Farenheit. Specify Celcius in the calling
+## environment variable TEMPERATURE_UNIT (case is ignored).
 TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
 
-## We poll the NWS only once per hour since they update the conditions
-## only that often. Use the file in $(LAST_OBSERVATION} as a cache.
+## We poll the NWS only once per hour since they update the conditions only that
+## often. Use the file in $(LAST_OBSERVATION} as a cache.
 typeset -r LAST_OBSERVATION="${TOP_DIR}/last-observation"
 
 if ! TEMP=$(getopt -o c:l:hVv --long cart:,location:,help,version,verbose -n "${0##*/}" -- "${@}") ; then
@@ -337,14 +329,13 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-## Log STDOUT and STDERR of this script and all commands called by this
-## script to separate files.
+## Log STDOUT and STDERR of this script and all commands called by this script
+## to separate files.
 exec 1> "/var/tmp/${0##*/}.out"
 exec 2> "/var/tmp/${0##*/}.err"
 
-## Enable script tracing and logger(1) output to STDERR for
-## troubleshooting if they specified --verbose mode on the command
-## line.
+## Enable script tracing and logger(1) output to STDERR for troubleshooting if
+## they specified --verbose mode on the command line.
 ((VERBOSE)) && typeset -r LOGGER_VERBOSE="--stderr"
 if ((VERBOSE > 1)) ; then
   setopt xtrace
@@ -362,16 +353,15 @@ if [[ -z "${NWS_LOCATION_CODE}" ]] ; then
   exit 3
 fi
 
-## Make sure the data directory is writable by the user running this
-## script.
+## Make sure the data directory is writable by the user running this script.
 if ! [[ -w "${TOP_DIR}" ]] ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing write permission on the cache directory '${TOP_DIR}'. Please adjust permissions."
   exit 1
 fi
   
 
-## Ask Rivendell what its system-wide sample rate is. Set it to 44100
-## if we are unable to discern the Rivendell setting.
+## Ask Rivendell what its system-wide sample rate is. Set it to 44100 if we are
+## unable to discern the Rivendell setting.
 if ! okDatabaseStructure SYSTEM:sample_rate ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing column 'Rivendell.SYSTEM.SAMPLE_RATE'."
   exit 4
@@ -380,8 +370,7 @@ sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
 typeset -r sample_rate=${sample_rate:-44100}
 ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Using system sample rate '${sample_rate}' for audio transcoding."
 
-## Obtain the Rivendell Group for for the Cart. rdimport(1) requires
-## this.
+## Obtain the Rivendell Group for for the Cart. rdimport(1) requires this.
 if ! okDatabaseStructure CART:number+group_name ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing columns 'Rivendell.CART.NUMBER' and/or 'Rivendell.CART.GROUP_NAME'."
   exit 4
@@ -393,30 +382,27 @@ if [[ -z "${group_name}" ]] ; then
 fi
 ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Importing audio to Cart '${TO_CART}' in Group '${group_name}'."
 
-## The complete NWS URL is constructed by simply tacking it onto the
-## end of the base and adding the extension.
+## The complete NWS URL is constructed by simply tacking it onto the end of the
+## base and adding the extension.
 #NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION_CODE}.xml"
 
-## Make current_time and other variables read-only for the duration of
-## this run so that we don't risk them changing by some nefarious
-## process. We save the value of EPOCHSECONDS because EPOCHSECONDS
-## changes every second and we want a consistent time for the duration
-## of this run. current_time_rfc2822 is used in the header of the file
-## containing the list of audio files to concatenate with ffmpeg.
+## Make current_time and other variables read-only for the duration of this run
+## so that we don't risk them changing by some nefarious process. We save the
+## value of EPOCHSECONDS because EPOCHSECONDS changes every second and we want a
+## consistent time for the duration of this run.
 typeset -r current_time="${EPOCHSECONDS}"
 typeset -r hour_minute=$(strftime "%I%M" "${current_time}")
 typeset -r current_minute=$(strftime "%M" "${current_time}")
 
-## Refresh the conditions from the NWS only once per hour. Save the
-## output and use it for all the other minutes in the hour.
+## Refresh the conditions from the NWS only once per hour. Save the output and
+## use it for all the other minutes in the hour.
 ##
-## BUG ALERT: this assumes the script is run (at least) at fifteen
-## minutes past the hour. Adjust the conditional statement if your
-## schedule is different.
+## BUG ALERT: this assumes the script is run (at least) at fifteen minutes past
+## the hour. Adjust the conditional statement if your schedule is different.
 if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
 
-  ## Attempt to retrieve observation data from all locations specified
-  ## on the command line. Break out of the loop when we have data.
+  ## Attempt to retrieve observation data from all locations specified on the
+  ## command line. Break out of the loop when we have data.
   # shellcheck disable=SC2086,SC2116
   for NWS_LOCATION in $(echo ${NWS_LOCATION_CODE//,/ }) ; do
     NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION}.xml"
@@ -428,8 +414,8 @@ if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
       continue
     fi
     wget_exit_status="${?}"
-    ## Exit status messages are from wget(1) version 1.14, shipped
-    ## with CentOS 7.
+    ## Exit status messages are from wget(1) version 1.14, shipped with CentOS
+    ## 7.
     case "${wget_exit_status}" in
       0) wget_exit_message="" ;;
       1) wget_exit_message="Generic error." ;;
@@ -457,13 +443,12 @@ if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
   done
 fi
 
-## Read the data from the most recent poll, then set the variable to
-## read-only.
+## Read the data from the most recent poll, then set the variable to read-only.
 current_observation=$(< "${LAST_OBSERVATION}")
 typeset -r current_observation
 
-## Extract the current temperature (in our unit of choice), the
-## current "weather", and the current wind string from the XML.
+## Extract the current temperature (in our unit of choice), the current
+## "weather", and the current wind string from the XML.
 if ! current_temperature=$(echo "${current_observation}" |
 			     ${XMLSTARLET} select -t -v "current_observation/temp_${TEMPERATURE_UNIT}") ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'temp_${TEMPERATURE_UNIT}' from '${current_observation}'."
@@ -473,8 +458,8 @@ current_weather=$(echo "${current_observation}" |
 		    ${XMLSTARLET} select -t -v 'current_observation/weather')
 current_wind_string=$(echo "${current_observation}" |
 			${XMLSTARLET} select -t -v 'current_observation/wind_string')
-## Drop the fraction to the right of the decimal point in the
-## retrieved temperature.
+## Drop the fraction to the right of the decimal point in the retrieved
+## temperature.
 typeset -r current_temperature="${current_temperature%.*}"
 current_conditions="${current_temperature}. ${current_weather}. Wind ${current_wind_string}"
 ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Currently: '${current_conditions}'"
@@ -482,16 +467,16 @@ current_conditions="${current_temperature}. ${current_weather}. Wind ${current_w
 ## Save the concatenated time and temperature audio in this file.
 typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
 
-## Set the shell to remove the temporary files on script exit or
-## interruption.
-## We want these variables to be expanded when referenced rather than
-## when signalled.
+## Set the shell to remove the temporary files on script exit or interruption.
+##
+## We want these variables to be expanded when referenced rather than when
+## signalled.
 # shellcheck disable=SC2064
 trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
 
-## Use ffmpeg to concatenate and transcode the time and temperature
-## audio files into a PCM file with the sample rate that matches the
-## system setting in Rivendell.
+## Use ffmpeg to concatenate and transcode the time and temperature audio files
+## into a PCM file with the sample rate that matches the system setting in
+## Rivendell.
 ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: ffmpeg: 'concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}'"
 ${FFMPEG} -y -loglevel quiet -i "concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}" -c pcm_s16le -ar "${sample_rate}" "${current_time_and_temperature}"
 
@@ -505,8 +490,8 @@ delete_source='--delete-source'
 if ((VERBOSE)) ; then
   typeset -r delete_source=''
 fi
-## We need to leave variables used as command line parameters unquoted
-## otherwise rdimport(1) interprets them as required parameters.
+## We need to leave variables used as command line parameters unquoted otherwise
+## rdimport(1) interprets them as required parameters.
 # shellcheck disable=SC2248
 ${RDIMPORT} \
   ${VERBOSE:+'--verbose'} \
