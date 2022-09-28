@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 6;
+use constant vPATCH => 7;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -283,7 +283,7 @@ sub getLogFiles() {
         # range. We always want to examine "access.log".
         if (m/^access\.log(\.(\d{8})_\d+)/) {
             ($lfDate = $_) =~ s/^access\.log(\.(\d{8})_\d+)*/$2/;
-            next if ($lfDate && ($lfDate < $startYYYYMMDD || $lfDate > $endYYYYMMDD));
+            next if ($lfDate && ($lfDate < $startYYYYMMDD || $lfDate > ($endYYYYMMDD + 7)));
         }
 
         say STDERR "getLogFiles: Looking at $_" if ($verbose);
