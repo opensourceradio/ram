@@ -1,27 +1,28 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2154,SC2162
+# shellcheck shell=bash disable=SC2016,SC2086,SC2154,SC2162,SC2248
 # SC2016: The single quotes are inside a double-quoted string
+# SC2086: shellcheck is too quote-happy
 # SC2154: I know about all the referenced but not assigned variables
 # SC2162: I do not care about read and its backslashes
+# SC2248: shellcheck is too quote-happy
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=2
-vPatch=3
+vMinor=3
+vPatch=0
 vHash='$Hash$'
 
 ##############################################################################
 ##############################################################################
 ##
-## rd-time-temp
+## btd-time-temp
 ##
 ## Provide current time and temperature audio snippets to Rivendell.
 ##
-## This script uses the current system time. For best results, make sure the
-## system time is synchronized to a working network time protocol (NTP) service)
-## and the United States National Weather Service (NWS) (based on a
-## pre-configured location) to import audio files into a specific audio Cart in
-## the Rivendell Library.
+## This script uses the current system time (ensure the system time is
+## synchronized to a working network time protocol (NTP) service), and the
+## United States National Weather Service (NWS) (and Synoptic Data) to import
+## audio files into a specific audio Cart in the Rivendell Library.
 ##
 ## Audio files containing time readings can contain any meaningful sounds, and
 ## must be named using four digits like this: HHMM. You should at least provide
@@ -37,7 +38,8 @@ vHash='$Hash$'
 ## state-by-state lists of locations). This script uses the XML file, not the
 ## RSS file. The URL is formed using the four-character code inserted into this
 ## string (substituting for "XXXX"):
-## https://w1.weather.gov/xml/current_obs/XXXX.xml
+## https://w1.weather.gov/xml/current_obs/XXXX.xml See also
+## https://developers.synopticdata.com/mesonet/
 ##
 ## Specify the NWS location code using the "-l" (or "--location") command line
 ## parameter. See usage() for more details.
@@ -57,6 +59,9 @@ vHash='$Hash$'
 ##
 ## xmlstarlet(1): this is used to parse the XML from the NWS website. Install it
 ## with the command `sudo yum install xmlstarlet` (from the epel repository).
+##
+## jq(1): this is used to parse the JSON from the Synoptic Mesonet API. Install
+## it with the command `sudo yum install jq`.
 ##
 ## ffmpeg(1): The script uses the ffmpeg command to concatenate the time audio
 ## file and the temperature audio file into a single file. It then imports that
@@ -84,42 +89,194 @@ file containing same into the Rivendell Library.
 
 SUMMARY
 
-${my_name} [ --verbose ... ]
-              --cart (-c) <Cart Number> --location (-l) <NWS Location Code>[,<NWS Location Code>]...
+${my_name} [ --verbose ... ] [ --debug ]
+              --cart (-c) <Cart Number>
+              --location (-l) <NWS Location Code>[,<NWS Location Code>]...
 
 DESCRIPTION
 
-${my_name} captures the current time of day and the current reported
-temperature from the US National Weather Service into a single audio
-file and uses rdimport(1) to import that audio file to a specified
-Cart in the Rivendell Library.
+${my_name} captures the current time of day and the current reported temperature
+from the US National Weather Service into a single audio file and uses
+rdimport(1) to import that audio file to a specified Cart in the Rivendell
+Library.
 
-The command line arguments --cart and --location are mandatory. Use
---cart (short option: -c) to specify the Rivendell Cart Number. Use
---location (short option -l) to specify one or more NWS location codes
-for which to retrieve the current temperature from the US National
-Weather Service (see
-https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for all
-available locations). Separate multiple location codes with a comma
-(and no whitespace).
+The command line arguments --cart and --location are mandatory. Use --cart
+(short option: -c) to specify the Rivendell Cart Number. Use --location (short
+option -l) to specify one or more NWS location codes for which to retrieve the
+current temperature from the US National Weather Service (see
+https://w1.weather.gov/xml/current_obs/seek.php?Find=Find for all available
+locations). Separate multiple location codes with a comma (and no whitespace).
 
-Specifying multiple location codes is a form of "backup". If the URL
-for the first code fails to return data, ${my_name} attempts to
-retrieve observation data for the second and subsequent codes in
-order. The last known observation values are used if none of the URLs
-return data.
+Specifying multiple location codes is a form of "backup". If the URL for the
+first code fails to return data, ${my_name} attempts to retrieve observation
+data for the second and subsequent codes in order. The last known observation
+values are used if none of the URLs return data.
 
-Use the command line parameter --verbose to make ${my_name} more
-chatty about its progress. Use one -v to output status. Use two or
-more -v to run the script with "xtrace" turned on (see man zshoptions
-for explanation and details of the xtrace option).
+Use the command line parameter --verbose to make ${my_name} more chatty about
+its progress. Use one -v to output status. Use two or more -v to run the script
+with "xtrace" turned on (see man zshoptions for explanation and details of the
+xtrace option).
+
+Use the command line parameter --debug to direct all output to the
+terminal. Otherwise all output is directed to a pair of files in /var/tmp.
 
 EOF
 }
 
+## Get the current temperature (generic). This wraps the service-specific
+## "current conditions" retrieval. It checks the "last updated" timestamp at NWS
+## and uses Synoptic when the NWS conditions have not been updated for more than
+## two hours.
+get_temp() {
+  local -r nws_location="${1}"
+
+  local current_observation
+
+  ## Get observation data from the NWS.
+  ## Read the data from the API, then set the variable to read-only.
+  if ! current_observation=$(nws_get_observation "${nws_location}") ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to get observation from NWS for '${nws_location}'."
+
+    ## Unable to get a current temperature from NWS, try Synoptic.
+    if ! current_observation=$(syn_get_observation "${nws_location}") ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to get observation from Synoptic for '${nws_location}'."
+      print ""
+      return 1
+    fi
+  fi
+
+  printf "%d" "${current_observation}"
+  return
+}
+
+## Get the current conditions from the US National Weather Service.
+## Returns the current temperature as an integer. On error, returns an empty
+## string with the return code set appropriately.
+nws_get_observation() {
+  local -r NWS_LOCATION="${1}"
+
+  local raw_observation_data
+  local -r url="https://w1.weather.gov/xml/current_obs/${NWS_LOCATION}.xml"
+  local -i current_temperature
+
+  ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Getting data from NWS for location '${NWS_LOCATION}'."
+  if ! raw_observation_data="$(api_get_with_errors "${url}")" ; then
+    local -i api_get_exit_value=${?}
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to retrieve data from NWS for '${NWS_LOCATION}'."
+    print ""
+    return ${api_get_exit_value}
+  fi
+
+  ## Check the time on the current observation.
+  if ! read -r observation_time_rfc822 <<<"$(echo "${raw_observation_data}" | ${XMLSTARLET} select -t -v 'current_observation/observation_time_rfc822')" ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'observation_time_rfc822' from '${current_observation}'."
+    print ""
+    return 102
+  fi
+  if ! read -r observation_time <<<"$(${DATE} --date="${observation_time_rfc822}" '+%s')" ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to convert 'observation_time_rfc822' to epoch seconds."
+    print ""
+    return 102
+  fi
+
+  ## Return an empty string with an error if the observation time is more than
+  ## two hours old.
+  if (( (CURRENT_TIME - observation_time) > 7200 )) ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than two hours old."
+    print ""
+    return 99
+  fi
+
+  ## Extract the current temperature (in our unit of choice) from the XML.
+  if ! current_temperature=$(print "${current_observation}" |
+			       ${XMLSTARLET} select -t -v "current_observation/temp_${TEMPERATURE_UNIT}") ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'temp_${TEMPERATURE_UNIT}' from '${current_observation}'."
+    return 103
+  fi
+
+  printf "%d" ${current_temperature%.*}
+}
+
+## Get the current conditions from Synoptic MESONET.
+## Returns the current temperature as an integer. On error, returns an empty
+## string with the return code set appropriately.
+syn_get_observation() {
+  local -r NWS_LOCATION="${1}"
+  ## Synoptic Mesonet API base URL.
+  local -r url_base="https://api.synopticdata.com/v2/stations/latest"
+  typeset -r synoptic_api_token="$(${GREP} -v '^#' ${SYNOPTIC_API_TOKEN_FILE})"
+  local raw_observation_data
+  local -i current_temperature
+
+  case _${TEMPERATURE_UNIT} in
+    _[Ff]) syn_unit=english ;;
+    _[Cc]) syn_unit=metric ;;
+    *) syn_unit=english ;;
+  esac
+
+  local -r url="${url_base}?radius=${NWS_LOCATION},10&limit=1&vars=air_temp&within=60&timeformat=%Y%m%d-%H%M%S&units=${syn_unit}&fields=stid&token=${synoptic_api_token}"
+
+  ## Grab the entire output from Synoptic for this location.
+  if ! read -r raw_observation_data <<<"$(api_get_with_errors "${url}")" ; then
+    local -i api_get_exit_value=${?}
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to retrieve data from Synpotic for '${NWS_LOCATION}'."
+    print ""
+    return ${api_get_exit_value}
+  fi
+
+  ## Note that the jq(1) expression is cAsE SenSiTive.
+  if ! read -r current_temperature <<<"$(print "${raw_observation_data}" | ${JQ} '.STATION[].OBSERVATIONS.air_temp_value_1.value')" ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'air_temp_value_1.value}' from '${current_observation}'."
+    print ""
+    return 103
+  fi
+
+  printf "%d" ${current_temperature%.*}
+}
+
+## Get data from an HTTP API with error checking.
+api_get_with_errors() {
+  local url="${1}"
+
+  local raw_observation_data
+  local -i wget_exit_status
+  local wget_exit_message=""
+
+  ## Grab the entire output from the API endpoint.
+  ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.info -i "INFO: About to get data from '""${url}""'."
+  raw_observation_data=$(${WGET} --quiet --timeout=5 -O - "${url}")
+  wget_exit_status="${?}"
+  ## Exit status messages are from wget(1) version 1.14, shipped with CentOS 7.
+  case "${wget_exit_status}" in
+    0) wget_exit_message="" ;;
+    1) wget_exit_message="Generic error." ;;
+    2) wget_exit_message="Parse Error. This should NOT happen." ;;
+    3) wget_exit_message="File I/O Error. This should NOT happen." ;;
+    4) wget_exit_message="Network failure. Hopefully it will be fixed next time." ;;
+    5) wget_exit_message="SSL verification error. This should NOT happen." ;;
+    6) wget_exit_message="Authentication error. Check your credentials." ;;
+    7) wget_exit_message="Protocoal error(s)." ;;
+    8) wget_exit_message="Server error. See returned HTML for details?" ;;
+    *) wget_exit_message="Unknown WGET error code. Please consult the authorities." ;;
+  esac
+  if ((wget_exit_status != 0)) ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} returned exit status '${wget_exit_status}'. ${wget_exit_message}"
+    printf "\n"
+    return ${wget_exit_status}
+  fi
+  if [[ -z "${raw_observation_data}" ]] ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} retrieved empty data."
+    printf "\n"
+    return 101
+  fi
+
+  printf "%s\n" "${raw_observation_data}"
+  return
+}
+
 ## Make mysql calls look a bit more asthetically pleasing. The return value of
 ## this shell funtion is the exit value of the mysql command invocation.
-doSQL() {
+do_sql() {
   local statement="${1:?Need a database query to run.}"
   local useMyCNF=0
   local usableMyCNF=4
@@ -196,13 +353,12 @@ okDatabaseStructure() {
   local column schema table
   local -A tables
 
-  # Ensure that the Internal Field Separator (IFS) is a <Space> for
-  # the command substitution below.
+  # Ensure that the Internal Field Separator (IFS) is a <Space> for the command
+  # substitution below.
   local -r oIFS="${IFS}" ; IFS=' '
 
-  # Split the comma-separated list of
-  # table:colum+column+column... into the ${tables} ZSH associative
-  # array parameter.
+  # Split the comma-separated list of table:colum+column+column... into the
+  # ${tables} ZSH associative array parameter.
   # shellcheck disable=SC2190,SC2207,SC2116
   # SC2190: ZSH arrays are handled differently than BASH arrays
   # SC2207: we do not want to use BASH mapfile or 'read -a'
@@ -215,7 +371,7 @@ okDatabaseStructure() {
   # SC2086: we do not want to quote the variable because it will
   #         change the way we want it expanded.
   for table in $(echo ${(k)tables}) ; do
-    if ! schema=$(doSQL "show create table \`${table}\`\\G" 2>/dev/null) ; then
+    if ! schema=$(do_sql "show create table \`${table}\`\\G" 2>/dev/null) ; then
       IFS="${oIFS}"
       echo "okDatabaseStructure: ERROR: unable to get a schema for table '${table}'" >&2
       return 1
@@ -252,25 +408,27 @@ zmodload zsh/datetime
 zmodload zsh/stat
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 13 external commands.
+# This script uses these 14 external commands.
 # Look for them in their upper case, parameter expanded form.
 typeset -a our_commands
-our_commands=( awk cat ffmpeg grep logger mktemp mv mysql rdimport rm sed wget xmlstarlet )
+our_commands=( awk cat date ffmpeg grep jq logger mktemp mysql rdimport rm sed wget xmlstarlet )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
 for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
     # shellcheck disable=SC2140,SC2086 # we need the quotes
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-unset our_commands
+unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
 typeset -i VERBOSE=0
@@ -294,18 +452,20 @@ TOP_DIR="${TOP_DIR:-/usr/local/share/time-temp}"
 TEMPERATURE_DIR="${TEMPERATURE_DIR:-${TOP_DIR}/TempAnnounce}"
 TIME_DIR="${TIME_DIR:-${TOP_DIR}/TimeAnnounce}"
 
-## United States National Weather Service current observation URL base.
-NWS_XML_URL_BASE="https://w1.weather.gov/xml/current_obs"
-
 ## Default temperature unit is Farenheit. Specify Celcius in the calling
 ## environment variable TEMPERATURE_UNIT (case is ignored).
-TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
+typeset -rx TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
 
 ## We poll the NWS only once per hour since they update the conditions only that
 ## often. Use the file in $(LAST_OBSERVATION} as a cache.
-typeset -r LAST_OBSERVATION="${TOP_DIR}/last-observation"
+typeset -rx LAST_OBSERVATION="${TOP_DIR}/last-observation"
 
-if ! TEMP=$(getopt -o c:l:hVv --long cart:,location:,help,version,verbose -n "${0##*/}" -- "${@}") ; then
+## Synoptic Data API token. This credential grants permission to request weather
+## data from the server. The file format is simply a single line containing the
+## token. Comments lines start with a "#" symbol.
+typeset -rx SYNOPTIC_API_TOKEN_FILE="${TOP_DIR}/synoptic_api_token"
+
+if ! TEMP=$(getopt -o c:l:hVvd --long cart:,location:,help,version,verbose,debug -n "${0:t}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -318,6 +478,7 @@ while : ; do
     -l|--location) NWS_LOCATION_CODE="${2}" ; shift 2 ;;
     -h|--help*) usage "${0}" ; exit ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
+    -d|--debu*) ((DEBUG=1)) ; shift ;;
     -V|--vers*) showVersion=1 ; shift ;;
     --) shift ; break ;;
     *) echo "${0##*/}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
@@ -329,10 +490,12 @@ if ((showVersion)) ; then
   exit 0
 fi
 
-## Log STDOUT and STDERR of this script and all commands called by this script
-## to separate files.
-exec 1> "/var/tmp/${0##*/}.out"
-exec 2> "/var/tmp/${0##*/}.err"
+if ! ((DEBUG)) ; then
+  ## Log STDOUT and STDERR of this script and all commands called by this script
+  ## to separate files.
+  exec 1> "/var/tmp/${0##*/}.out"
+  exec 2> "/var/tmp/${0##*/}.err"
+fi
 
 ## Enable script tracing and logger(1) output to STDERR for troubleshooting if
 ## they specified --verbose mode on the command line.
@@ -353,12 +516,11 @@ if [[ -z "${NWS_LOCATION_CODE}" ]] ; then
   exit 3
 fi
 
-## Make sure the data directory is writable by the user running this script.
+## Make sure the data directory is writable by the user ID running this script.
 if ! [[ -w "${TOP_DIR}" ]] ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing write permission on the cache directory '${TOP_DIR}'. Please adjust permissions."
   exit 1
 fi
-  
 
 ## Ask Rivendell what its system-wide sample rate is. Set it to 44100 if we are
 ## unable to discern the Rivendell setting.
@@ -366,33 +528,29 @@ if ! okDatabaseStructure SYSTEM:sample_rate ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing column 'Rivendell.SYSTEM.SAMPLE_RATE'."
   exit 4
 fi
-sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
+sample_rate=$(do_sql "select SAMPLE_RATE from SYSTEM")
 typeset -r sample_rate=${sample_rate:-44100}
-((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Using system sample rate '${sample_rate}' for audio transcoding."
+((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Using sample rate '${sample_rate}' for audio transcoding."
 
 ## Obtain the Rivendell Group for for the Cart. rdimport(1) requires this.
 if ! okDatabaseStructure CART:number+group_name ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Incompatible Rivendell database. Missing columns 'Rivendell.CART.NUMBER' and/or 'Rivendell.CART.GROUP_NAME'."
   exit 4
 fi
-typeset -r group_name=$(doSQL "select GROUP_NAME from CART where NUMBER=${TO_CART}")
+typeset -r group_name=$(do_sql "select GROUP_NAME from CART where NUMBER=${TO_CART}")
 if [[ -z "${group_name}" ]] ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to look up Rivendell Group name for Cart '${TO_CART}'."
   exit 5
 fi
 ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Importing audio to Cart '${TO_CART}' in Group '${group_name}'."
 
-## The complete NWS URL is constructed by simply tacking it onto the end of the
-## base and adding the extension.
-#NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION_CODE}.xml"
-
-## Make current_time and other variables read-only for the duration of this run
+## Make CURRENT_TIME and other variables read-only for the duration of this run
 ## so that we don't risk them changing by some nefarious process. We save the
 ## value of EPOCHSECONDS because EPOCHSECONDS changes every second and we want a
 ## consistent time for the duration of this run.
-typeset -r current_time="${EPOCHSECONDS}"
-typeset -r hour_minute=$(strftime "%I%M" "${current_time}")
-typeset -r current_minute=$(strftime "%M" "${current_time}")
+typeset -rx CURRENT_TIME="${EPOCHSECONDS}"
+typeset -r hour_minute=$(strftime "%I%M" "${CURRENT_TIME}")
+typeset -r current_minute=$(strftime "%M" "${CURRENT_TIME}")
 
 ## Refresh the conditions from the NWS only once per hour. Save the output and
 ## use it for all the other minutes in the hour.
@@ -405,74 +563,34 @@ if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
   ## command line. Break out of the loop when we have data.
   # shellcheck disable=SC2086,SC2116
   for NWS_LOCATION in $(echo ${NWS_LOCATION_CODE//,/ }) ; do
-    NWS_XML_URL="${NWS_XML_URL_BASE}/${NWS_LOCATION}.xml"
-    ((VERBOSE == 1)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Getting data from NWS for location '${NWS_LOCATION}'."
-    ## Grab the entire output from the NWS for this location.
-    ## This is just the way we want to examine the exit status of wget(1).
-    if ! raw_observation_data=$(${WGET} --quiet --timeout=5 -O - "${NWS_XML_URL}") ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} failed to retrieve data for location '${NWS_LOCATION}'."
-      continue
-    fi
-    wget_exit_status="${?}"
-    ## Exit status messages are from wget(1) version 1.14, shipped with CentOS
-    ## 7.
-    case "${wget_exit_status}" in
-      0) wget_exit_message="" ;;
-      1) wget_exit_message="Generic error." ;;
-      2) wget_exit_message="Parse Error. This should NOT happen." ;;
-      3) wget_exit_message="File I/O Error. This should NOT happen." ;;
-      4) wget_exit_message="Network failure. Hopefully it will be fixed next time." ;;
-      5) wget_exit_message="SSL verification error. This should NOT happen." ;;
-      6) wget_exit_message="Authentication error. This should NOT happen. Authentication is not required." ;;
-      7) wget_exit_message="Protocoal error(s)." ;;
-      8) wget_exit_message="Server error. See returned HTML for details?" ;;
-      *) wget_exit_message="Unknown WGET error code. Please consult the authorities." ;;
-    esac
-    if ((wget_exit_status != 0)) ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} returned exit status '${wget_exit_status}'. ${wget_exit_message}"
-      continue
-    fi
-    if [[ -z "${raw_observation_data}" ]] ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: ${WGET} retrieved empty data for location '${NWS_LOCATION}'."
-      continue
-    fi
-    if ! echo "${raw_observation_data}" | ${XMLSTARLET} c14n --without-comments - > "${LAST_OBSERVATION}" ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to process XML data for location '${NWS_LOCATION}'."
+    if ! current_temperature=$(get_temp "${NWS_LOCATION}") ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to obtain current temperature for '${NWS_LOCATION_CODE}'."
     fi
     break
   done
+
+  ## Save the reported temperature in the cache so we have it for future runs.
+  printf "%d\n" "${current_temperature}" > "${LAST_OBSERVATION}"
 fi
 
-## Read the data from the most recent poll, then set the variable to read-only.
-current_observation=$(< "${LAST_OBSERVATION}")
-typeset -r current_observation
-
-## Extract the current temperature (in our unit of choice), the current
-## "weather", and the current wind string from the XML.
-if ! current_temperature=$(echo "${current_observation}" |
-			     ${XMLSTARLET} select -t -v "current_observation/temp_${TEMPERATURE_UNIT}") ; then
-  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'temp_${TEMPERATURE_UNIT}' from '${current_observation}'."
-  exit 1
+## We did not retrieve the current temp above, so use the cached value.
+if [[ -z "${current_temperature}" ]] ; then
+  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.info -i "INFO: using last observation for current temperature."
+  if ! current_temperature=$(${CAT} "${LAST_OBSERVATION}") ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to obtain current temperature from '${LAST_OBSERVATION}'."
+  fi
 fi
-current_weather=$(echo "${current_observation}" |
-		    ${XMLSTARLET} select -t -v 'current_observation/weather')
-current_wind_string=$(echo "${current_observation}" |
-			${XMLSTARLET} select -t -v 'current_observation/wind_string')
-## Drop the fraction to the right of the decimal point in the retrieved
-## temperature.
-typeset -r current_temperature="${current_temperature%.*}"
-current_conditions="${current_temperature}. ${current_weather}. Wind ${current_wind_string}"
-((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: Currently: '${current_conditions}'"
 
 ## Save the concatenated time and temperature audio in this file.
 typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
 
 ## Set the shell to remove the temporary files on script exit or interruption.
-##
-## We want these variables to be expanded when referenced rather than when
-## signalled.
+## SC2064: We want these variables to be expanded when referenced rather than
+## when signaled.
 # shellcheck disable=SC2064
-trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
+if ! ((VERBOSE)) ; then
+  trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
+fi
 
 ## Use ffmpeg to concatenate and transcode the time and temperature audio files
 ## into a PCM file with the sample rate that matches the system setting in
@@ -499,8 +617,7 @@ ${RDIMPORT} \
   --delete-cuts \
   ${delete_source} \
   --fix-broken-formats \
-  --set-string-artist="Current Conditions" \
-  --set-string-title="${current_conditions}" \
+  --set-string-title="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
   --to-cart="${TO_CART}" \
   "${group_name}" \
   "${current_time_and_temperature}"
