@@ -9,7 +9,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=1
+vPatch=2
 vHash='$Hash$'
 
 ##############################################################################
@@ -181,7 +181,7 @@ nws_get_observation() {
 
   ## Return an empty string with an error if the observation time is more than
   ## two hours old.
-  if (( (CURRENT_TIME - observation_time) > 7200 )) ; then
+  if (( (CURRENT_TIME - observation_time) > 3600 )) ; then
     ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than two hours old."
     print ""
     return 99
