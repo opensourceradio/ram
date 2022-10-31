@@ -9,7 +9,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=0
+vPatch=1
 vHash='$Hash$'
 
 ##############################################################################
@@ -169,7 +169,7 @@ nws_get_observation() {
 
   ## Check the time on the current observation.
   if ! read -r observation_time_rfc822 <<<"$(echo "${raw_observation_data}" | ${XMLSTARLET} select -t -v 'current_observation/observation_time_rfc822')" ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'observation_time_rfc822' from '${current_observation}'."
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'observation_time_rfc822' from '${raw_observation_data}'."
     print ""
     return 102
   fi
@@ -188,12 +188,14 @@ nws_get_observation() {
   fi
 
   ## Extract the current temperature (in our unit of choice) from the XML.
-  if ! current_temperature=$(print "${current_observation}" |
-			       ${XMLSTARLET} select -t -v "current_observation/temp_${TEMPERATURE_UNIT}") ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'temp_${TEMPERATURE_UNIT}' from '${current_observation}'."
+  if ! read -r current_temperature <<<"$(print ${raw_observation_data} |
+			       ${XMLSTARLET} select -t -v current_observation/temp_${TEMPERATURE_UNIT})" ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'temp_${TEMPERATURE_UNIT}' from '${raw_observation_data}'."
     return 103
   fi
 
+  ## Return the current temperature after dropping the decimal point and
+  ## everything to its right.
   printf "%d" ${current_temperature%.*}
 }
 
