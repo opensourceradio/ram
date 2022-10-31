@@ -9,7 +9,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 ##############################################################################
@@ -126,7 +126,7 @@ EOF
 ## Get the current temperature (generic). This wraps the service-specific
 ## "current conditions" retrieval. It checks the "last updated" timestamp at NWS
 ## and uses Synoptic when the NWS conditions have not been updated for more than
-## two hours.
+## one hour.
 get_temp() {
   local -r nws_location="${1}"
 
@@ -180,9 +180,9 @@ nws_get_observation() {
   fi
 
   ## Return an empty string with an error if the observation time is more than
-  ## two hours old.
+  ## one hour old.
   if (( (CURRENT_TIME - observation_time) > 3600 )) ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than two hours old."
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than one hour old."
     print ""
     return 99
   fi
