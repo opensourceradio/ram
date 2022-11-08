@@ -1,7 +1,22 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# Set some system parameters.
+##############################################################################
+##
+## restart-rivendell
+##
+## User-interactive systemd rivendell.service restart utility.
+##
+## Assumptions:
+##   - this is being run by non-system user ID 1000. This is most
+##     likely username "rd"
+##   - this is being run with a graphical display environment
+##
+## Adjust accordingly if this is not your use case.
+##
+##############################################################################
+
+# Set some system parameters. Adjust here if necessary.
 export XDG_SESSION_CLASS=user
 export XDG_SESSION_TYPE=tty
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_USER:-/run/user/1000}
@@ -10,13 +25,21 @@ export XDG_RUNTIME_DIR=${XDG_RUNTIME_USER:-/run/user/1000}
 export SUDO_ASKPASS=/usr/bin/ssh-askpass
 
 # Stop the Rivendell processisng services.
-sudo systemctl stop rivendell.service
+if ! sudo systemctl stop rivendell.service ; then
+    typeset message="Unable to STOP Rivendell services."
+    if [[ -n "${DISPLAY}" ]] ; then
+	zenity --info --no-wrap --title="ERROR" --text="${message}"
+    else
+	printf "%s\n" "${message}"
+    fi
+    exit 1
+fi
 
 # Pause for two seconds to ensure the services are stopped.
 sleep 2
 
 # Disable the Ubuntu Studio services (primarily JACK audio routing service).
-if uname -v | grep -i ubuntu ; then
+if systemctl --user is-active --quiet studio.service ; then
     systemctl --user disable --now studio.service
 fi
 
@@ -24,7 +47,15 @@ fi
 sleep 2
 
 # Start the Rivendell processing services.
-sudo systemctl start rivendell.service
+if ! sudo systemctl start rivendell.service ; then
+    typeset message="Unable to RESTART Rivendell services."
+    if [[ -n "${DISPLAY}" ]] ; then
+	zenity --info --no-wrap --title="ERROR" --text="${message}"
+    else
+	printf "%s\n" "${message}"
+    fi
+    exit 2
+fi
 
 # Display confirmation dialog if running with a display.
 if [[ -n "${DISPLAY}" ]] ; then
