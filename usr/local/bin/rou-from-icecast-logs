@@ -7,7 +7,7 @@
 ##
 ## Produce SoundExchange Reports of Use from Icecast error logs.
 ##
-## Copyright 2021 David Klann <dklann@broadcasttool.com>
+## Copyright 2022 David Klann <dklann@broadcasttool.com>
 ##
 ##############################################################################
 ##############################################################################
@@ -21,7 +21,7 @@ use v5.20;
 use Readonly;
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 0;
+Readonly my $vPATCH => 1;
 Readonly my $vHASH => q($Hash$);
 
 use Data::Dumper;
@@ -236,6 +236,7 @@ sub main {
         next if ($log_line =~ m#brownfield#in);       # Ag reports.
         next if ($log_line =~ m#bob & sheri show#in);  # Morning show.
         next if ($log_line =~ m#cbs news#in); # Network news.
+	next if ($log_line =~ m#outdoor nebraska#in); # Outdoor Nebraska.
         # These should get weeded out in the above 'next unless' test.
         # next if ($log_line =~ m#noon news#in); # News.
         # next if ($log_line =~ m#(fm|k(has|ics|kpr|liq|xpn)) .* news#in); # News.
