@@ -1,0 +1,260 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC1105,SC2016,SC2048,SC2154,SC2190,SC2205,SC2211,SC2284,SC2296,SC2298,SC2299,SC2312
+# SC2016: "$Hash" is not a variable.
+# SC2048: shellcheck is too quote conservative
+# SC2154: all referenced variables are assigned indirectly.
+# SC2190: ZSH associative arrays are different from BASH.
+# SC2205: this is an arithmetic expression, not a subshell
+# SC2211: this is not a glob, we are checking the return value of the previous command (${?})
+# SC2284: this is an arithmetic expression, not a subshell
+# SC2296: ZSH permits bracketed parameter expansions starting with ().
+# SC2298: ZSH permits nested parameter expansions.
+# SC2299: ZSH permits nested parameter expansions.
+# SC2312: No need to invoke commands separately from their use in command substitution.
+
+##############################################################################
+##############################################################################
+##
+## Generate reports for all Rivendell services.
+##
+## See also: rdlogmanager --help
+##
+##############################################################################
+##############################################################################
+
+exec 1> "/var/tmp/${0:t}.out"
+exec 2> "/var/tmp/${0:t}.err"
+setopt xtrace
+
+zmodload zsh/datetime
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=0
+declare -r v_hash='$Hash$'
+
+declare -ir one_day=$(( 60 * 60 * 24))
+
+declare -i DEBUG=0
+declare -i SHOW_VERSION=0
+
+# Default number of days for which to generate Reports.
+declare -i DAYS=1
+
+function usage() {
+  local my_name="${1:t}"
+
+  cat <<EOF
+${my_name} [ --days (-d) <number-of-days> ] [ --start (-s) <date> ] [ --end (-e) <date> ]
+                 [ --service <name> ]
+                 [ --help (-h) ] [ --version (-v) ]
+
+$(${FMT} <<<"${my_name} uses rdlogmanager(1) to generate Reports for all SERVICES. With no optional arguments, ${my_name} generates Reports for 'yesterday' (the day before the current day). Also with no optional arguments, on Fridays ${my_name} generates Reports for all SERVICES for Saturday, Sunday and Monday.")
+
+$(${FMT} <<<"Without the optional '--service' parameter, ${my_name} generates Reports for all Rivendell Services. Specify a single service with the '--service <NAME>' option.")
+
+$(${FMT} <<<"You may specify a range of days for which rdlogmanager(1) should generate Reports by calling ${my_name} with the '--start' and '--end' options and specifying the date in YYYY-MM-DD format. Specifying '--end' without '--start' assumes 'yesterday' as the starting day. Specifying '--start' without '--end' means 'generate a Report just for that day'. Specifying neither '--start' nor '--end' causes ${my_name} to generate Reports for 'yesterday' (see above).")
+
+$(${FMT} <<<"Alternatively, you may instruct ${my_name} to generate a specific number of days of Reports with the --days <D> option. The starting day in this case is 'yesterday'.")
+
+$(${FMT} <<<"${my_name} saves the output of rdlogmanager(1) in the Desktop folder of the invoking user, and also emails the output to the addresses listed in the MAILTO shell variable.")
+
+$(${FMT} <<<"Enable ZSH debugging with the --debug (-D) option.")
+
+$(${FMT} <<<"See rdlogmanager(1) and 'rdlogmanager --help' for additional details.")
+
+EOF
+}
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 8 external commands.
+# Look for them in their upper case, parameter expanded form.
+typeset -a our_commands
+our_commands=( chmod cp fmt getopt logger mktemp rdlogmanager rm )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+if ! TEMP=$(${GETOPT} -o Dd:e:hs:v --long debug,days:,help,version,service:,start:,end: -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while :
+do
+  case "${1}" in
+    -d|--days) DAYS=${2} ; shift 2 ;;
+    --service) SERVICE=${2} ; shift 2 ;;
+    -s|--start) START_DATE=${2} ; shift 2 ;;
+    -e|--end) END_DATE=${2} ; shift 2 ;;
+    -D|--debug) DEBUG=1 ; shift ;;
+    -h|--help) usage "${0}" ; exit ;;
+    -v|--vers*) SHOW_VERSION=1 ; shift ;;
+    --) shift ; break ;;
+    *) echo 'Internal error!' ; exit 1 ;;
+  esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+  typeset commit_hash="${v_hash}"
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+  exit 0
+fi
+
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
+  exit 3
+fi
+
+((DEBUG)) && setopt xtrace
+
+# Exit values from rdlogmanager(1). Taken from Rivendell 3.6.2.
+declare -A rdlogmanager_exit_values
+rdlogmanager_exit_values=(
+  0  "Normal exit"
+  2  "Unable to open database"
+  4  "Unknown/invalid command line option"
+  5  "Unable to overwrite output [-P given]"
+  6  "No such service"
+  7  "No such log"
+  8  "No such report"
+  9  "Log generation failed"
+  10 "Schedule import failed"
+  11 "Insufficient permissions"
+  12 "Report generation failed"
+)
+
+declare -ri right_now=${EPOCHSECONDS}
+declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
+
+# Gather all the Services from Rivendell unless they asked for a
+# specific Service. services is an associative array indexed by the
+# service name. The values are the report name "templates".
+declare oIFS="${IFS}"
+IFS=$'\t\n'
+typeset -a services
+if [[ -n "${SERVICE}" ]] ; then
+  declare -r service_selection_clause=" where name = '${SERVICE}'"
+fi
+# SC2207: ZSH does not have BASH mapfile.
+# shellcheck disable=SC2207
+services=( $(doSQL "select NAME from SERVICES${service_selection_clause}") )
+IFS="${oIFS}"
+unset oIFS
+
+declare output_file
+if ! output_file=$(${MKTEMP}) ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "Error trying to create temporary file. Cannot continue."
+  exit 3
+fi
+# No changes to the value of the parameter.
+declare -r output_file
+
+# SC2064: I want this trap argument to expand now.
+# shellcheck disable=SC2064
+trap "${RM} -f '${output_file}' ; exit ;" 0 1 2 3
+
+# With no command line options, Reports are generated for yesterday.
+# SC2155: I *know* the strftime() works.
+# shellcheck disable=SC2155
+declare -r yesterday_YYYYMMDD=$(strftime "%F" $(( right_now - one_day )))
+# SC2155: See above.
+# shellcheck disable=SC2155
+declare -ri yesterday_seconds=$(strftime -r "%F" "${yesterday_YYYYMMDD}")
+
+declare -i start_date_seconds
+declare -i end_date_seconds
+
+# Set the start date to yesterday if not specified on the command line.
+if [[ -n "${START_DATE}" ]] ; then
+  if ! [[ "${START_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of Start Date '${START_DATE}'. I quit."
+    exit
+  fi
+  start_date_seconds=$(strftime -r "%F" "${START_DATE}")
+else
+  start_date_seconds="${yesterday_seconds}"
+fi
+
+# Set the end date to the same as the start date if not specified on
+# the command line.
+if [[ -n "${END_DATE}" ]] ; then
+  if ! [[ "${END_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of End Date '${END_DATE}'. I quit."
+    exit
+  fi
+  end_date_seconds=$(strftime -r "%F" "${END_DATE}")
+else
+  end_date_seconds="${start_date_seconds}"
+fi
+
+# Same thing if number of days was specified on the command line.
+if ((DAYS > 1)) ; then
+  end_date_seconds=$((start_date_seconds + (one_day * DAYS)))
+fi
+
+# For each day offset and for each service found:
+# Generate a Report (-r) for yesterday or the specific (set of) day(s).
+#   service: (e.g.: "Production") (-s)
+#   day spec (-d) is "yesterday" (0) unless ${START_DATE} is specified
+declare -ri start_day_offset=$(( ( start_date_seconds - yesterday_seconds - one_day ) / one_day ))
+declare -ri end_day_offset=$(( ( end_date_seconds - yesterday_seconds - one_day ) / one_day ))
+
+for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); day_offset++ )) ; do
+  for service in ${services[*]} ; do
+    for report in $(doSQL "select REPORT_NAME from REPORT_SERVICES where SERVICE_NAME = '${service}' order by REPORT_NAME") ; do
+      if ! ${RDLOGMANAGER} -s "${service}" -d "${day_offset}" -r "${report}" 2>&1 ; then
+	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (${day_offset}) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
+      fi
+    done
+  done
+done > "${output_file}"
+
+exit
+
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
