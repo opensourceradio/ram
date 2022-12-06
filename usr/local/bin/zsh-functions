@@ -1,6 +1,7 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2086,SC2116,SC2128,SC2154,SC2155,SC2162,SC2190,SC2207
+# shellcheck shell=bash disable=SC2016,SC2048,SC2086,SC2116,SC2128,SC2154,SC2155,SC2162,SC2190,SC2207,SC2248,SC2296,SC2298,SC2299,SC2312
 # SC2016: Single quotes are used explicitly to ignore parameter expansion.
+# SC2048: shellcheck is too quote conservative.
 # SC2086: All instances of params are quoted where they need to be.
 # SC2116: Not a "Useless echo", we need it to expand the params correctly.
 # SC2128: ZSH expands arrays without specifying ${param[*]}.
@@ -8,7 +9,12 @@
 # SC2155: Ignoring all return values in assignments.
 # SC2162: Because we do not ever encounter backslashes.
 # SC2190: ZSH: associative array assignment "just works"(TM).
-# SC2207: "prefer mapfile or read -a" these are all ZSH-isms
+# SC2207: "prefer mapfile or read -a" these are all ZSH-isms,
+# SC2248: shellcheck is too quote conservative.
+# SC2296: ZSH permits bracketed parameter expansions starting with ().
+# SC2298: ZSH permits nested parameter expansions.
+# SC2299: ZSH permits nested parameter expansions.
+# SC2312: No need to invoke commands separately.
 
 ##############################################################################
 #
