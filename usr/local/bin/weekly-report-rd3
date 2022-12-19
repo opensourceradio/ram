@@ -1,13 +1,18 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2004,SC2030,SC2031,SC2034,SC2046,SC2086,SC2116,SC2207
-# SC2004: ZSH does not spawn subshells like Bash does.
-# SC2030: ZSH does not spawn subshells like Bash does.
-# SC2034: parameters are used in a ZSH way.
-# SC2031: ZSH does not spawn subshells like Bash does.
-# SC2046: Lots of quoting unneeded.
-# SC2086: Lots of quoting unneeded.
-# SC2115: We need the echo in order to properly expand the parameter.
-# SC2207: mapfile is a Bash thing.
+# shellcheck shell=bash disable=SC2004,SC2030,SC2031,SC2034,SC2046,SC2086,SC2116,SC2153,SC2154,SC2207,SC2248,SC2296,SC2312
+# SC2004: ZSH does not spawn subshells like Bash does
+# SC2030: ZSH does not spawn subshells like Bash does
+# SC2034: parameters are used in a ZSH way
+# SC2031: ZSH does not spawn subshells like Bash does
+# SC2046: overly aggressive quoting recommendations
+# SC2086: overly aggressive quoting recommendations
+# SC2115: we need the echo in order to properly expand the parameter
+# SC2153: COLUMN is assigned by ZSH
+# SC2154: variables are assigned in a ZSH way
+# SC2207: mapfile is a Bash thing
+# SC2248: overly aggressive quoting recommendations
+# SC2296: ZSH parameter expansion
+# SC2312: silence command invocation recommendations
 
 ##########################################################################################
 ##########################################################################################
@@ -28,12 +33,23 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=8
+typeset -ir v_patch=9
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
 typeset -i VERBOSE=0
 typeset -i SHOW_VERSION=0
+
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+    source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
+    source /usr/local/bin/zsh-functions
+else
+    print "Missing zsh-functions library. Cannot continue." >&2
+    exit 1
+fi
 
 # Tell them how to use this command.
 usage() {
@@ -140,6 +156,8 @@ getSchedCodes() {
   local newCodes=$(printf "%s${fieldSeparator}" ${(z)codes})
 
   # To strip the trailing field separator.
+  # SC2295: overly aggressive quoting recommendation
+  # shellcheck disable=SC2295
   print ${newCodes%${fieldSeparator}}
 }
 
@@ -179,17 +197,9 @@ quote() {
   fi
 }
 
-# Get zsh functions necessary for this script.
-if [[ -r /usr/local/bin/zsh-functions ]] ; then
-  source /usr/local/bin/zsh-functions
-else
-  exit $(error "Cannot read support library '/usr/local/bin/zsh-functions'. Please consult your tarot card reader!")
-fi
-
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 5 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
 our_commands=( cat column getopt sort tr )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
@@ -197,8 +207,10 @@ our_commands=( cat column getopt sort tr )
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
@@ -218,7 +230,6 @@ typeset -i INCLUDE_CUTS=0
 # invocation.
 typeset -i PROdata=0
 
-# use getopt to parse the command line args
 if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
@@ -249,8 +260,9 @@ if ((SHOW_VERSION)) ; then
   typeset commit_hash="${v_hash}"
   # SC2016: $Hash is not a variable.
   # shellcheck disable=SC2016
-  [[ "${v_hash}" == '$Hash$' ]] &&
-    commit_hash="prerelase"
+  [[ "${v_hash}" == '$Hash$' ]] && commit_hash="prerelase"
+  # SC2299: ZSH parameters can nest
+  # shellcheck disable=SC2299
   print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
   exit 0
 fi
@@ -463,7 +475,7 @@ else
   # shellcheck disable=SC2059
   printf "${headerFormat}\n" \
 	 "Air Date" "Cart #" \
-	 $( ((INCLUDE_CUTS)) && print "Cut #") \
+	 "$( ((INCLUDE_CUTS)) && print 'Cut #')" \
 	 "Len" \
 	 "Cart Title" \
 	 $( ((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
