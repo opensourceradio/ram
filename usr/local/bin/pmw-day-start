@@ -3,22 +3,25 @@
 
 ##############################################################################
 ##
-## Based partially on a message that was originally posted to
-## rivendell-dev by Wayne Merricks <waynemerricks@thevoiceasia.com>
-## with Subject: "[RDD] Getting Airplay to Auto Play at correct time"
+## Based partially on a message that was originally posted to rivendell-dev by
+## Wayne Merricks <waynemerricks@thevoiceasia.com> with Subject: "[RDD] Getting
+## Airplay to Auto Play at correct time"
 ##
 ## BUT ALERT: This script assumes that tomorrows Log has already been prepared!
 ##
-## This script does not start the next Log, it simply loads tomorrows
-## Log and makes the first Cart in the new Log the next Cart to
-## play. This is to work around the seemingly broken setting in
-## rdadmin -> Manage Services -> "Insert CHAIN TO at log end" (also
-## seemingly in older version of Rivendell). You should DISABLE that
-## setting when using this script and the associated RML Macro.
+## NOTICE: This script is highly site-specific. Experience has shown that every
+## "midnight transition" is slightly different. The sequence of Rivendell Macros
+## need to be adjusted based on station policy and preferences.
 ##
-## This is meant to be run non-interactively from either a cron job,
-## or from another job scheduler such as rdcatch(1) at several seconds
-## before midnight.
+## This script does not start the next Log, it simply loads tomorrows Log and
+## makes the first Cart in the new Log the next Cart to play. This is to work
+## around the seemingly broken setting in rdadmin -> Manage Services -> "Insert
+## CHAIN TO at log end" (also seemingly in older version of Rivendell). You
+## should DISABLE that setting when using this script and the associated RML
+## Macro.
+##
+## This is meant to be run non-interactively from either a cron job, or from
+## another job scheduler such as rdcatch(1) at several seconds before midnight.
 ##
 ## This script MUST run ON the host running RDAirPlay!
 ##
@@ -36,33 +39,13 @@ declare -ir v_patch=5
 # shellcheck disable=SC2016
 declare -r v_hash='$Hash$'
 
-############# BEGIN external shell commands used in this script. #############
-# This script uses these 5 external commands.
-# Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
-our_commands=( cat getopt hostname logger rmlsend )
-# Find the executables we need; this uses some basic shell and a ZSH trick:
-# the (U) in the eval says to evaluate the parameter as all upper case
-# letters. This snippet generates shell parameters representing the upper case
-# equivalent of the command names and sets the parameter values to the full path
-# of the commands.
-# Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
-typeset C D
-for C in ${our_commands[*]} ; do
-  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
-  for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
-    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
-  done
-  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
-done
-unset our_commands C D
-############## END external shell commands used in this script. ##############
-
-##############################################################################
+##########################################################################################
+##########################################################################################
+##
 ## Locally defined subroutines
-##############################################################################
+##
+##########################################################################################
+##########################################################################################
 
 # How to use this command.
 usage() {
@@ -99,9 +82,38 @@ and "SOURCE_TRACE" options.
 EOF
 }
 
-##############################################################################
-## Process command line options.
-##############################################################################
+##########################################################################################
+##########################################################################################
+##
+## Script Main Line
+##
+##########################################################################################
+##########################################################################################
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 5 external commands.
+# Look for them in their upper case, parameter expanded form.
+our_commands=( cat getopt hostname logger rmlsend )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
 
 declare -i show_version=0
 declare -i VERBOSE=0
@@ -138,11 +150,13 @@ if ((show_version)) ; then
 fi
 
 # Redirect STDOUT and STDERR to separate files.
-exec 1> "/var/tmp/${myName}.out"
-exec 2> "/var/tmp/${myName}.err"
+if ! ((VERBOSE)) ; then
+  exec 1> "/var/tmp/${myName}.out"
+  exec 2> "/var/tmp/${myName}.err"
+fi
 
-# Enable ZSH XTRACE and SOURCE_TRACE options if --verbose. All output
-# will go to ${0}.err (see above).
+# Enable ZSH XTRACE and SOURCE_TRACE options if --verbose. All output will go to
+# ${0}.err (see above).
 ((VERBOSE)) && setopt xtrace source_trace
 
 # Optional argument names a Log to load in the Aux Log 1 Machine.
@@ -220,14 +234,19 @@ for service in ${(k)logNameTemplate} ; do
   nextLogLookup=$(doSQL "SELECT name FROM LOGS WHERE name = '${nextLog}'")
 
   if [[ -n "${nextLogLookup}" ]] ; then
-
+    # NOTICE: the following here-doc is highly site-specific. Please update
+    # these Macro calls as appropriate for the station.
+    #
     # What this here-doc does:
     # PW 1: Select Widget, "Main Log"
     # LL 1: Load Log, RDAirPlay load tomorrows Log, but do not start it (-1)
-    # auxLog: if the shell variable auxLog is set, load the named Log in Auxiliary Log 1 (log machine 2)
-    # MN 1: Make Next, the first cart in the Log (line ID 0, should be a "Start Immediately", or "Make Next")
-    # auxLog: if the shell variable auxLog is set, Make Next the first cart in Auxiliary Log 1 (line ID 0)
+    # auxLog: if the shell variable auxLog is set, load the named Log in Auxiliary Log 1 (Log Machine 2)
+    # MN 1: Make Next, the first Cart in the Log (line ID 0, should be a "Start Immediately", or "Make Next")
+    # auxLog: if the shell variable auxLog is set, Make Next the first Cart in Auxiliary Log 1 (line ID 0)
+    #       Two possible alternatives here (probably not both PM and PN). Either
     # PM 2: Set Mode, RDAirPlay mode "Auto"
+    # - or -
+    # PN 1: Play Next, Play the next line in the Main Log
     # SC2154: RMLSEND is set by mk-ourCommands.
     # shellcheck disable=SC2154
     if rmlsendOutput=$(${RMLSEND} --from-file=- 2>&1) <<EOF
@@ -237,6 +256,7 @@ ${auxLog:+LL 2 ${auxLog}! -1}
 MN 1 0!
 ${auxLog:+MN 2 0!}
 PM 2!
+PN 1!
 EOF
     then
       ${LOGGER} --stderr -t "${myName}" -p local7.info \
