@@ -34,7 +34,7 @@ myName="${0:t}"
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ir v_major=0
 declare -ir v_minor=2
-declare -ir v_patch=5
+declare -ir v_patch=6
 # SC2016: $Hash$ is not a shell variable.
 # shellcheck disable=SC2016
 declare -r v_hash='$Hash$'
