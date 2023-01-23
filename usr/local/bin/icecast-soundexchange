@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 7;
+use constant vPATCH => 8;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -45,19 +45,19 @@ sub main() {
     my $zip         = undef;
 
     $result = GetOptions(
-        "end-date|e=s"      => \$endDate,
-        "log-directory|l=s" => \$logDirectory,
-        "mount-points|m=s"  => \$mount_points,
-        "output-dir|o=s"    => \$outputDir,
-        "raw|r"             => \$rawOutput,
-        "start-date|s=s"    => \$startDate,
-        "zip-file|z=s"      => \$zipFile,
-        "verbose|v+"        => \$verbose,
-        'version|V'         => \$version,
-        "debug|d+"          => \$debug,
-        "help|h"            => \$help,
-        "man|M"             => \$man,
-    );
+        "end-date|e=s"         => \$endDate,
+        "log-directory|l=s"    => \$logDirectory,
+        "mount-points|m=s"     => \$mount_points,
+        "output-directory|o=s" => \$outputDir,
+        "raw|r"                => \$rawOutput,
+        "start-date|s=s"       => \$startDate,
+        "zip-file|z=s"         => \$zipFile,
+        "verbose|v+"           => \$verbose,
+        'version|V'            => \$version,
+        "debug|d+"             => \$debug,
+        "help|h"               => \$help,
+        "man|M"                => \$man,
+	);
     die "GetOptions returned " . $result . ". Stopped" if (!$result);
 
     pod2usage(1)             if (defined($help) && $help);
