@@ -33,7 +33,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=10
+typeset -ir v_patch=11
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -184,6 +184,7 @@ maxLength() {
 
   # This can return the word "NULL" so make sure it is reasonable.
   len=$(doSQL "${selectStatement}" | sed -e 's/NULL/0/')
+  ((VERBOSE)) && printf "maxLength: Field %s max length is %d\n" ${columnName} ${len} >&2
   echo ${len}
 }
 
@@ -455,27 +456,28 @@ fwArtist=$(maxLength artist)
 fwAlbum=$(maxLength album)
 fwLabel=$(maxLength label)
 fwPub=$(maxLength publisher)
+fwCutDesc=$(maxLength description)
 
 # The report header with optional column headings, based on invocation
 # options.
 if ((CSV)) ; then
   typeset header='"Air Date","Cart #"'
-  ((INCLUDE_CUTS)) && header=${header}',"Cut #"'
+  ((INCLUDE_CUTS)) && header=${header}',"Cut #","Cut Description"'
   header=${header}',"Len","Title"'
   ((PROdata)) && header=${header}',"Artist","Album","Label","Publisher"'
   ((SCHEDCODES)) && header=${header}',"SchedCodes"'
   print "${header}"
 else
   typeset headerFormat="%19s${fs}%6s"
-  ((INCLUDE_CUTS)) && headerFormat="${headerFormat}${fs}%5s"
+  ((INCLUDE_CUTS)) && headerFormat="${headerFormat}${fs}%3s${fs}%${fwCutDesc}s"
   headerFormat="${headerFormat}${fs}%5s${fs}%${fwTitle}s"
   ((PROdata)) && headerFormat="${headerFormat}${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s"
   ((SCHEDCODES)) && headerFormat="${headerFormat}${fs}%s"
   # SC2059: the variable contains the printf format string.
   # shellcheck disable=SC2059
   printf "${headerFormat}\n" \
-	 "Air Date" "Cart #" \
-	 $( ((INCLUDE_CUTS)) && print 'Cut #') \
+	 "Air Date" "Cart" \
+	 $( ((INCLUDE_CUTS)) && print 'Cut ' 'CutDescription') \
 	 "Len" \
 	 "Cart Title" \
 	 $( ((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
@@ -484,8 +486,8 @@ fi
 
 # Find all matching events in ELR_LINES.
 if okDatabaseStructure ELR_LINES:event_datetime+cut_number+artist+album+title+length+station_name,CART:number+group_name,CART_SCHED_CODES:sched_code ; then
-  selectStatement="SELECT elr.event_datetime, elr.title, c.number, elr.length/1000"
-  ((INCLUDE_CUTS)) && selectStatement="${selectStatement}, elr.cut_number"
+  selectStatement="SELECT elr.event_datetime, elr.title, lpad(c.number,6,'0'), elr.length/1000"
+  ((INCLUDE_CUTS)) && selectStatement="${selectStatement}, lpad(elr.cut_number,3,'0'), elr.description"
   ((PROdata)) && selectStatement="${selectStatement}, elr.artist, elr.album, elr.label, elr.publisher"
   ((SCHEDCODES)) && selectStatement="${selectStatement}, csch.sched_code"
   selectStatement="${selectStatement} FROM ELR_LINES AS elr"
@@ -526,16 +528,17 @@ doSQL "${selectStatement}" | while read -r line ; do
   # Shift everything to the right by ${INCLUDE_CUTS} if --cuts was
   # specified on the command line.
   ((INCLUDE_CUTS)) && cutNumber=${(P)$((INCLUDE_CUTS + 4))}
+  ((INCLUDE_CUTS)) && cutDescription=${(P)$((INCLUDE_CUTS + 5))}
   if ((PROdata)) ; then
-    cartArtist="${(P)$((INCLUDE_CUTS + 5))}"
-    cartAlbum="${(P)$((INCLUDE_CUTS + 6))}"
-    cartLabel="${(P)$((INCLUDE_CUTS + 7))}"
-    cartPublisher="${(P)$((INCLUDE_CUTS + 8))}"
+    cartArtist="${(P)$((INCLUDE_CUTS + 6))}"
+    cartAlbum="${(P)$((INCLUDE_CUTS + 7))}"
+    cartLabel="${(P)$((INCLUDE_CUTS + 8))}"
+    cartPublisher="${(P)$((INCLUDE_CUTS + 9))}"
   fi
   # Position of schedCodes is dependent on the --pro-data and the
   # --cuts options, also strip the trailing period (.) from the
   # database record.
-  ((SCHEDCODES)) && schedCodes=${(P)$((5 + PROdata + INCLUDE_CUTS))%.}
+  ((SCHEDCODES)) && schedCodes=${(P)$((6 + PROdata + INCLUDE_CUTS))%.}
   set -
 
   # Do not convert to MM:SS if we are in CSV mode.
@@ -549,10 +552,11 @@ doSQL "${selectStatement}" | while read -r line ; do
   [[ "${airDateTime% *}" = "${lastAirDate}" ]] || print
 
   if ((CSV)) ; then
-    printf "%s${fs}%d$( ((INCLUDE_CUTS)) && print ${fs}%d)${fs}%s${fs}%s$( ((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
+    printf "%s${fs}%d$( ((INCLUDE_CUTS)) && print ${fs}%d${fs}%s)${fs}%s${fs}%s$( ((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$( ((${SCHEDCODES})) && echo ${fs}%s)\n" \
 	   $(quote "${airDateTime}") \
 	   "${cartNumber}" \
-	   $( ((INCLUDE_CUTS)) && print "${cutNumber}") \
+	   $( ((INCLUDE_CUTS)) && print "${cutNumber/-1/0}") \
+	   $( ((INCLUDE_CUTS)) && quote "${cutDescription}") \
 	   "${cartMinSec}" \
 	   $(quote "${cartTitle}") \
 	   $( ((${PROdata})) && quote "${cartArtist}") \
@@ -561,10 +565,11 @@ doSQL "${selectStatement}" | while read -r line ; do
 	   $( ((${PROdata})) && quote "${cartPublisher}") \
 	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
   else
-    printf "%20s${fs}%06d$( ((INCLUDE_CUTS)) && print ${fs}%5d)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
+    printf "%20s${fs}%06d$( ((INCLUDE_CUTS)) && print ${fs}%03d${fs}%${fwCutDesc}s)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
 	   $(quote "${airDateTime}") \
 	   ${cartNumber} \
-	   $( ((INCLUDE_CUTS)) && print "${cutNumber}") \
+	   $( ((INCLUDE_CUTS)) && print "${cutNumber/-1/0}") \
+	   $( ((INCLUDE_CUTS)) && print "${cutDescription}") \
 	   ${cartMinSec} \
 	   $(quote "${cartTitle}") \
 	   $( ((${PROdata})) && quote "${cartArtist}") \
