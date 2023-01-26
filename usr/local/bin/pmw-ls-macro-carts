@@ -1,44 +1,171 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2034,SC2154,SC2190,SC2207,SC2296,SC2299,SC2312
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
+# SC2034: shellcheck does not know about ZSH param expansions.
+# SC2154: the only "unassigned" parameters *should be* upper case command names.
+# SC2190: ZSH associative arrays work differently from Bash associative arrays.
+# SC2207: mapfile or read -a are Bash-isms.
+# SC2296: ZSH params CAN start with '('.
+# SC2299: ZSH params CAN be nested.
+# SC2312: ignore 'invoke separately' suggestions.
 
 ##############################################################################
 #
-# List macro carts: simply selects the CART number, TITLE and MACROS
-# from Rivendell.CART.
+# List macro carts: select the CART number, TITLE and MACROS (and optionally
+# NOTES) from Rivendell.CART.
 #
 ##############################################################################
 
-[[ -r ${ROOT:-/}usr/local/bin/zsh-functions ]] && source ${ROOT:-/}usr/local/bin/zsh-functions
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=2
+declare -r v_hash='$Hash$'
+
+##########################################################################################
+##########################################################################################
+##
+## Locally defined subroutines
+##
+##########################################################################################
+##########################################################################################
+
+# Show how to use this command.
+function usage() {
+  local -r my_name="${1:t}"
+
+  ${CAT} <<EOF
+NAME
+
+${my_name}
+
+SYNOPSIS
+
+${my_name} [ --long (-l) ] [ --notes (-n) ]
+                   [ --group (-g) ] [ --verbose (-v) ]
+                   [ --help (-h) ] [ --version (-V) ]
+
+DESCRIPTION
+
+$(${FMT} <<<"${my_name} lists Rivendell Macro Carts. It also optionally lists details about those Macro Carts.")
+
+$(${FMT} <<<"Specify '--long' (short option: '-l') to have ${my_name} show the details of the Macro Cart.")
+
+$(${FMT} <<<"Specify '--group' (short option: '-g') to have ${my_name} show the Group in which the Macro Cart belongs.")
+
+$(${FMT} <<<"Specify '--notes' (short option: '-n') to have ${my_name} show the Notes associated with the Macro Cart.")
+
+$(${FMT} <<<"Specify '--verbose' (short option: '-v') to have ${my_name} be 'chatty' about its progress.")
+
+$(${FMT} <<<"Specify '--version' (short option: '-V') to have ${my_name} display its version number and exit.")
+
+EOF
+}
+
+##########################################################################################
+##########################################################################################
+##
+## Script Main Line
+##
+##########################################################################################
+##########################################################################################
+
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+    source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
+    source /usr/local/bin/zsh-functions
+else
+    print "Missing zsh-functions library. Cannot continue." >&2
+    exit 1
+fi
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 4 external commands.
+# Look for them in their upper case, parameter expanded form.
+our_commands=( cat fmt getopt sed )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
 
 # cartColumns must be set to a SQL SELECT string representing the
 # column names from the Rivendell table "CART". Default is to be brief
 # with the output.
-cartColumns="NUMBER,TITLE"
+typeset cartColumns="NUMBER,TITLE"
+
+# Command line switches.
+typeset -i NOTES=0
+typeset -i GROUP=0
 
 # With the "-l (--long)" option, display the contents of the macro as
 # well as the number and title.
 # With the "-n (--notes)" option, display the cart notes (if any)
 # as well as the other stuff.
-TEMP=$(getopt -o gln --long group,long,notes -n ${0:t} -- "${@}")
-if [ ${?} != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
-# Note the quotes around `$TEMP': they are essential!
+if ! TEMP=$(${GETOPT} -o hglnVv --long help,group,long,notes,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
 eval set -- "${TEMP}"
-while :
-do
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
   case "${1}" in
-      -g|--grou*) cartColumns="${cartColumns},GROUP_NAME" ; shift ;;
-      -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
-      -n|--note*) cartColumns="${cartColumns},NOTES" ; shift ;;
-      --) shift ; break ;;
-      *) echo "Internal error!" ; exit 1 ;;
+    -h|--help) usage "${0}" ; exit ;;
+    -g|--grou*) GROUP=1 ; shift ;;
+    -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
+    -n|--note*) NOTES=1 ; shift ;;
+    -V|--version) SHOW_VERSION=1 ; shift ;;
+    -v|--verbose) ((VERBOSE += 1)) ; shift ;;
+    --) shift ; break ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
   esac
 done
+unset TEMP
 
-# Accept a single cart number on the command line (after options) to
-# display that CART.
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" == '$Hash$' ]] &&
+	commit_hash="prerelase"
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
+fi
+
+# Place the Group first in the query.
+if ((GROUP)) ; then
+  cartColumns="GROUP_NAME,${cartColumns}"
+fi
+
+# Place the Notes last in the query.
+if ((NOTES)) ; then
+  cartColumns="${cartColumns},NOTES"
+fi
+
+# Accept a single cart number on the command line (after options) to display
+# that CART.
 condition=${1:+" and NUMBER = ${1}"}
 
 # Macros are stored in the database with TYPE set to 2.
-doSQL "select ${cartColumns} from CART where TYPE = 2${condition}"
+# Run the query through sed(1) to make multi-line NOTES more visually appealing.
+doSQL "select ${cartColumns} from CART where TYPE = 2${condition}" | ${SED} -e 's,\\n,\
+,g'
 
 exit
 
