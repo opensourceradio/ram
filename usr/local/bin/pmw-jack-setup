@@ -1,8 +1,13 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2030,SC2031,SC2181
+# shellcheck shell=bash disable=SC2030,SC2031,SC2154,SC2155,SC2181,SC2296,SC2299,SC2312
 # SC2030: ZSH implements pipelines in the current shell, not a subshell
 # SC2031: ZSH implements loops in the current shell, not a subshell
+# SC2154: parmeters are initialized in a non-bash way
+# SC2155: do not worry about declaring and assigning parameters at the same time
 # SC2181: checking $? due to multiple condition branches
+# SC2296: ZSH parameter expansions can start with '('
+# SC2299: ZSH parameter expansions can be nested
+# SC2312: do not worry about return values in command expansion
 
 ##########################################################################################
 ##########################################################################################
@@ -19,8 +24,8 @@
 
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
-v_minor=2
-v_patch=5
+v_minor=3
+v_patch=1
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -62,38 +67,37 @@ $(${FMT} <<<"/etc/modprobe.d/sound.conf (or similar) for the order in which soun
 EOF
 }
 
-function version() {
-    my_name="${1}"
-    echo "${my_name}: version ${v_major}.${v_minor}.${v_patch}-${${v_hash#\$Hash: }%$}"
-}
-
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 13 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
-#our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort zita_a2j zita_j2a )
-our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort )
+#our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack-load logger sort zita-a2j zita-j2a )
+our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack-load logger sort )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
+zmodload zsh/regex
 
 typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
 
 ## Get zsh functions necessary for this script.
 if [[ ! -r /usr/local/bin/zsh-functions ]] ; then
@@ -109,6 +113,10 @@ typeset direction=both
 ## Assume that we are working on ALSA "major" device 0.
 typeset -i device=0
 
+## Channel count for input and output.
+typeset -i channels_input=0
+typeset -i channels_output=0
+
 if ! TEMP=$(getopt -o hd:ioVv --long help,ci:,co:,device:,in,out,verbose,version -n "${0:t}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
@@ -123,23 +131,28 @@ do
       -i|--in*) direction=in ; shift ;;
       -o|--out*) direction=out ; shift ;;
       -h|--help) usage "${0}" ; exit ;;
-      -v|--vers*) show_version=1 ; shift ;;
-      -V|--verb*) VERBOSE=1 ; shift ;;
+      -V|--vers*) SHOW_VERSION=1 ; shift ;;
+      -v|--verb*) ((VERBOSE+=1)) ; shift ;;
       --) shift ; break ;;
       *) echo 'Internal error!' ; exit 1 ;;
   esac
 done
 unset TEMP
 
-if ((show_version)) ; then
-  version "${0:t}"
-  exit 0
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    # SC2016: Hash is not a shell variable.
+    # shellcheck disable=SC2016
+    [[ "${v_hash}" == '$Hash$' ]] &&
+	commit_hash="prerelase"
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
 fi
 
 ## log STDOUT and STDERR of this script and all commands called by this script to separate files
 exec 1> "/var/tmp/${0:t}${1:+-${1}}.out"
 exec 2> "/var/tmp/${0:t}${1:+-${1}}.err"
-((VERBOSE)) && setopt xtrace
+((VERBOSE > 1)) && setopt xtrace
 
 ## JACK settings.
 ## See also (/usr/local/bin/) jackd-start
@@ -164,7 +177,7 @@ card_pattern="${1}"
 jack_client_name="${2}"
 
 ## Find the card in the output from aplay(1).
-typeset -r card_index_and_name=$(${APLAY} -l |
+typeset card_index_and_name=$(${APLAY} -l |
 				  ${AWK} "/^card .* ${card_pattern} .*, device ${device}:/{print \$2 \$3}" |
 				  ${SORT} -u |
 				  ${GREP} "${card_pattern}")
@@ -185,7 +198,8 @@ typeset -r alsa_in_log="${VARTMP:-/var/tmp}/alsa-input-${card_name}.log"
 
 ## Get the number of input (capture, record, etc.) and output
 ## (playback, playout, etc.) channels. Use an associative array to
-## store; key: role, value: channel count
+## store; key: role (capture: "rec", playback: "pla"), value: channel
+## count
 typeset -A channels
 
 ## The possible values for channel "roles"; capture (record) and
@@ -196,13 +210,31 @@ typeset -r pla="playback"
 channels[rec]=0
 channels[pla]=0
 
-## Did they specify number of channels on the command line? I guess if
-## they specify the number of input channels, they should also specify
-## number of output channels.
-if [[ -n "${channels_input}" ]] && [[ -n "${channels_output}" ]] ; then
+## If they specified only the number of input channels or output channels, make
+## the opposite direction match.
+if ((channels_input)) ; then
     channels[${rec}]="${channels_input}"
+    if ((channels_output)) ; then
+	channels[${pla}]="${channels_output}"
+    else
+	channels[${pla}]="${channels_input}"
+    fi
+    ((VERBOSE)) &&
+	${LOGGER} --stderr -t "${0:t}" -p local7.notice -i \
+	      "NOTICE: Setting channel count to: input: '${channels_input}', output: '${channels_output}'."
+fi
+if ((channels_output)) ; then
     channels[${pla}]="${channels_output}"
-else
+    if ((channels_input)) ; then
+	channels[${rec}]="${channels_input}"
+    else
+	channels[${rec}]="${channels_output}"
+    fi
+    ((VERBOSE)) &&
+	${LOGGER} --stderr -t "${0:t}" -p local7.notice -i \
+	      "NOTICE: Setting channel count to: output: '${channels_output}', input: '${channels_input}'."
+fi
+if ((channels_input == 0)) && ((channels_output == 0)) ; then
     ## Attempt to discern the number of input and output channels on this
     ## device.
 
@@ -235,8 +267,10 @@ else
     ##   Subdevice #0: subdevice #0
     ##
     ${AMIXER} -c "${card_index}" controls | while read -r amixer_control_line ; do
-	[[ "${amixer_control_line}" =~ ".*iface=PCM.*'(Capture|Playback) Channel Map'$" ]] || continue
-	## e.g.: numid=1,iface=PCM,name='Playback Channel Map'
+	[[ "${amixer_control_line}" =~ .*iface=PCM.*'(Capture|Playback) Channel Map' ]] || continue
+	## e.g.: numid=24,iface=PCM,name='Capture Channel Map'
+	## e.g.: numid=23,iface=PCM,name='Playback Channel Map'
+	## e.g.: numid=55,iface=PCM,name='Playback Channel Map',device=3
 	mixer_role="${${amixer_control_line#*name=\'}% Channel Map\'}"
 	case "${mixer_role}" in
 	    capture) role="${mixer_role}" ;;
@@ -245,6 +279,8 @@ else
 	esac
 	## e.g.: ; type=INTEGER,access=r----R--,values=4,min=0,max=36,step=0
 	## This extracts the number of channels (values=???)
+	# SC2016: apparently shellcheck does not know about inline awk scripts.
+	# shellcheck disable=SC2016
 	channels[${role}]=$(${AMIXER} -c "${card_index}" cget "${amixer_control_line}" |
 				${AWK} -F, '/type=INTEGER/{split($3,channel_count,/=/); print channel_count[2]}')
 	((VERBOSE)) && ${LOGGER} -t "${0:t}" -p local7.info -i \
@@ -317,6 +353,10 @@ case "${direction}" in
 	    ${LOGGER} -t "${0:t}" -p local7.err -i \
 		      "ERROR: ${app_name} failed to add '${card_name}' (hw:${card_index},${device}) as ${jack_client_name} for OUTPUT."
 	fi
+	;;
+    *)
+	${LOGGER} -t "${0:t}" -p local7.err -i \
+		  "ERROR: invalid value for 'direction': '${direction}'. Unable to continue."
 	;;
 esac
 
