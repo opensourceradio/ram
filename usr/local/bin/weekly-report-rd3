@@ -33,7 +33,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=9
+typeset -ir v_patch=10
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -475,7 +475,7 @@ else
   # shellcheck disable=SC2059
   printf "${headerFormat}\n" \
 	 "Air Date" "Cart #" \
-	 "$( ((INCLUDE_CUTS)) && print 'Cut #')" \
+	 $( ((INCLUDE_CUTS)) && print 'Cut #') \
 	 "Len" \
 	 "Cart Title" \
 	 $( ((PROdata)) && print "Artist\nAlbum\nLabel\nPublisher") \
