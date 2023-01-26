@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 8;
+use constant vPATCH => 9;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -57,7 +57,7 @@ sub main() {
         "debug|d+"             => \$debug,
         "help|h"               => \$help,
         "man|M"                => \$man,
-	);
+        );
     die "GetOptions returned " . $result . ". Stopped" if (!$result);
 
     pod2usage(1)             if (defined($help) && $help);
@@ -74,8 +74,7 @@ sub main() {
         foreach my $m (split(/, */, $mount_points)) {
             $mountpoints->{$m} = ();
         }
-    }
-    else {
+    } else {
         foreach my $m (DEFAULT_MOUNTPOINTS) {
             $mountpoints->{$m} = ();
         }
@@ -148,7 +147,7 @@ sub main() {
         } @{$logLines}
         )
     {
-        next unless ($logLine =~ m#get\s+/($mountpointRE)\s+#i);
+        next unless ($logLine =~ m#get\s+($mountpointRE)\s+#i);
         say STDERR "main: $logLine" if ($debug > 1);
 
         # Bug Alert: the sub-expression "(\d{2})00" represents the
@@ -157,9 +156,7 @@ sub main() {
 
 #               ADDR                  U   A    DATE                                                       REQUEST                                CODE      BYTES   REFERER     AGENT    TIME
         if ($logLine =~
-            m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+/($mountpointRE) http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)$#i
-            )
-        {
+            m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+($mountpointRE)\s+http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)(.*)$#i) {
             my $ipAddress = $1;
             my ($date, $hour, $minute, $second) = split(/:/, $2);
             my $tzOffset         = $3;
@@ -169,6 +166,7 @@ sub main() {
             my $referer          = $7;
             my $client           = $8;
             my $duration         = $9;
+            my $junk             = $10;
             my ($mday, $mon, $year) = split(/\//, $date);
 
             if ($duration < 1) {
@@ -206,17 +204,23 @@ sub main() {
     for my $mount (sort(keys(%{$mountpoints}))) {
         next unless ($mount);
 
+        my $output_filename = $mount;
+
+        if ($mount =~ m#^/$#) {
+            $output_filename = q(root);
+        }
+
         # Stash the per-mountpoint files into the zip archive if so requested.
         if ($zipFile) {
             my $zipString = join("\r\n", ("IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer", @{ $mountpoints->{$mount} }, ''));
 
-            my $stringMember = $zip->addString($zipString, "$mount.txt");
+            my $stringMember = $zip->addString($zipString, qq($output_filename.txt));
             $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
-            say STDERR "main: Added $mount.txt to '$zipFile'." if ($verbose);
+            say STDERR "main: Added $output_filename.txt to '$zipFile'." if ($verbose);
         }
         else {
             my $outFH = undef;
-            open($outFH, ">", "$outputDir/$mount.txt") || die "Cannot open $outputDir/$mount.txt for writing ($!). Stopped";
+            open($outFH, ">", "$outputDir/$output_filename.txt") || die "Cannot open $outputDir/$output_filename.txt for writing ($!). Stopped";
             print $outFH "IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer\r\n";
             foreach my $line (@{ $mountpoints->{$mount} }) {
                 print $outFH $line, "\r\n";
@@ -415,8 +419,9 @@ launch B<icecast-soundexchange> in verbose mode (not quite as verbose as B<--deb
 
 =item B<--mount-points (-m) E<lt>comma-separated-listE<gt>>
 
-Specify one or more mount points for which to report. All mount points
-must match actual mount points provided by the Icecast server.
+Specify one or more mount points for which to report. All mount points must
+begin with a left-leaning slash I</> and must match actual mount points provided
+by the Icecast server.
 
 =item B<--log-directory (-l) E<lt>directory-nameE<gt>>
 
