@@ -1,11 +1,14 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC1105,SC2016,SC2154,SC2190,SC2205,SC2211,SC2284
+# shellcheck shell=bash disable=SC1105,SC2016,SC2154,SC2190,SC2205,SC2211,SC2284,SC2296,SC2299,SC2312
 # SC2016: "$Hash" is not a variable.
 # SC2154: all referenced variables are assigned indirectly.
 # SC2190: ZSH associative arrays are different from BASH.
 # SC2205: this is an arithmetic expression, not a subshell
 # SC2211: this is not a glob, we are checking the return value of the previous command (${?})
 # SC2284: this is an arithmetic expression, not a subshell
+# SC2296: ZSH parameter expansions MAY begin start with '('
+# SC2299: ZSH parameter expansions MAY be nested
+# SC2312: hush shellcheck's aggressive "invoke separately" warnings
 
 ##############################################################################
 ##############################################################################
@@ -22,7 +25,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=8
+declare -ri v_patch=9
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
