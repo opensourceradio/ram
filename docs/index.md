@@ -1,17 +1,9 @@
-# Welcome to MkDocs
+# Pacifica Internet Technology Package #
 
-For full documentation visit [mkdocs.org](https://www.mkdocs.org).
+The Pacifica Internet Technology Package consists of three primary elements:
 
-## Commands
+- simulcast streaming of your station's primary and secondary terrestrial FM broadcast
 
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs -h` - Print help message and exit.
+- audio archiving of your primary terrestrial FM broadcast
 
-## Project layout
-
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
+- notation and logging of copyrighted music played on your web stream
