@@ -46,9 +46,9 @@ subsequent shows start one hour later.
 
 <table>
  <tr>
-  <td width="30%"><img src="/images/ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
-  <td width="30%"><img src="/images/ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
-  <td width="30%"><img src="/images/ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
+  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
+  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
+  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
  </tr>
  <tr>
   <td>DST, 24 Hours</td>
