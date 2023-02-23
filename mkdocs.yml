@@ -1,1 +1,6 @@
-site_name: My Docs
+site_name: Pacifica Internet Technology Package
+theme:
+    name: readthedocs
+markdown_extensions:
+  - attr_list
+  - md_in_html
