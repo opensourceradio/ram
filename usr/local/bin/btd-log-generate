@@ -1,10 +1,11 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC1105,SC2016,SC2154,SC2190,SC2205,SC2211,SC2284,SC2296,SC2299,SC2312
+# shellcheck shell=bash disable=SC1105,SC2016,SC2154,SC2190,SC2205,SC2211,SC2248,SC2284,SC2296,SC2299,SC2312
 # SC2016: "$Hash" is not a variable.
 # SC2154: all referenced variables are assigned indirectly.
 # SC2190: ZSH associative arrays are different from BASH.
 # SC2205: this is an arithmetic expression, not a subshell
 # SC2211: this is not a glob, we are checking the return value of the previous command (${?})
+# SC2248: hust shellcheck's aggressive quoting suggestions
 # SC2284: this is an arithmetic expression, not a subshell
 # SC2296: ZSH parameter expansions MAY begin start with '('
 # SC2299: ZSH parameter expansions MAY be nested
@@ -25,7 +26,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=9
+declare -ri v_patch=10
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -73,7 +74,7 @@ $(${FMT} <<<"See rdlogmanager(1) and 'rdlogmanager --help' for additional detail
 EOF
 }
 
-# run_post_gen_hooks runs scripts on the named log.
+# run_post_gen_hooks runs the script "hooks" on the named log.
 function run_post_gen_hooks() {
   local -r log_name="${1}"
   local -i return_value=0
@@ -82,7 +83,7 @@ function run_post_gen_hooks() {
     for hook in "${btd_log_generate_hook_dir}"/* ; do
       # Skip files starting with "." and "_".
       [[ "${hook:t}" =~ ^[._] ]] && continue
-      if ! ${ZSH} "${hook}" "${log_name}" ; then
+      if ! ${ZSH} "${hook}" ${DEBUG:+--debug} "${log_name}" ; then
 	return_value="${?}"
       fi
     done
@@ -93,7 +94,6 @@ function run_post_gen_hooks() {
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 9 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
 our_commands=( chmod cp fmt getopt logger mktemp rdlogmanager rm zsh )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
@@ -103,12 +103,15 @@ our_commands=( chmod cp fmt getopt logger mktemp rdlogmanager rm zsh )
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
 # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
@@ -181,15 +184,24 @@ declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 # Gather all the Services from Rivendell unless they asked for a
 # specific Service. services is an associative array indexed by the
 # service name. The value is the log name "template".
+# SC2178: ZSH supports appending to string parameters using the "+=" operator.
+# shellcheck disable=SC2178
+declare query="select NAME,NAME_TEMPLATE from SERVICES "
+if [[ -n "${SERVICE}" ]] ; then
+  # SC2179: ZSH supports appending to string parameters using the "+=" operator.
+  # shellcheck disable=SC2179
+  query+=" where NAME = '${SERVICE}' "
+fi
+# SC2179: ZSH supports appending to string parameters using the "+=" operator.
+# shellcheck disable=SC2179
+query+="order by NAME"
 declare oIFS="${IFS}"
 IFS=$'\t\n'
-typeset -A services
-if [[ -n "${SERVICE}" ]] ; then
-  declare -r service_selection_clause=" where name = '${SERVICE}'"
-fi
+declare -A services
 # SC2207: ZSH does not have BASH mapfile.
-# shellcheck disable=SC2207
-services=( $(doSQL "select NAME,NAME_TEMPLATE from SERVICES${service_selection_clause}") )
+# SC2129: query contains a string, it is not an array.
+# shellcheck disable=SC2128,SC2207
+services=( $(doSQL "${query}") )
 IFS="${oIFS}"
 unset oIFS
 
@@ -259,8 +271,10 @@ declare -ri start_day_offset=$(( ( start_date_seconds - tomorrow_seconds - one_d
 declare -ri end_day_offset=$(( ( end_date_seconds - tomorrow_seconds - one_day ) / one_day ))
 
 for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); day_offset++ )) ; do
-  for service in ${(k)services[*]} ; do
-    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" "${PRESERVE}" 2>&1 ; then
+  ## This "(ok)" parameter expansion flag says to return the keys (k) in sorted
+  ## (o) order.
+  for service in ${(ok)services[*]} ; do
+    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1 ; then
       ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (${day_offset}) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
     fi
     if ((? == 0)) ; then
@@ -272,7 +286,7 @@ for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); da
     # Also create Logs for Sunday and Monday if ${today} is
     # 'Friday' and we do not have an End Date.
     if [[ "${today}" == Friday ]] && [[ -z "${END_DATE}" ]] ; then
-      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 "${PRESERVE}" 2>&1 ; then
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 1 ${PRESERVE} 2>&1 ; then
 	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Sunday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
       fi
       if ((? == 0)) ; then
@@ -280,7 +294,7 @@ for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); da
 	  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks returned with non-zero value: ${?}"
 	fi
       fi
-      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 "${PRESERVE}" 2>&1 ; then
+      if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d 2 ${PRESERVE} 2>&1 ; then
 	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (Monday) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
       fi
       if ((? == 0)) ; then
