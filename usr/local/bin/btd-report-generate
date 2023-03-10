@@ -225,11 +225,15 @@ declare -ri end_day_offset=$(( ( end_date_seconds - yesterday_seconds - one_day 
 
 for (( day_offset = start_day_offset + 1; day_offset <= (end_day_offset + 1); day_offset++ )) ; do
   for service in ${services[*]} ; do
+    oIFS="${IFS}"
+    IFS=$'\t\n'
     for report in $(doSQL "select REPORT_NAME from REPORT_SERVICES where SERVICE_NAME = '${service}' order by REPORT_NAME") ; do
       if ! ${RDLOGMANAGER} -s "${service}" -d "${day_offset}" -r "${report}" 2>&1 ; then
 	${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (${day_offset}) exited with value ${?} ('${rdlogmanager_exit_values[${?}]}')"
       fi
     done
+    IFS="${oIFS}"
+    unset oIFS
   done
 done > "${output_file}"
 
