@@ -28,10 +28,10 @@ Pacific Affiliates Network uses the industry-standard
 As stated in the
 [Icecast Introduction](https://icecast.org/docs/icecast-2.4.1/introduction.html):
 
-    There are two major parts to most streaming media servers: the component
-    providing the content (what we call source clients) and the component which
-    is responsible for serving that content to listeners (this is the function
-    of icecast).
+> There are two major parts to most streaming media servers: the component
+> providing the content (what we call source clients) and the component which
+> is responsible for serving that content to listeners (this is the function
+> of icecast).
 
 As of the time of this writing, Pacifica Affiliates Network runs Icecast version
 2.4.4.
