@@ -23,14 +23,5 @@ is a suite of cloud-based applications that consists of three elements:
 
 This guide is a work in progress and intends to document all these services.
 
-## Regular Maintenance ##
-
-Once set up, the Confessor and Archiver need little attention. Twice per year
-(depending on your location), you may need to adjust your schedule as you
-transition into and out of
-[Daylight Saving Time](https://en.wikipedia.org/wiki/Daylight_saving_time). Use
-[this guide](regular-maintenance/DST.md) to ensure you maintain the integrity of
-your archives during these transitions.
-
 <!--toc-->
 
