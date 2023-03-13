@@ -51,7 +51,7 @@ computer. See a more complete list at the
   Mixxx is both an audio file player and an Icecast source client. Mixxx
   includes a DJ-friendly user interface and even works with DJ consoles that
   enable on-air hosts to simulate running their show using old-fashioned
-  turntables.
+  turntables. Mixxx is free software.
 
 ## Commercial Encoders ##
 
