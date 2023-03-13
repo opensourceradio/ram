@@ -2,7 +2,7 @@
 ---
 	title: Pacifica Internet Technology Package
 	author: David Klann <dklann@broadcasttool.com>
-	date: Tue Feb 21 05:18:16 PM CST 2023
+	date: Mon Mar 13 12:08:39 PM CDT 2023
 ---
 -->
 <!-- Create formatted output with one of these commands:
@@ -11,14 +11,17 @@
 -->
 # Pacifica Internet Technology Package #
 
-The Pacifica Internet Technology Package is a suite of cloud-based applications
-that consists of three fundamental elements:
+The
+[Pacifica Internet Technology Package](https://pacificanetwork.org/pacificainternetpackage/)
+is a suite of cloud-based applications that consists of three elements:
 
-- simulcast streaming of your station's primary terrestrial FM broadcast
+- [Simulcast Streaming](streaming/index.md) of your station's primary terrestrial FM broadcast
 
-- audio archiving of your primary terrestrial FM broadcast
+- [Audio Archiving](archiving/index.md) of your primary terrestrial FM broadcast
 
-- notation and logging of copyrighted music played on your web stream
+- [Notation and Logging](confessor/index.md) of copyrighted music played on your web stream
+
+This guide is a work in progress and intends to document all these services.
 
 ## Regular Maintenance ##
 
