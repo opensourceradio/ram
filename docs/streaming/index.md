@@ -37,7 +37,7 @@ Here's an example of what this looks like:
 
 <table>
  <tr>
-  <td width="100%"><img src="../../images/icecast-streaming.png" /></td>
+  <td width="100%"><img src="../images/icecast-streaming.png" /></td>
  </tr>
  <tr>
   <td>Example Pacifica Affiliates Streaming Scenario</td>
