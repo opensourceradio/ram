@@ -1,9 +1,11 @@
 Pacifica Internet Technology Package
 ====================================
 
-The Pacifica Internet Technology Package consists of three primary elements:
+The
+[Pacifica Internet Technology Package](https://pacificanetwork.org/pacificainternetpackage/)
+consists of three primary elements:
 
-- simulcast streaming of your station's primary and secondary terrestrial FM broadcast
+- simulcast streaming of your station's primary terrestrial FM broadcast
 
 - audio archiving of your primary terrestrial FM broadcast
 
