@@ -47,4 +47,4 @@ A stream encoder is essentially a computer that has one or more audio inputs as
 well as Internet connectivity. Encoders come in many shapes, sizes, and levels
 of sophistication. It's pretty straight-forward to build your own, DIY-style.
 You can also purchase purpose-built encoders from the usual broadcast technology
-suppliers. See some common encoders in [this list](streaming/encoders.md).
+suppliers. See some common encoders in [this list](encoders.md).
