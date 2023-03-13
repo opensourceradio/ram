@@ -61,6 +61,33 @@ You can also purchase purpose-built encoders from the usual broadcast equipment
 suppliers. See some common encoders in [this list](encoders.md).
 
 While setting up your stream encoder, you will need to add the parameters
-specific to the Pacifica streaming server. Get in tough with your Pacifica
+specific to the Pacifica streaming server. Get in touch with your Pacifica
 Affiliates technical contact for these details.
 
+## Monitoring Your Stream ##
+
+Once your stream is available to the world, you may want to monitor various
+aspects of it. Pacifica Affiliates offer two different views of listener
+statistics: a simple
+[graph of listeners over time](https://stats.pacificaservice.org/)
+
+<table>
+ <tr>
+  <td width="100%"><img src="../images/stats-pacificaservice.png" /></td>
+ </tr>
+ <tr>
+  <td>Pacifica Affiliates Streaming Statistics (Simple View)</td>
+ </tr>
+</table>
+
+and a more [in-depth view](https://monitor.pacificaservice.org/) with a map of
+those listeners' locations.
+
+<table>
+ <tr>
+  <td width="100%"><img src="../images/monitor-pacificaservice.png" /></td>
+ </tr>
+ <tr>
+  <td>Pacifica Affiliates Streaming Statistics (Advanced View)</td>
+ </tr>
+</table>
