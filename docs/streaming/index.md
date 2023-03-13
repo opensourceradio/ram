@@ -12,11 +12,11 @@
 # Pacifica Streaming Service #
 
 The Pacifica Internet Technology Package includes web streaming of your
-station's terrestrial radio signal. Note that
-[SoundExchange](https://soundexchange.com/) treats simulcast web streaming of a
-station's radio signal differently from web-only streams. The primary intention
-of the Pacifica streaming service is to enable simulcasting of stations'
-existing AM or FM signals.
+station's terrestrial radio signal.
+
+The primary intention of the Pacifica streaming service is to enable
+simulcasting of stations' existing AM or FM signals. Contact Pacifica Affiliates
+if you intend to stream something other than your station's terrestrial signal.
 
 <!--toc-->
 
@@ -33,18 +33,34 @@ As stated in the
 > is responsible for serving that content to listeners (this is the function
 > of icecast).
 
+Here's an example of what this looks like:
+
+<table>
+ <tr>
+  <td width="100%"><img src="../../images/icecast-streaming.png" /></td>
+ </tr>
+ <tr>
+  <td>Example Pacifica Affiliates Streaming Scenario</td>
+ </tr>
+</table>
+
 As of the time of this writing, Pacifica Affiliates Network runs Icecast version
 2.4.4.
 
 ## Station Requirements ##
 
-In order to stream your station's signal on the Internet, you need to provide a
-device that can convert your audio signal to the digital format required by
-Icecast. This device is commonly referred to as a _stream encoder_ (or just
-_encoder_). In Icecast parlance, this device is also called a "_source client_".
+In order to stream your station's signal, you need to provide a device that can
+convert your audio signal to the digital format required by Icecast. This device
+is commonly referred to as a _stream encoder_ (or just _encoder_). In Icecast
+parlance, this device is also called a "_source client_".
 
 A stream encoder is essentially a computer that has one or more audio inputs as
 well as Internet connectivity. Encoders come in many shapes, sizes, and levels
 of sophistication. It's pretty straight-forward to build your own, DIY-style.
-You can also purchase purpose-built encoders from the usual broadcast technology
+You can also purchase purpose-built encoders from the usual broadcast equipment
 suppliers. See some common encoders in [this list](encoders.md).
+
+While setting up your stream encoder, you will need to add the parameters
+specific to the Pacifica streaming server. Get in tough with your Pacifica
+Affiliates technical contact for these details.
+
