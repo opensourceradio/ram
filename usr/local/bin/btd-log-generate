@@ -26,7 +26,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=10
+declare -ri v_patch=11
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -148,8 +148,18 @@ if ((SHOW_VERSION)) ; then
   exit 0
 fi
 
-exec 1> "/var/tmp/${0:t}.out"
-exec 2> "/var/tmp/${0:t}.err"
+typeset tmp_file_stdout=/var/tmp/${0:t}-${USER}.out
+typeset tmp_file_stderr=/var/tmp/${0:t}-${USER}.err
+if [[ -f "${tmp_file_stdout}" ]] && ! [[ -w "${tmp_file_stdout}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stdout}'. Unable to continue."
+  exit 1
+fi
+if [[ -f "${tmp_file_stderr}" ]] && ! [[ -w "${tmp_file_stderr}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stderr}'. Unable to continue."
+  exit 2
+fi
+exec 1> "${tmp_file_stdout}"
+exec 2> "${tmp_file_stderr}"
 
 if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
