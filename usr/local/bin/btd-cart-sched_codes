@@ -1,0 +1,319 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2034,SC2048,SC2086,SC2128,SC2154,SC2155,SC2178,SC2179,SC2190,SC2206,SC2207,SC2248,SC2295,SC2296,SC2299,SC2312
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
+# SC2034: shellcheck does not know about ZSH param expansions
+# SC2048: huch shellcheck's aggressive quoting suggestions
+# SC2086: ignore shellcheck's aggressive quoting suggestion
+# SC2128: shellcheck gets confused about ZSH variable types
+# SC2154: the only "unassigned" parameters *should be* upper case command names
+# SC2155: ignore shellcheck's declare and assign separately suggestions
+# SC2178: shellcheck gets confused about ZSH variable types
+# SC2179: ZSH supports string concatenation with "+="
+# SC2190: ZSH associative arrays work differently from Bash associative arrays
+# SC2206: ignore shellcheck's aggressive quoting recommendations
+# SC2207: mapfile or read -a are Bash-isms
+# SC2248: ignore shellcheck's aggressive quoting recommendations
+# SC2295: ignore shellcheck's conservative quoting suggestions
+# SC2296: ZSH parameter expansions CAN start with "("
+# SC2299: ZSH parameter expansions CAN be nested
+# SC2312: ignore shellcheck's invoke separately suggestions
+
+##############################################################################
+##
+## btd-cart-sched_codes - generate a list of Cart Numbers, Titles, and Scheduler
+## Codes
+##
+##############################################################################
+
+# This script complies with Semantic Versioning: http://semver.org/
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=0
+declare -r v_hash='$Hash$'
+
+##########################################################################################
+##########################################################################################
+##
+## Locally defined subroutines
+##
+##########################################################################################
+##########################################################################################
+
+# usage shows how to use this command.
+function usage() {
+  local -r my_name="${1:t}"
+
+  ${CAT} <<EOF
+NAME
+
+${my_name}
+
+SYNOPSIS
+
+${my_name} [ --verbose (-v) ] [ --help (-h) ] [ --version (-V) ]
+
+DESCRIPTION
+
+$(${FMT} <<<"${my_name} generates a list of all Cart numbers in the Rivendell Library that have Scheduler Codes assigned to them. The output incldues the Cart Number, the Cart Title, and the list of assigned Scheduler Codes.")
+
+$(${FMT} <<<"Specify '--verbose' (short option: '-v') to direct ${my_name} to be chatty about its progress.")
+
+$(${FMT} <<<"Specify '--version' (short option: '-V') to have ${my_name} display the version number and exit.")
+
+$(${FMT} <<<"Specify '--help' (short option: '-h') to display this help.")
+
+EOF
+}
+
+## wrap_title wraps Cart Titles at 56 characters.
+## The basis of this function courtesy of OpenAI's ChatGPT, generated
+## 2023-03-16.
+function wrap_title() {
+  local title="${1}"
+
+  local -i wrap_col=56
+  local line
+  local wrapped
+  local word
+  local -i remaining=${wrap_col}
+
+  for word in ${(s/ /)title} ; do
+    if ((${#word} + ${#line} + 1 <= wrap_col)) ; then
+      if ((${#line} == 0)) ; then
+	line="${word}"		# the first word in the Title
+      else
+	line+=" ${word}"	# subsequent words in the Title
+      fi
+    else
+      if ((${#wrapped} == 0)) ; then
+	wrapped="${line}"	# the first wrapped line
+      else
+	wrapped+="\n${line}"	# subsequent lines
+      fi
+      line="${word}"		# start a new line
+    fi
+    ## Put long words on their own lines.
+    if ((${#word} >= 78)); then
+      if ((${#wrapped} == 0)); then
+        wrapped="${word}"
+      else
+        wrapped+="\n${word}"
+      fi
+      line=""
+      remaining=78
+    else
+      remaining=$((78 - ${#line} - 1))
+    fi
+  done
+
+  ## Deal with remaining words in the title
+  if ((${#line} > 0)); then
+    if ((${#wrapped} == 0)); then
+      wrapped="${line}"
+    else
+      wrapped+="\n${line}"
+    fi
+  fi
+
+  print "${wrapped}"
+}
+
+##########################################################################################
+##########################################################################################
+##
+## Script Main Line
+##
+##########################################################################################
+##########################################################################################
+
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  print "Missing zsh-functions library. Cannot continue." >&2
+  exit 1
+fi
+
+typeset -i SHOW_VERSION=
+typeset -i VERBOSE=0
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 6 external commands.
+# Look for them in their upper case, parameter expanded form.
+our_commands=( cat fmt getopt head tail wc )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  # shellcheck disable=SC2296 # ZSH-specific expansion
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+if ! TEMP=$(${GETOPT} -o hVv --long help,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -h|--help) usage "${0}" ; exit ;;
+    -V|--version) SHOW_VERSION=1 ; shift ;;
+    -v|--verbose) ((VERBOSE += 1)) ; shift ;;
+    --) shift ; break ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+  typeset commit_hash="${v_hash}"
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+  exit 0
+fi
+((VERBOSE)) && printf "%s: beginning generation of a list of Rivendell Cart Number with Scheduler Codes.\n" "${0:t}" >&2
+
+# Ensure the Rivendell database has the expected tables and columns.
+if ! okDatabaseStructure "CART:NUMBER+TITLE,CART_SCHED_CODES:CART_NUMBER+SCHED_CODE" ; then
+  print "${0:t}: Unknown database structure (multiple tables). Seek professional help." >&2
+  exit 2
+fi
+
+# Get the count of all Scheduler Codes.
+typeset -ri code_count=$(doSQL "select count(*) from SCHED_CODES")
+((VERBOSE)) && printf "%s: found %d SCHED_CODES\n" "${0:t}" "${code_count}" >&2
+
+if ((code_count == 0)) ; then
+  ((VERBOSE)) && printf "%s: No SCHED_CODES, nothing more to do.\n" "${0:t}" >&2
+  exit
+fi
+
+# Get the count of Cart Numbers that have *any* Scheduler Codes assigned to them.
+typeset -ri cart_count=$(doSQL "select count(distinct cart_number) from CART_SCHED_CODES")
+((VERBOSE)) && printf "%s: found %d Carts with assigned Scheduler Codes.\n" "${0:t}" "${cart_count}" >&2
+
+if ((cart_count == 0)) ; then
+  ((VERBOSE)) && printf "%s: No CARTS have assigned SCHED_CODES, nothing more to do.\n" "${0:t}" >&2
+  exit
+fi
+
+## Determine the longest Title in the list. We use this to determine sensible
+## horizontal spacing in the output.
+typeset query="select "
+query+="max(length(TITLE)) "
+query+="from CART "
+query+="join CART_SCHED_CODES on NUMBER=CART_NUMBER "
+((VERBOSE)) && printf "%s: about to issue query '%s'.\n" "${0:t}" "${query}" >&2
+typeset -i max_title_length=$(doSQL "${query}")
+((VERBOSE)) && printf "%s: maximum Title length is '%d' characters.\n" "${0:t}" "${max_title_length}" >&2
+
+## Obtain the Cart Number, Title and Scheduler Codes from the database; separate
+## columns in each returned row with the "field separator" sequence '^@^' (I
+## expect this sequence of characters will not occur in any Titles or Scheduler
+## Codes).
+typeset query="select "
+query+="concat(NUMBER, '^@^', TITLE, '^@^', group_concat(distinct SCHED_CODE)) "
+query+="from CART "
+query+="join CART_SCHED_CODES on NUMBER=CART_NUMBER "
+query+="group by NUMBER"
+((VERBOSE)) && printf "%s: about to issue query '%s'.\n" "${0:t}" "${query}" >&2
+
+## Submit the query and store the results in a ZSH array parameter.
+oIFS="${IFS}"
+IFS=$'\t\n'
+typeset -a cart_list
+cart_list=( $(doSQL "${query}") )
+((VERBOSE > 1)) && print "${0:t}: query response is ${(j:\n:)cart_list}" >&2
+IFS="${oIFS}"
+
+typeset -Z 6 cart_number
+typeset -a wrapped_cart_title
+typeset -i wrapped_line_count
+typeset -a subsequent_segments
+for cart_spec in ${cart_list[*]} ; do
+  cart_number="${cart_spec%%^@^*}"
+  cart_title="${${cart_spec#*^@^}%^@^*}"
+  cart_sched_codes="${cart_spec##*^@^}"
+
+  wrapped_cart_title=(${cart_title}) # The title is one long line here.
+  wrapped_line_count=1
+  first_wrapped_segment=""
+  subsequent_segments=()
+
+  ## Wrap the Title at 56 characters and place the first Title "segment" and
+  ## subsequent "segments" in separate variables.
+  if ((${#cart_title} > 56)) ; then
+    oIFS="${IFS}"
+    IFS=$'\n'
+    wrapped_cart_title=($(wrap_title "${cart_title}"))
+    wrapped_line_count=${#wrapped_cart_title}
+    first_wrapped_segment=${wrapped_cart_title[1]}
+    if ((wrapped_line_count > 1)) ; then
+      ## First title segment as a scalar.
+      first_wrapped_segment="${wrapped_cart_title[1]}"
+      ## Rest of the title segments as array elements.
+      subsequent_segments=( ${wrapped_cart_title[2,wrapped_line_count]} )
+      IFS="${oIFS}"
+    fi
+  else
+    first_wrapped_segment="${wrapped_cart_title[1]}"
+  fi
+
+  ## Output the first line for this Cart.
+  printf '%6d %-56s %s\n' \
+	 ${cart_number} \
+	 "${first_wrapped_segment}" \
+	 "${cart_sched_codes}"
+
+  ## Output the rest of the *long* Cart Title.
+  if ((wrapped_line_count > 1)) ; then
+    for segment in ${subsequent_segments[*]} ; do
+      printf '       %-56s\n' "${segment}"
+    done
+  fi
+done
+
+exit
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
