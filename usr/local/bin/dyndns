@@ -16,7 +16,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=9
+declare -r vPatch=10
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -29,6 +29,8 @@ declare -r WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
 
 # See API_BASE_ROUTE below for the API route.
 declare -r API_PROTO='https'
+declare -a API_HOSTS
+API_HOSTS=( api.cloudflare.com api.digitalocean.com )
 declare -r API_HOST='api.digitalocean.com'
 # ShellCheck does not seem to know about read-only variables.
 # shellcheck disable=SC2155
@@ -101,15 +103,15 @@ all output to the terminal (STDERR) rather than a file.
 EOF
 }
 
-# Execute curl(1) against the Digital Ocean API.
-# Returns the address.
+# do_curl executes curl(1) against the chosen API server.
 function do_curl() {
+  local -r api_host="${1}" ; shift
   local -r method="${1}" ; shift
   local -r route="${1}" ; shift
   local -r data="${1}"
 
   if [[ -z "${DO_API_KEY}" ]] ; then
-    printf '%s: ERROR: Missing Digital Ocean API Key.\n' "${0##*/}" >&2
+    printf '%s: ERROR: Missing API Key.\n' "${0##*/}" >&2
     return 1
   fi
 
@@ -118,13 +120,15 @@ function do_curl() {
        -H 'Content-Type: application/json' \
        -H "Authorization: Bearer ${DO_API_KEY}" \
        ${data:+-d ${data}} \
-       "${API_PROTO}://${API_HOST}${route}"
+       "${API_PROTO}://${api_host}${route}"
 }
 
-# Given a domain record (aka "zone"), return the ID value associated
-# with the key/value pair.
-# https://docs.digitalocean.com/reference/api/api-reference/#operation/get_domain_record
-# (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
+# get_domain_record_id returns the ID value associated with the key/value pair
+# for the provided domain record (aka "zone").
+#
+# https://docs.digitalocean.com/reference/api/api-reference/#operation/domains_get_record
+# (D.O. documentation link current as of Sun Feb 26 10:41:39 AM CST 2023)
+# 
 function get_domain_record_id() {
   local -r json_string="${1}" ; shift
   local -r type="${1}" ; shift

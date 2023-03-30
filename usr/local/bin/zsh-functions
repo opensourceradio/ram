@@ -39,6 +39,9 @@ zmodload zsh/datetime
   vLibPatch=18
   vLibHash='$Hash$'
 }
+
+# zsh_library_version returns a string containing a "dotted quad" of this
+# library's version number.
 function zsh_library_version() {
   printf "%d.%d.%d.%d\n" \
          "${vLibRelease}" \
@@ -47,12 +50,11 @@ function zsh_library_version() {
          "${vLibPatch}"
 }
 
-# Use the configured mailer to send email to one or more
-# addresses. This relies heavily on msmtp(1) and its configuration
-# file.
-# Send no more than one notification for each type in 24 hours (and
-# let the recipients know that they will see no more than one per
-# day).
+# sendNotification use the configured mailer to send email to one or more
+# addresses. This relies heavily on msmtp(1) and its configuration file.
+#
+# sendNotification sends no more than one notification for each type in 24 hours
+# (and let the recipients know that they will see no more than one per day).
 function sendNotification() {
   local myName="${1:?Who am I?}" ; shift
   local MAILTO="${1:?Need one or more email addresses to send to.}" ; shift
@@ -173,7 +175,8 @@ EOF
   return "${returnValue}"
 }
 
-# Make a record of the type and time of a notification
+# notificationSent records the type and time of a notification sent with
+# sendNotification().
 function notificationSent() {
   local theirName="${1}" ; shift
   local type="${1}" ; shift
@@ -233,9 +236,9 @@ function notificationSent() {
   return "${returnValue}"
 }
 
-# Make mysql calls look a bit more asthetically pleasing. The return
-# value of this shell funtion is the exit value of the mysql command
-# invocation.
+# doSQL performs queries using the mysql(1) CLI command. doSQL makes mysql calls
+# look a bit more asthetically pleasing. The return value of this shell funtion
+# is the exit value of the mysql command invocation.
 function doSQL() {
   local -r statement="${1:?Need a database query to run.}"
   local useMyCNF=0
@@ -327,10 +330,14 @@ function doSQL() {
   fi
 }
 
+# rdDatabaseVersion returns the DB column from the Rivendell VERSION table.
 function rdDatabaseVersion() {
   doSQL "select DB from VERSION"
 }
 
+# getMyIPAddresses returns a string containing a Space-separated list of IP
+# addresses for this computer. The algorithm excludes IP addresses for the
+# loopback interface and virtual interfaces matching "virbr" or "tun".
 function getMyIPAddresses() {
   local -a ipAddresses
   local returnValue=0
@@ -370,10 +377,8 @@ function getMyIPAddresses() {
   return "${returnValue}"
 }
 
-
-
-# Get this hosts Rivendell STATION name. Return TRUE or FALSE
-# depending on whether we could figure the name out.
+# rdGetStationName returns this hosts Rivendell STATION name. Return TRUE (Zero)
+# or FALSE (non-Zero) depending on whether the database query is successful.
 function rdGetStationName() {
   local -a myIP
   local stationName
@@ -418,7 +423,8 @@ function rdGetStationName() {
   return "${returnValue}"
 }
 
-# Get the Rivendell Web Server (HTTP_STATION) for this computer.
+# rdGetWebServer returns the hostname of the Rivendell Web Server (HTTP_STATION)
+# for this computer.
 function rdGetWebServer() {
   local returnValue=1
 
@@ -441,9 +447,9 @@ function rdGetWebServer() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to execute a command. Unlike most other
-# functions in this library, the arg 'verbose' *must* be set to either
-# '0' or a positive integer.
+# rdWebInvoke uses curl(1) and the Rivendell Web API to execute a command.
+# Unlike most other functions in this library, the arg 'verbose' *must* be set
+# to either '0' or a positive integer.
 function rdWebInvoke() {
   local verbose="${1}" ; shift
   local command="${1}" ; shift
@@ -512,8 +518,9 @@ function rdWebInvoke() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to list the cart and cut details for the
-# specified CART.
+# rdListAllCarts uses the Rivendell Web API to list the cart and cut details for
+# the Carts in the provided Group name.
+#
 # Note that as of Rivendell version 2.10.3 ListCarts is broken if you
 # do not provide search parameters to the "query". This is fixed in
 # 2.15.1, but for now we *REQUIRE* a GROUP in which to list all CARTs.
@@ -536,8 +543,9 @@ function rdListAllCarts() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to list the CART. The second
-# arg, 0 (default) or 1 to list CUTS.
+# rdListCart uses the Rivendell Web API to list the Cart with the provided
+# number. Optionally, rdListCart includes the Cuts if the second argument, is 1
+# (default 0).
 function rdListCart() {
   local cartNumber="${1}" ; shift
   local withCuts="${1:-0}"
@@ -558,8 +566,8 @@ function rdListCart() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to list all the CUTS for the specified
-# CART.
+# rdListCuts uses the Rivendell Web API to list all the Cuts for the specified
+# Cart.
 function rdListCuts() {
   local cartNumber="${1}" ; shift
   local verbose="${1:-0}"
@@ -580,8 +588,8 @@ function rdListCuts() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to delete the CART, all its CUTS, and the
-# actual audio file for the specified CART.
+# rdDropCart uses the Rivendell Web API to delete the Cart, all its Cuts, and
+# the actual audio file for the specified Cart.
 function rdDropCart() {
   local cartNumber="${1}" ; shift
   local verbose="${1:-0}"
@@ -602,7 +610,7 @@ function rdDropCart() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to delete the specified CUT, and the
+# rdDropCut uses the Rivendell Web API to delete the specified Cut, and the
 # actual audio file.
 function rdDropCut() {
   local cartNumber="${1}" ; shift
@@ -628,9 +636,9 @@ function rdDropCut() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to list all the SERVICES,
-# Optionally, list only services that have a valid
-# VoiceTracking configuration.
+# rdListServices use the Rivendell Web API to list all the Services. Optionally,
+# rdListServices lists only Services that have a valid VoiceTracking
+# configuration.
 function rdListServices() {
   local -r trackable="${1}" ; shift
   local -r verbose="${1:-0}"
@@ -651,7 +659,7 @@ function rdListServices() {
   return "${returnValue}"
 }
 
-# Use the Rivendell Web API to list all the GROUPS.
+# rdListGroups uses the Rivendell Web API to list all the Groups.
 function rdListGroups() {
   local -r verbose="${1:-0}"
 
@@ -671,7 +679,9 @@ function rdListGroups() {
   return "${returnValue}"
 }
 
-# Get a Rivendell CART NUMBER from a TITLE (full or partial).
+# rdCartNumberFromTitle returns the Rivendell Cart number from the provided
+# title. The search in this function is for an exact match of the provided
+# title. See also, rdCartTitleFromPartial below.
 function rdCartNumberFromTitle() {
   local title="${1:?Need a CART TITLE string to search.}" ; shift
   local verbose="${1}"
@@ -679,7 +689,8 @@ function rdCartNumberFromTitle() {
   doSQL "select NUMBER from CART where TITLE = '${title}'"
 }
 
-# Get a Rivendell CART TITLE from a partial TITLE.
+# rdCartTitleFromPartial returns the Rivendell Cart title from the provided
+# partial title. Return value is that of doSQL().
 function rdCartTitleFromPartial() {
   local title="${1:?Need a CART TITLE string to search.}" ; shift
   local verbose="${1}"
@@ -687,7 +698,8 @@ function rdCartTitleFromPartial() {
   doSQL "select TITLE from CART where TITLE like '%${title}%'"
 }
 
-# Get a Rivendell CART TITLE from a CART NUMBER.
+# rdCartTitleFromNumber returns the Rivendell Cart title for the provided Cart
+# number.
 function rdCartTitleFromNumber() {
   local number="${1:?Need a CART NUMBER to look up.}" ; shift
   local verbose="${1}"
@@ -695,6 +707,7 @@ function rdCartTitleFromNumber() {
   doSQL "select TITLE from CART where NUMBER = ${number}"
 }
 
+# rdCartGroupFromNumber returns the Group name for the provided Cart number.
 function rdCartGroupFromNumber() {
   local number="${1:?Need a CART NUMBER to search.}" ; shift
   local verbose="${1}"
@@ -702,6 +715,8 @@ function rdCartGroupFromNumber() {
   doSQL "select GROUP_NAME from CART where NUMBER = ${number}"
 }
 
+# rdMaxCartNumberForGroup returns the highest Cart number for the provided
+# Group.
 function rdMaxCartNumberForGroup() {
   local group="${1:?Need a GROUP_NAME from which to get the next CART NUMBER.}" ; shift
   local verbose="${1}"
@@ -716,6 +731,8 @@ function rdMaxCartNumberForGroup() {
   echo "${maxCartNum}"
 }
 
+# rdGetNextCartNumber returns the next available Cart number in the provided
+# Group.
 function rdGetNextCartNumber() {
   local group="${1:?Need a GROUP_NAME from which to get the next CART NUMBER.}" ; shift
   local verbose="${1}"
@@ -815,6 +832,7 @@ function rdGetNextCartNumber() {
   return "${returnValue}"
 }
 
+# rdCreateEmptyCart creates an empty Cart in the Rivendell Library.
 function rdCreateEmptyCart() {
   local group="${1:?Need to specify a GROUP_NAME in which to create the new CART.}" ; shift
   local title="${1:?Need a CART TITLE string to search.}" ; shift
@@ -855,8 +873,7 @@ function rdCreateEmptyCart() {
   return "${returnValue}"
 }
 
-# Determine the dropbox status for all dropboxes on this host.
-# restarted.
+# rdDropboxStatus determines the dropbox status for all dropboxes on this host.
 function rdDropboxStatus() {
   local -r myName="${1}" ; shift
   local -r interactive="${1}" ; shift
@@ -963,7 +980,7 @@ function rdDropboxStatus() {
   fi
 }
 
-# Return a DROPBOX numeric ID from a path.
+# rdGetDropboxIDFromPath returns a DROPBOX numeric ID from the given path.
 # Parameters:
 # - the name of the caller
 # - a string representing a path prefix
@@ -1004,8 +1021,8 @@ function rdGetDropboxIDFromPath() {
   return "${returnValue}"
 }
 
-# Reset a dropbox by deleting entries in DROPBOX_PATHS. See also
-# rivendell-source-code/rdadmin/edit_dropbox.cpp:EditDropbox::resetData()
+# rdResetDropbox resets a dropbox by deleting entries in DROPBOX_PATHS. See also
+# rivendell-source-code/rdadmin/edit_dropbox.cpp:EditDropbox::resetData().
 # shellcheck disable=SC2178
 function rdResetDropbox() {
   local -r myName="${1}" ; shift
@@ -1033,7 +1050,8 @@ function rdResetDropbox() {
   return
 }
 
-# Determine whether the database structure matches our expectation.
+# okDatabaseStructure determines whether the database structure matches our
+# expectation.
 # Parameters:
 # - comma-separated list of table:column[+column...] tuples
 # - (optional) verbose boolean
@@ -1099,7 +1117,7 @@ function getYesNo() {
   return 0
 }
 
-# Convert milliseconds to [HH:]MM:SS.
+# ms2HMS converts milliseconds to [HH:]MM:SS.
 function ms2HMS() {
   local milliseconds="${1:?Need some milliseconds}"
   typeset -Z 2 Hours Minutes Seconds
@@ -1112,7 +1130,7 @@ function ms2HMS() {
   print "${Hours:+${Hours}:}${Minutes:+${Minutes}:}${Seconds}"
 }
 
-# Log a message to either syslog (non-interactive) or STDOUT
+# logit logs a message to either syslog (non-interactive) or STDOUT
 # (interactive).
 function logit() {
   local caller="${1}" ; shift

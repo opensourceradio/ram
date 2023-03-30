@@ -1,38 +1,27 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2034,SC2154,SC2190,SC2207
+# shellcheck shell=bash disable=SC2016,SC2034,SC2048,SC2086,SC2154,SC2155,SC2190,SC2207,SC2248,SC2295,SC2296,SC2299,SC2312
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
-# SC2034: shellcheck does not know about ZSH param expansions.
-# SC2154: the only "unassigned" parameters *should be* upper case command names.
-# SC2190: ZSH associative arrays work differently from Bash associative arrays.
-# SC2207: mapfile or read -a are Bash-isms.
+# SC2034: shellcheck does not know about ZSH param expansions
+# SC2048: huch shellcheck's aggressive quoting suggestions
+# SC2086: ignore shellcheck's aggressive quoting suggestion
+# SC2154: the only "unassigned" parameters *should be* upper case command names
+# SC2155: ignore shellcheck's declare and assign separately suggestions
+# SC2190: ZSH associative arrays work differently from Bash associative arrays
+# SC2207: mapfile or read -a are Bash-isms
+# SC2248: ignore shellcheck's aggressive quoting recommendations
+# SC2295: ignore shellcheck's conservative quoting suggestions
+# SC2296: ZSH parameter expansions CAN start with "("
+# SC2299: ZSH parameter expansions CAN be nested
+# SC2312: ignore shellcheck's invoke separately suggestions
 
 zmodload zsh/stat
 zmodload zsh/datetime
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
-declare -ri v_minor=1
-declare -ri v_patch=15
+declare -ri v_minor=2
+declare -ri v_patch=0
 declare -r v_hash='$Hash$'
-
-# Prefer the instance in /usr/bin (that gets installed with the
-# rdfetch package) over /usr/local/bin
-if [[ -f /usr/bin/zsh-functions ]] ; then
-    source /usr/bin/zsh-functions
-elif [[ -f /usr/local/bin/zsh-functions ]] ; then
-    source /usr/local/bin/zsh-functions
-else
-    print "Missing zsh-functions library. Cannot continue." >&2
-    exit 1
-fi
-
-typeset -i INTERACTIVE=0
-typeset -i CHECK_STRANDED_FILES=0
-typeset -i VERBOSE=0
-typeset -i SHOW_VERSION=0
-
-typeset -ri CURRENT_TIME=${EPOCHSECONDS}
-typeset -ri ONE_DAY=$((60 * 60 * 24))
 
 ##########################################################################################
 ##########################################################################################
@@ -47,35 +36,35 @@ typeset -ri ONE_DAY=$((60 * 60 * 24))
 # Returns with non-zero status if we are unable to kill any of the
 # passed PIDs.
 function kill_with_privilege() {
-    local -i proc_id
-    local -ir attempt_limit=5
-    local -i count=0
-    local sig=INT
-    local -i return_value=0
-    for proc_id ; do
-	while ((count < attempt_limit)) ; do
-	    ((count > (attempt_limit/2))) && sig=KILL
-	    ((VERBOSE)) && printf "Attempting to terminate process ID %d with signal SIG%s..." "${proc_id}" "${sig}" >&2
-	    ${KILL} -"${sig}" "${proc_id}"
-	    ${SLEEP} 0.5
-	    if ! [[ -d "/proc/${proc_id}" ]] ; then
-		continue 2	# next proc_id in the for loop
-	    fi
-	    ((VERBOSE)) && printf "No go; attempting to terminate process ID %d with privileges using signal SIG%s... " "${proc_id}" "${sig}" >&2
-	    ${SUDO} "${KILL}" -"${sig}" "${proc_id}"
-	    ${SLEEP} 0.5
-	    if ! [[ -d "/proc/${proc_id}" ]] ; then
-		continue 2	# next proc_id in the for loop
-	    fi
-	    ${SLEEP} 0.5
-	    print
-	    ((count++))
-	done
-	printf '\nUnable to terminate process %s. Please seek help!\n' "${proc_id}" >&2
-	return_value=1
+  local -i proc_id
+  local -ir attempt_limit=5
+  local -i count=0
+  local sig=INT
+  local -i return_value=0
+  for proc_id ; do
+    while ((count < attempt_limit)) ; do
+      ((count > (attempt_limit/2))) && sig=KILL
+      ((VERBOSE)) && printf "Attempting to terminate process ID %d with signal SIG%s..." "${proc_id}" "${sig}" >&2
+      ${KILL} -"${sig}" "${proc_id}"
+      ${SLEEP} 0.5
+      if ! [[ -d "/proc/${proc_id}" ]] ; then
+	continue 2	# next proc_id in the for loop
+      fi
+      ((VERBOSE)) && printf "No go; attempting to terminate process ID %d with privileges using signal SIG%s... " "${proc_id}" "${sig}" >&2
+      ${SUDO} "${KILL}" -"${sig}" "${proc_id}"
+      ${SLEEP} 0.5
+      if ! [[ -d "/proc/${proc_id}" ]] ; then
+	continue 2	# next proc_id in the for loop
+      fi
+      ${SLEEP} 0.5
+      print
+      ((count++))
     done
-    ((VERBOSE && (count == attempt_limit))) && print >&2
-    return "${return_value}"
+    printf '\nUnable to terminate process %s. Please seek help!\n' "${proc_id}" >&2
+    return_value=1
+  done
+  ((VERBOSE && (count == attempt_limit))) && print >&2
+  return "${return_value}"
 }
 
 # get_yes_no() repeatedly prompts with ${our_prompt} to /dev/tty until
@@ -83,20 +72,24 @@ function kill_with_privilege() {
 # /dev/tty). Returns 0 ("success") for a "yes"-like response and 1
 # ("non-success") for a "no"-like response to the given prompt.
 function get_yes_no() {
-    local -r our_prompt="${1}"
-    local -i again=0
+  local -r our_prompt="${1}"
+  local -i answer_no="${2}"
+  local -i again=0
 
-    local response=''
-    until [[ "${(L)response}" =~ ^(no*|y(es)*)$ ]] ; do
-	((again)) && print "Please respond with 'yes' ('y') or 'no' ('n')." > /dev/tty
-	print "${our_prompt} [y or n] \c" > /dev/tty
-	# SC2034: response is used, but in a non-Bash way, see below.
-	# shellcheck disable=SC2034
-	read -r response < /dev/tty
-	again=1
-    done
-    [[ "${(L)response}" =~ ^no*$ ]] && return 1
-    return 0
+  local response=''
+  if ((answer_no)) ; then
+    response='n'
+  fi
+  until [[ "${(L)response}" =~ ^(no*|y(es)*)$ ]] ; do
+    ((again)) && print "Please respond with 'yes' ('y') or 'no' ('n')." > /dev/tty
+    print "${our_prompt} [y or n] \c" > /dev/tty
+    # SC2034: response is used, but in a non-Bash way, see below.
+    # shellcheck disable=SC2034
+    read -r response < /dev/tty
+    again=1
+  done
+  [[ "${(L)response}" =~ ^no*$ ]] && return 1
+  return 0
 }
 
 # Show how to use this command.
@@ -111,7 +104,7 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --stranded-files (-s) ] [ --interactive (-i) ]
-                  [ --verbose (-v) ]
+                  [ --verbose (-v) ] [ --no (-n) ]
                   [ --help (-h) ] [ --version (-V) ]
 
 DESCRIPTION
@@ -123,6 +116,8 @@ $(${FMT} <<<"${my_name} performs several checks on Rivendell dropboxes in order 
   * 'left-over' processes from deleted or changed dropboxes
 
   * existence of dropbox folders (directories)
+
+  * 'stale' import records in the dropbox history table ('stale' is defined as the import date/time being older than the file timestamp)
 
   * existence of Carts for dropboxes that specify them
 
@@ -136,7 +131,11 @@ $(${FMT} <<<"${my_name} takes specific action in cases where it makes sense and 
 
   * terminates any 'hung' import processes")
 
+  * removes 'stale' import history records
+
 $(${FMT} <<<"Specify '--interactive' (short option: '-i') to have ${my_name} prompt before taking any action.")
+
+$(${FMT} <<<"Specify '--no' (short option: '-n') to answer 'No' to all prompts.")
 
 $(${FMT} <<<"Specify '--stranded-files' (short option: '-s') to have ${my_name} look for and report on files in dropbox directories that have not been imported.")
 
@@ -150,6 +149,26 @@ EOF
 ##
 ##########################################################################################
 ##########################################################################################
+
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  print "Missing zsh-functions library. Cannot continue." >&2
+  exit 1
+fi
+
+typeset -i ANSWER_NO=0
+typeset -i CHECK_STRANDED_FILES=0
+typeset -i INTERACTIVE=0
+typeset -i SHOW_VERSION=
+typeset -i VERBOSE=00
+
+typeset -ri CURRENT_TIME=${EPOCHSECONDS}
+typeset -ri ONE_DAY=$((60 * 60 * 24))
 
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 14 external commands.
@@ -175,37 +194,38 @@ done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if ! TEMP=$(${GETOPT} -o hisVv --long help,interactive,stranded-files,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o hinsVv --long help,interactive,no,stranded-files,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
 eval set -- "${TEMP}"
 while : ; do
-    # VERBOSE is used, but in a non-Bash way.
-    # shellcheck disable=SC2034
-    case "${1}" in
-	-h|--help) usage "${0}" ; exit ;;
-	-i|--inter*) INTERACTIVE=1 ; shift ;;
-	-s|--stranded*) CHECK_STRANDED_FILES=1 ; shift ;;
-	-V|--version) SHOW_VERSION=1 ; shift ;;
-	-v|--verbose) ((VERBOSE += 1)) ; shift ;;
-	--) shift ; break ;;
-	*) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
-    esac
+  # VERBOSE is used, but in a non-Bash way.
+  # shellcheck disable=SC2034
+  case "${1}" in
+    -h|--help) usage "${0}" ; exit ;;
+    -i|--inter*) INTERACTIVE=1 ; shift ;;
+    -n|--no) ANSWER_NO=1 ; shift ;;
+    -s|--stranded*) CHECK_STRANDED_FILES=1 ; shift ;;
+    -V|--version) SHOW_VERSION=1 ; shift ;;
+    -v|--verbose) ((VERBOSE += 1)) ; shift ;;
+    --) shift ; break ;;
+    *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+  esac
 done
 unset TEMP
 
 if ((SHOW_VERSION)) ; then
-    typeset commit_hash="${v_hash}"
-    [[ "${v_hash}" == '$Hash$' ]] &&
-	commit_hash="prerelase"
-    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
-    exit 0
+  typeset commit_hash="${v_hash}"
+  [[ "${v_hash}" == '$Hash$' ]] &&
+    commit_hash="prerelase"
+  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+  exit 0
 fi
-if ((INTERACTIVE)) ; then
-    if get_yes_no "Do you want to check for files that have not been imported?" ; then
-	CHECK_STRANDED_FILES=1
-    fi
+if ((INTERACTIVE)) && ! ((CHECK_STRANDED_FILES)) ; then
+  if get_yes_no "Do you want to check for files that have not been imported?" 0 ; then
+    CHECK_STRANDED_FILES=1
+  fi
 fi
 ((VERBOSE)) && printf "%s: beginning audit of Rivendell dropboxes.\n" "${0:t}" >&2
 
@@ -219,11 +239,11 @@ typeset -ri pid_count=$(${PIDOF} rdimport | wc -w)
 ((VERBOSE)) && printf "Dropbox count: %d, PID count: %d\n" "${box_count}" "${pid_count}" >&2
 
 if ((box_count > pid_count)) ; then
-    printf "Found %d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
+  printf "Found %d dropboxes, but only %d processes.\n" "${box_count}" "${pid_count}" >&2
 elif ((pid_count > box_count)) ; then
-    printf "Found %d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
+  printf "Found %d dropboxes, but there are too many (%d) processes.\n" "${box_count}" "${pid_count}" >&2
 else
-    ((VERBOSE)) && printf "Good! %d dropboxes and %d dropbox processes.\n" "${box_count}" "${pid_count}" >&2
+  printf "Good! %d dropboxes and %d dropbox processes.\n" "${box_count}" "${pid_count}" >&2
 fi
 
 # procs is an associative array containing the full command line,
@@ -233,107 +253,147 @@ typeset oIFS="${IFS}"
 IFS=$'\n\t'
 # NOTE: the whitespace between %p (PID) and %a (ARGS) should be a single <TAB>.
 procs=($(PS_PERSONALITY=aix ${PS} -eo "%p$(print '\t\c')%a" | ${GREP} -v "${GREP}" | ${GREP} "rdimport" | ${SED} -e 's/^  *//'))
-((VERBOSE > 1)) && printf "rdimport processes:\n%s" "${(v)procs[*]}" >&2
+((VERBOSE > 1)) && printf "rdimport processes:\n%s\n" "${(v)procs[*]}" >&2
 
 # path_specs is an associative array containing the dropbox cart number
 # (may be 0) and the path spec, indexed by the dropbox ID.
 typeset -A path_specs
-path_specs=($(doSQL "select ID,concat(TO_CART,'${myFS}',PATH) from DROPBOXES where STATION_NAME='${station}' order by TO_CART"))
-((VERBOSE > 1)) && printf "path_specs:\n%s" "${(v)path_specs[*]}" >&2
+path_specs=($(doSQL "select ID, concat(TO_CART,'${myFS}',PATH) from DROPBOXES where STATION_NAME='${station}' order by TO_CART"))
+((VERBOSE > 1)) && printf "path_specs:\n%s\n" "${(v)path_specs[*]}" >&2
 
 # Check if all defined dropbox processes are running.
-((VERBOSE)) && print "Checking for running processes for all dropboxes..." >&2
+print "Checking for running processes for all dropboxes..." >&2
 typeset -i to_cart
 for id in ${(k)path_specs[*]} ; do
-    path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
-    to_cart="${path_specs[${id}]%${myFS}*}"
+  path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
+  to_cart="${path_specs[${id}]%${myFS}*}"
 
-    if ! ${GREP} -F -q "${path_specs[${id}]#*${myFS}}" <<<"${(v)procs[*]}" ; then
-	printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" "${id}" \
-	       "${path_specs[${id}]#*${myFS}}" "${to_cart}" >&2
-
-	typeset -i dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID = ${id}")
-	((VERBOSE > 1)) && printf "dropbox_path_count for dropbox %d: %d\n" "${id}" "${dropbox_path_count}" >&2
-	if ((dropbox_path_count > 0)) ; then
-	    if ((INTERACTIVE)) ; then
-		if get_yes_no "Reset dropbox '${path_specs[${id}]#*${myFS}}'?" ; then
-		    if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
-			printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
-		    fi
-		fi
-	    else
-		((VERBOSE)) && printf "Resetting dropbox ID '%d' ('%s')\n" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
-		if ! doSQL "delete from DROPBOX_PATHS where DROPBOX_ID = ${id}" ; then
-		    printf "Unable to reset dropbox '%s'. Please seek additional help.\n" "${path_specs[${id}]#*${myFS}}" >&2
-		fi
-	    fi
+  if ! ${GREP} -F -q "${path_specs[${id}]#*${myFS}}" <<<${(v)procs[*]} ; then
+    printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" \
+	   "${id}" \
+	   "${path_specs[${id}]#*${myFS}}" \
+	   "${to_cart}" >&2
+    if ((INTERACTIVE)) ; then
+      if get_yes_no "Restart dropboxes?" ${ANSWER_NO}; then
+	if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
+	  # The Rivendell v3 way to restart all dropboxes.
+	  ${SENDUSR1} "${pidof_rdservice}"
 	else
-	    if ((INTERACTIVE)) ; then
-		if get_yes_no "Restart dropboxes?" ; then
-		    if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
-			# The Rivendell v3 way to restart all dropboxes.
-			${SENDUSR1} "${pidof_rdservice}"
-		    else
-			# The pre-Rivendell v3 way to restart all dropboxes.
-			kill_with_privilege "$(${PIDOF} rdcatchd)"
-			# SC2046: we want the words of pidof to be split.
-			# shellcheck disable=SC2046
-			kill_with_privilege $(${PIDOF} rdimport)
-		    fi
-
-		    print "Dropboxes have been restarted."
-		fi
-	    else
-		# SC2016: I do not want anything to expand in this string
-		# shellcheck disable=SC2016
-		printf '\tMight want to restart dropboxes as appropriate.\n' >&2
-	    fi
+	  # The pre-Rivendell v3 way to restart all dropboxes.
+	  kill_with_privilege "$(${PIDOF} rdcatchd)"
+	  # SC2046: we want the words of pidof to be split.
+	  # shellcheck disable=SC2046
+	  kill_with_privilege $(${PIDOF} rdimport)
 	fi
+
+	print "Dropboxes have been restarted."
+      fi
+    else
+      printf '\tMight want to restart dropboxes as appropriate.\n' >&2
     fi
+  fi
 done
 IFS="${oIFS}"
 
 # Other way around: check if all running processes have a dropbox
 # defined. extract the dropbox IDs from the rdimport processes and
-# compare them to the list of dropbox IDs from the database. Also look
-# for dropboxes that have no Path Spec defined.
+# compare them to the list of dropbox IDs from the database.
 typeset -i proc_id
-((VERBOSE)) && print "Checking whether all running dropbox processes have a dropbox configured..." >&2
+print "Checking whether all running dropbox processes have a dropbox configured..." >&2
 for proc_id in ${(k)procs[*]} ; do
-    # BUG ALERT: This expansion assumes '--drop-box' follows
-    # '--persistent-dropbox-id=' in the ps(1) output.
-    typeset process_dropbox_id="${${procs[${proc_id}]#*persistent-dropbox-id=}% --drop-box*}"
-    typeset process_path_spec="${procs[${proc_id}]/* \///}"
-    if [[ "${process_path_spec#/usr/bin/rdimport }" =~ ^/ ]] ; then
-	if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
-	    printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
-	if ((INTERACTIVE)) ; then
-	    if get_yes_no "Terminate process ID ${proc_id}?" ; then
-		kill_with_privilege "${proc_id}"
-		print "Done."
-	    else
-		printf "OK, but you probably want to terminate process ID %d\n." "${proc_id}"
-	    fi
+  # BUG ALERT: This expansion assumes '--drop-box' follows
+  # '--persistent-dropbox-id=' in the ps(1) output.
+  typeset process_dropbox_id="${${procs[${proc_id}]#*persistent-dropbox-id=}% --drop-box*}"
+  typeset process_path_spec="${procs[${proc_id}]/* \///}"
+  if [[ "${process_path_spec#/usr/bin/rdimport }" =~ ^/ ]] ; then
+    if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
+      printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
+      if ((INTERACTIVE)) ; then
+	if get_yes_no "Terminate process ID ${proc_id}?" ${ANSWER_NO} ; then
+	  kill_with_privilege "${proc_id}"
+	  print "Done."
 	else
-	    ((VERBOSE)) && printf "Terminating process ID %s... " "${proc_id}" >&2
-	    kill_with_privilege "${proc_id}"
-	    ((VERBOSE)) && print "done." >&2
+	  printf "OK, but you probably want to terminate process ID %d\n." "${proc_id}"
 	fi
-	fi
-    else
-	# Deal with dropboxes that are missing a Path Spec.
-	printf "\tDropbox ID %d has no Path Spec. Where should it look for files to import?\n" \
-	       "${process_dropbox_id}"
+      else
+	((VERBOSE)) && printf "Terminating process ID %s... " "${proc_id}" >&2
+	kill_with_privilege "${proc_id}"
+	((VERBOSE)) && print "done." >&2
+      fi
     fi
+  else
+    # Deal with dropboxes that are missing a Path Spec.
+    printf "\tDropbox ID %d has no Path Spec. Where should it look for files to import?\n" \
+	   "${process_dropbox_id}"
+  fi
 done
 
-# Check for valid directory names. Spaces and special characters are
-# discouraged (and may even break dropboxes).
-((VERBOSE)) && print "Checking for 'forbidden' directory names..." >&2
+# Check for and remove 'stale' filenames in DROPBOX_PATHS.
+typeset -i dropbox_path_count
+print "Checking for 'stale' filenames in DROPBOX_PATHS table..." >&2
+for id in ${(k)path_specs[*]} ; do
+  dropbox_path_count=$(doSQL "select count(*) from DROPBOX_PATHS where DROPBOX_ID=${id}")
+  if ((dropbox_path_count > 0)) ; then
+    ((VERBOSE)) && printf "dropbox_path_count for dropbox %d (%s): %d\n" "${id}" "${path_specs[${id}]/^:^/: }" "${dropbox_path_count}" >&2
+    oIFS="${IFS}"
+    IFS=$'\t\n'
+    ## Scan all the filenames in DROPBOX_PATHS for this dropbox and check the
+    ## timestamp on the files. Delete "stale" entries from DROPBOX_PATHS.
+    doSQL "select DROPBOX_ID, FILE_PATH, unix_timestamp(FILE_DATETIME) from DROPBOX_PATHS where DROPBOX_ID=${id}" |
+      while read -r dropbox_id file_path file_datetime ; do
+	if ! [[ -r "${file_path}" ]] ; then
+	  delete_source=$(doSQL "select DELETE_SOURCE from DROPBOXES where ID=${dropbox_id}")
+	  # Warn about missing files only if this dropbox was supposed to preserve
+	  # the source files.
+	  if [[ "${delete_source}" =~ [Nn] ]] ; then
+	    ((VERBOSE)) && printf "Previously imported file '%s' does not exist, skipping 'staleness' check.\n" "${file_path}"
+	    continue
+	  fi
+	fi
+	((VERBOSE > 1)) && printf "\t--%s--%d--" "${file_path}" ${file_datetime} >&2
+	zstat -H file_stat "${file_path}"
+	((VERBOSE > 1)) && printf "%s--\n" "${file_stat[mtime]}" >&2
+	# Deal with the situation where the modification time of the file in the
+	# dropbox is newer than the timestamp in DROPBOX_PATHS.
+	if (( file_stat[mtime] > file_datetime )) ; then
+	  ((VERBOSE)) && printf "%s: %d > %d\n" "${file_path}" "${file_stat[atime]}" "${file_datetime}"
+	  if ((INTERACTIVE)) ; then
+	    if get_yes_no "Remove STALE '${file_path}' from DROPBOX_PATHS?" ${ANSWER_NO} ; then
+	      if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
+		printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+	      fi
+	    fi
+	  else
+	    ((VERBOSE)) && printf "Deleting stale entry '%s' from DROPBOX_PATHS.\n" "${file_path}"
+	    if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
+	      printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+	    fi
+	  fi
+	fi
+      done
+    IFS="${oIFS}"
+    unset oIFS
+  fi
+done
+
+# Check for dropboxes that have no PATH spec defined.
+print "Checking for Empty PATH specifications..." >&2
+typeset -a missing_path_ids
+missing_path_ids=( $(doSQL "select ID from DROPBOXES where PATH = '' or PATH is NULL") )
+if ((${#missing_path_ids} > 0)) ; then
+  ${CAT} <<EOF >&2
+Missing PATH specification for DROPBOX IDs
+${(j:\n:)missing_path_ids}
+EOF
+fi
+
+# Check for valid directory names in dropbox PATH specs. Spaces and special
+# characters are discouraged (and may even break dropboxes).
+print "Checking for 'forbidden' directory names..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
-    typeset path_spec_dir=${path_spec%/*}
-    if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
-	${CAT} <<EndOfText >&2
+  typeset path_spec_dir=${path_spec%/*}
+  if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
+    ${CAT} <<EndOfText >&2
 
 One ore more directory components in Dropbox PATH spec
 ${p}
@@ -341,17 +401,17 @@ contains one of the characters |, &, {, }, # \$, <, >, and ?.
 Please consider choosing a PATH spec without these characters.
 
 EndOfText
-    fi
+  fi
 done
 
 # Check for existence of dropbox directories.
-((VERBOSE)) && print "Checking for missing dropbox directories (folders)..." >&2
+print "Checking for missing dropbox directories (folders)..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
-    typeset path_spec_dir=${path_spec%/*}
-    if ! [[ -d ${path_spec_dir} ]] ; then
-	printf "Missing directory (%s) for dropbox PATH specifier: %s\n" \
-	       "${path_spec_dir}" "${path_spec}" >&2
-    fi
+  typeset path_spec_dir=${path_spec%/*}
+  if ! [[ -d ${path_spec_dir} ]] ; then
+    printf "Missing directory (%s) for dropbox PATH specifier: %s\n" \
+	   "${path_spec_dir}" "${path_spec}" >&2
+  fi
 done
 
 typeset -a spinners
@@ -363,77 +423,76 @@ typeset -i x=1
 
 # Check for Cart Numbers as needed (some dropboxes create new Carts
 # for all new imports).
-((VERBOSE)) && print "Checking dropbox Cart numbers (this may take some time)..." >&2
+print "Checking dropbox Cart numbers (this may take some time)..." >&2
 for id in ${(k)path_specs[*]} ; do
-    ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
-    to_cart=${path_specs[${id}]%${myFS}*}
-    if ((to_cart > 0)) ; then
-	typeset -i cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
-	if ((cut_count < 1)) ; then
-	    typeset cart_title
-	    # SC2046: shellcheck is too quote-crazy
-	    # shellcheck disable=SC2046
-	    read -r cart_title<<<$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
-	    if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
-		printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
-		       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
-	    fi
-	    printf "\r \nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
-		   "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
-	    unset cart_title
-	fi
+  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
+  to_cart=${path_specs[${id}]%${myFS}*}
+  if ((to_cart > 0)) ; then
+    typeset -i cut_count=$(doSQL "select count(*) from CUTS where CART_NUMBER = ${to_cart}")
+    if ((cut_count < 1)) ; then
+      typeset cart_title
+      # SC2046: shellcheck is too quote-crazy
+      # shellcheck disable=SC2046
+      read -r cart_title<<<$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
+      if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
+	# The "\r \n" is in these printfs to clean up the "spinners" output.
+	printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
+	       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+      fi
+      printf "\r \nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
+	     "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+      unset cart_title
     fi
+  fi
 done
 ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
 # Check for "hung" rdxport.cgi processes. Kill them if they are old or
 # appear to be "stranded".
-((VERBOSE)) && print "Checking for 'hung' rdxport.cgi processes..." >&2
+print "Checking for 'hung' rdxport.cgi processes..." >&2
 declare -a possibly_hung_xport_procs
 possibly_hung_xport_procs=( $(${PIDOF} 'rdxport.cgi') )
-printf "Found %d possibly 'hung' Import processes...\n" ${#possibly_hung_xport_procs}
+if ((${#possibly_hung_xport_procs} > 0)) ; then
+  printf "Found %d possibly 'hung' Import processes...\n" ${#possibly_hung_xport_procs}
+fi
 unset proc_id
 for proc_id in ${possibly_hung_xport_procs[*]} ; do
-    # SC2086: shellcheck sometimes gets confused about quotes
-    # shellcheck disable=SC2086
-    typeset process_start_time=$(${DATE} --date="$(${PS} -p ${proc_id} --format 'lstart=')" +%s)
-    if ((process_start_time < (CURRENT_TIME - ONE_DAY))) ; then
-	# SC2086: shellcheck is easily confused by quoting
-	# shellcheck disable=SC2086
-	printf "NOTICE: import process ID %d was started %s.\n" "${proc_id}" \
-	       "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
-	if ((INTERACTIVE)) ; then
-	    if get_yes_no "Terminate process ID ${proc_id}?" ; then
-		kill_with_privilege "${proc_id}"
-	    fi
-	else
-	    ((VERBOSE)) && printf "Killing process ID %s: " "${proc_id}" >&2
-	    kill_with_privilege "${proc_id}"
-	    ((VERBOSE)) && print "done." >&2
-	fi
+  typeset process_start_time=$(${DATE} --date="$(${PS} -p ${proc_id} --format 'lstart=')" +%s)
+  if ((process_start_time < (CURRENT_TIME - ONE_DAY))) ; then
+    printf "NOTICE: import process ID %d was started %s.\n" "${proc_id}" \
+	   "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
+    if ((INTERACTIVE)) ; then
+      if get_yes_no "Terminate process ID ${proc_id}?" ${ANSWER_NO} ; then
+	kill_with_privilege "${proc_id}"
+      fi
+    else
+      ((VERBOSE)) && printf "Killing process ID %s: " "${proc_id}" >&2
+      kill_with_privilege "${proc_id}"
+      ((VERBOSE)) && print "done." >&2
     fi
+  fi
 done
 
 # Check for missing log settings in the dropboxes.
 printf "Checking for missing Log settings in dropboxes...\n"
 x=1
 for id in ${(k)path_specs[*]} ; do
-    ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
-    if okDatabaseStructure DROPBOXES:LOG_TO_SYSLOG ; then
-	log_specs=$(doSQL "select concat(LOG_TO_SYSLOG,'${myFS}',LOG_PATH) from DROPBOXES where ID=${id}")
-	if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
-	    if [[ -z "${log_specs#*${myFS}}" ]] ; then
-		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-		       "${id}" "${path_specs[${id}]#*${myFS}}"
-	    fi
-	fi
-    else
-	log_path=$(doSQL "select LOG_PATH from DROPBOXES where ID=${id}")
-	if [[ -z "${log_path}" ]] ; then
-		printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-		       "${id}" "${path_specs[${id}]#*${myFS}}"
-	fi
+  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
+  if okDatabaseStructure DROPBOXES:LOG_TO_SYSLOG ; then
+    log_specs=$(doSQL "select concat(LOG_TO_SYSLOG,'${myFS}',LOG_PATH) from DROPBOXES where ID=${id}")
+    if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
+      if [[ -z "${log_specs#*${myFS}}" ]] ; then
+	printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
+	       "${id}" "${path_specs[${id}]#*${myFS}}"
+      fi
     fi
+  else
+    log_path=$(doSQL "select LOG_PATH from DROPBOXES where ID=${id}")
+    if [[ -z "${log_path}" ]] ; then
+      printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
+	     "${id}" "${path_specs[${id}]#*${myFS}}"
+    fi
+  fi
 done
 ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
@@ -445,58 +504,77 @@ oIFS="${IFS}"
 IFS=$'\t\n'
 x=1
 if ((CHECK_STRANDED_FILES)) ; then
-    typeset -A file_history
-    file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
-    ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}" >&2
-    typeset -A dropbox_groups
-    dropbox_groups=($(doSQL "select ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
+  print "Checking for 'stranded' files (in a dropbox folder, but not imported). This may take some time..." >&2
+  typeset -A file_history
+  file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
+  ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}" >&2
+  typeset -A dropbox_groups
+  dropbox_groups=($(doSQL "select ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
 
-    ((VERBOSE)) && print "Checking for 'stranded' files (in a dropbox folder, but not imported). This may take some time..." >&2
-
-    # SC2086: shellcheck is easily confused by quoting and this
-    # parameter expansion is pretty disgusting.
-    # shellcheck disable=SC2086
-    for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
-	typeset -a possibly_stranded
-	if ! [[ -d "${path_dir}" ]] ; then
-	    ((VERBOSE)) && printf "Skipping missing Rivendell dropbox folder '%s'\n" "${path_dir}" >&2
-	    continue
-	fi
-	possibly_stranded=(
-	    $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
-		  declare escaped_line=""
-		  escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
-		  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
-		  [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
-		      print "${line}"
-		  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
-	      done)
-	)
-	if [[ -n "${possibly_stranded[*]}" ]] ; then
-	    if ((${#possibly_stranded[*]} == 1)) ; then
-		typeset thing='file'
-		typeset plural='s'
-	    else
-		typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
-		typeset plural=''
-	    fi
-	    printf "The following %s in dropbox folder '%s' appear%c to be stranded:\n" \
-		   "${thing}" "${path_dir}" "${plural}"
-	    print "\t${(oj:\n\t:)possibly_stranded[*]}"
-	    if get_yes_no "Do you want to reset this dropbox?" ; then
-		((VERBOSE)) && print "Resetting dropbox..." >&2
-		for file_path in ${possibly_stranded[*]} ; do
-		    doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'"
-		done
-	    fi
-	fi
-    done
-    ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
+  for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
+    typeset -a possibly_stranded
+    if ! [[ -d "${path_dir}" ]] ; then
+      ((VERBOSE)) && printf "Skipping missing Rivendell dropbox folder '%s'\n" "${path_dir}" >&2
+      continue
+    fi
+    possibly_stranded=(
+      $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
+	  declare escaped_line=""
+	  escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
+	  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
+	  [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
+	    print "${line}"
+	  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
+	done)
+    )
+    if [[ -n "${possibly_stranded[*]}" ]] ; then
+      if ((${#possibly_stranded[*]} == 1)) ; then
+	typeset thing='file'
+	typeset plural='s'
+      else
+	typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
+	typeset plural=''
+      fi
+      printf "The following %s in dropbox folder '%s' appear%c to be stranded:\n" \
+	     "${thing}" "${path_dir}" "${plural}"
+      print "\t${(oj:\n\t:)possibly_stranded[*]}"
+      if get_yes_no "Do you want to reset this dropbox?" ${ANSWER_NO} ; then
+	((VERBOSE)) && print "Resetting dropbox..." >&2
+	for file_path in ${possibly_stranded[*]} ; do
+	  doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'"
+	done
+      fi
+    fi
+  done
+  ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 fi
 
 if ((INTERACTIVE)) ; then
-    print "Dropbox audit complete. Press <Enter> to exit." > /dev/tty
-    read -r < /dev/tty
+  print "Dropbox audit complete. Press <Enter> to exit." > /dev/tty
+  read -r < /dev/tty
 fi
 
 exit
+# Local Variables: ***
+# mode:shell-script ***
+# indent-tabs-mode: f ***
+# sh-indentation: 2 ***
+# sh-basic-offset: 2 ***
+# sh-indent-for-do: 0 ***
+# sh-indent-after-do: + ***
+# sh-indent-comment: t ***
+# sh-indent-after-case: + ***
+# sh-indent-after-done: 0 ***
+# sh-indent-after-else: + ***
+# sh-indent-after-if: + ***
+# sh-indent-after-loop-construct: + ***
+# sh-indent-after-open: + ***
+# sh-indent-after-switch: + ***
+# sh-indent-for-case-alt: ++ ***
+# sh-indent-for-case-label: + ***
+# sh-indent-for-continuation: + ***
+# sh-indent-for-done: 0 ***
+# sh-indent-for-else: 0 ***
+# sh-indent-for-fi: 0 ***
+# sh-indent-for-then: 0 ***
+# End: ***
