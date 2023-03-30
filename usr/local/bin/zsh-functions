@@ -9,7 +9,7 @@
 # SC2155: Ignoring all return values in assignments.
 # SC2162: Because we do not ever encounter backslashes.
 # SC2190: ZSH: associative array assignment "just works"(TM).
-# SC2207: "prefer mapfile or read -a" these are all ZSH-isms,
+# SC2207: "prefer mapfile or read -a" these are all ZSH-isms.
 # SC2248: shellcheck is too quote conservative.
 # SC2296: ZSH permits bracketed parameter expansions starting with ().
 # SC2298: ZSH permits nested parameter expansions.
@@ -36,7 +36,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=12
+  vLibPatch=18
   vLibHash='$Hash$'
 }
 function zsh_library_version() {
@@ -84,8 +84,8 @@ function sendNotification() {
   unset our_commands C D
   ############# END external shell commands used in this function. #############
 
-  local MAILER=$(whence msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
-  local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/pmw/conf.msmtp}"
+  local MAILER=$(command -v msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
+  local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/btd/conf.msmtp}"
   local MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
   local hostName="$(${HOSTNAME} -f)"
   local PRETEND="${PRETEND}"
@@ -179,8 +179,8 @@ function notificationSent() {
   local type="${1}" ; shift
   local notificationTime="${1}"
 
-  local SED=$(whence sed) ; SED="${SED:-/bin/sed}"
-  local notifyDB="${NOTIFY_DB:-/usr/local/etc/pmw/notifications}"
+  local SED=$(command -v sed) ; SED="${SED:-/bin/sed}"
+  local notifyDB="${NOTIFY_DB:-/usr/local/etc/btd/notifications}"
   local notification
   local foundPriorNotification=0
   local oneDay=$(( 60 * 60 * 24 ))
@@ -379,7 +379,7 @@ function rdGetStationName() {
   local stationName
   local returnValue=0
 
-  local HOSTNAME=$(whence hostname) ; HOSTNAME="${HOSTNAME:-/bin/hostname}"
+  local HOSTNAME=$(command -v hostname) ; HOSTNAME="${HOSTNAME:-/bin/hostname}"
   local myHostname="$(${HOSTNAME} -s)"
 
   if ! okDatabaseStructure STATIONS:name+ipv4_address ; then
@@ -453,7 +453,7 @@ function rdWebInvoke() {
   # shellcheck disable=SC2206
   curlArguments=( ${*} )
 
-  local CURL=$(whence curl) ; CURL="${CURL:-/usr/bin/curl}"
+  local CURL=$(command -v curl) ; CURL="${CURL:-/usr/bin/curl}"
   local curlVerbosity
   local -r httpServer="$(rdGetWebServer)"
   local -a response
@@ -863,10 +863,10 @@ function rdDropboxStatus() {
   local -r verbose="${1}"
 
   ############ BEGIN external shell commands used in this function. ############
-  # This function uses these 10 external commands.
+  # This function uses these 8 external commands.
   # Look for them in their upper case, parameter expanded form.
-  typeset -a our_commands
-  our_commands=( awk grep hostname killall pidof ps rdcatchd sed sleep sort )
+  local -a our_commands
+  our_commands=( awk hostname kill pidof ps sed sendusr1 sudo )
   # Find the executables we need; this uses some basic shell and a ZSH trick:
   # the (U) in the eval says to evaluate the parameter as all upper case
   # letters. This snippet generates shell parameters representing the upper case
@@ -888,8 +888,10 @@ function rdDropboxStatus() {
 
   local -a dropboxIDs
   local -a rdimportIDs
-  local dropboxID dropboxPath rdcatchdRestartNeeded=0 returnValue=0
-  local count=0 totalCount=0
+  local -a dropboxesNotRunning
+  local -a extraneousRdimportIDs
+  local -A rdimportPIDs
+  local dropboxID dropboxPath
 
   if ! okDatabaseStructure DROPBOXES:id+station_name+path "${verbose}" ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
@@ -898,93 +900,67 @@ function rdDropboxStatus() {
 
   # We are looking for dropboxes on *this* host.
   dropboxIDs=( $(doSQL "select ID from DROPBOXES where STATION_NAME = '$(${HOSTNAME} -s)' order by ID") )
-  # The list of IDs for all currently running rdimport processes.
-  rdimportIDs=(
-    $(
-      ${PS} ax --format 'pid,args' |
-	${AWK} '/\s?rdimport\s?/{print $3}' |
-	${SED} -e 's,--persistent-dropbox-id=,,' |
-	${SORT} -n
-    )
-  )
 
-  # Check each one if we found any dropbox IDs.
-  if (( ${#dropboxIDs} )) ; then
+  # We better have running rdimport processes if we have configured
+  # dropboxes.
+  # SC1009: shellcheck cannot handle this, it seems to be a ZSH-ism
+  # shellcheck disable=SC1009
+  if ((${#dropboxIDs})) ; then
+    # The list of dropbox IDs for all currently running rdimport
+    # processes.
+    rdimportIDs=( $(${PS} ax --format 'args' |
+                      ${AWK} '/^\/usr\/bin\/rdimport\s?/{print $2}' |
+                      ${SED} -e 's,--persistent-dropbox-id=,,') )
+    # The same list *with* process IDs in an asssociatve arrray,
+    # indexed by dropbox ID.
+    rdimportPIDs=( $(${PS} ax --format 'pid,args' |
+                      ${AWK} '/^[[:digit:]]{1,}\s\/(usr\/)?bin\/rdimport\s?/{print $3 " " $1}' |
+                      ${SED} -e 's,--persistent-dropbox-id=,,') )
+    # Get both the list of missing rdimport process IDs and the list
+    # of extraneous rdimport process IDs.
+    # SC2206: Because this are ZSH arrays, I *want* words to be split.
+    # shellcheck disable=SC2206
+    dropboxesNotRunning=( ${dropboxIDs:|rdimportIDs} )
+    # shellcheck disable=SC2206
+    extraneousRdimportIDs=( ${rdimportIDs:|dropboxIDs} )
 
-    # If not equal, we probably have more dropboxes than running
-    # instances of rdimport. (This is a map() in perl.)
-    for dropboxID in ${dropboxIDs} ; do
-
-      dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
-
-      if ${GREP} -q "${dropboxID}" <<<${rdimportIDs[*]} ; then
-
-        if ((${#dropboxIDs} > 20)) ; then
-          print ".\c"
-          ((count > 0 && count % 50 == 0)) && echo
-        else
-	  logit ${myName} ${interactive} "Dropbox ${dropboxID} ('${dropboxPath}') is running."
-        fi
-	(( count++ ))
-
-      else
-
-	logit "${myName}" "${interactive}" "Dropbox ${dropboxID} ('${dropboxPath}') is not running. (Will restart rdcatchd.)"
-	(( rdcatchdRestartNeeded++ ))
-
+    if [[ -n "${extraneousRdimportIDs[*]}" ]] ; then
+      local -r es=$( ((${#extraneousRdimportIDs[*]} > 1)) && printf 'es')
+      local -r is_are=$( ((${#extraneousRdimportIDs[*]} > 1)) && printf 'is' || printf 'are')
+      local -i d
+      print "There ${is_are} ${#extraneousRdimportIDs[*]} 'zombie' dropbox${es} running."
+      if ((interactive)) && getYesNo "Would you like to attempt to terminate the process${es} now?" ; then
+        print "If prompted, type the password for '${USER}' (it will not be displayed for security purposes)"
+        for d in ${extraneousRdimportIDs[*]} ; do
+          ${SUDO} ${KILL} ${rdimportPIDs[${d}]}
+        done
       fi
-      (( totalCount++ ))
+    fi
+
+    if [[ -z "${dropboxesNotRunning[*]}" ]] ; then
+      logit "${myName}" "${interactive}" "Yay! All ${#dropboxIDs[*]} Rivendell dropboxes are currently active and running."
+      return
+    fi
+
+    # We have more configured dropboxes than running instances of
+    # rdimport. TODO: deal with more running rdimport processes than
+    # configured dropboxes.
+    for dropboxID in ${dropboxesNotRunning[*]} ; do
+      dropboxPath=$(doSQL "select PATH from DROPBOXES where ID=${dropboxID}")
+      logit ${myName} ${interactive} "$(printf 'Dropbox ID %d (path spec %s) is not running. Will reset this dropbox.' ${dropboxID} ${dropboxPath})"
+      rdResetDropbox "${myName}" ${dropboxID} ${interactive} ${verbose}
     done
 
-    if (( rdcatchdRestartNeeded )) ; then
-
-      logit "${myName}" "${interactive}" "${count} of ${totalCount} Rivendell dropboxes are running. Restarting $((rdcatchdRestartNeeded)) Rivendell dropboxes...${interactive:+ \\c}"
-
-      ${KILLALL} 'rdcatchd'
-
-      # Wait a few seconds to see if anybody restarts rdcatchd.
-      if (( interactive )) ; then
-	for i in {1..3} ; do echo ".\c" ; ${SLEEP} 1; done
-      else
-	${SLEEP} 3
-      fi
-
-      if ! ${PIDOF} 'rdcatchd' > /dev/null ; then
-
-	${RDCATCHD}
-
-	# Wait a few seconds more to make sure rdcatchd restarts.
-	# SC2034: If only the shell had the equivalent of a value we don't care about...
-	# shellcheck disable=SC2034
-	if (( interactive )) ; then
-	  for i in {1..3} ; do echo ".\c" ; ${SLEEP} 1; done
-	else
-	  ${SLEEP} 3
-	fi
-
-	if ${PIDOF} 'rdcatchd' > /dev/null ; then
-
-	  logit "${myName}" "${interactive}" "Done."
-
-	else
-
-	  (( interactive )) && echo
-	  logit "${myName}" "${interactive}" "ERROR: Could not restart ${RDCATCHD}. Please contact a professional Rivendell authority!"
-	  returnValue=1
-
-	fi
+    if rdservicePID=$(${PIDOF} 'rdservice') ; then
+      if ! ${SENDUSR1} "${rdservicePID}" > /dev/null ; then
+        logit ${myName} ${interactive} "Unable to send SIGUSR1 to rdservice. Please contact someone who can help."
       fi
     else
-
-      logit "${myName}" "${interactive}" "Yay! ${count} of ${totalCount} Rivendell dropboxes are currently active and running."
-
+      logit ${myName} ${interactive} "Unable to discern the process ID of 'rdservice'. Please seek help from a higher authority..."
     fi
   else
-
     logit "${myName}" "${interactive}" "Found zero (0) dropboxes on this Rivendell workstation ('$(${HOSTNAME} -s)')."
-
   fi
-
 }
 
 # Return a DROPBOX numeric ID from a path.
@@ -1037,8 +1013,8 @@ function rdResetDropbox() {
   local -r interactive="${1}" ; shift
   local -r verbose="${1}"
 
-  local returnValue=1
-  # SC2178: "Variable was used as an array but is now assigned a string.", but in a *different* function!
+  # SC2178: "Variable was used as an array but is now assigned a
+  # string.", but in a *different* function!
   # shellcheck disable=SC2178
   local query="delete from DROPBOX_PATHS where DROPBOX_ID = ${dropbox_id}"
 
@@ -1143,7 +1119,7 @@ function logit() {
   local interactive="${1}" ; shift
   local message="${1}"
 
-  local LOGGER=$(whence logger) ; LOGGER="${LOGGER:-/usr/bin/logger}"
+  local LOGGER=$(command -v logger) ; LOGGER="${LOGGER:-/usr/bin/logger}"
 
   if (( interactive )) ; then
 
