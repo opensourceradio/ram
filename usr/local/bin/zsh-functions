@@ -36,15 +36,15 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=11
+  vLibPatch=12
   vLibHash='$Hash$'
 }
 function zsh_library_version() {
   printf "%d.%d.%d.%d\n" \
-	 "${vLibRelease}" \
-	 "${vLibMajor}" \
-	 "${vLibMinor}" \
-	 "${vLibPatch}"
+         "${vLibRelease}" \
+         "${vLibMajor}" \
+         "${vLibMinor}" \
+         "${vLibPatch}"
 }
 
 # Use the configured mailer to send email to one or more
@@ -96,12 +96,12 @@ function sendNotification() {
   if ! notificationSent "${myName}" "${type}" "${startTime}" ; then
     if [[ -x "${MAILER}" ]] ; then
       if [[ -s "${MAILER_CONFIG}" ]] ; then
-	if [[ -n "${MAIL_FROM}" ]] ; then
+        if [[ -n "${MAIL_FROM}" ]] ; then
 
-	  # SC2046: we need to leave parameters unquoted here.
-	  # shellcheck disable=SC2046
-	  (
-	    ${CAT} <<EOF
+          # SC2046: we need to leave parameters unquoted here.
+          # shellcheck disable=SC2046
+          (
+            ${CAT} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
@@ -130,8 +130,8 @@ entering (or pasting) the command:
   journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
 
 EOF
-	    if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
-	      ${CAT} <<EOF
+            if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
+              ${CAT} <<EOF
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
  name="${messagefile:t}"
@@ -141,24 +141,24 @@ Content-Disposition: attachment;
 
 $(${DOS2UNIX} < "${messagefile}" | ${BASE64})
 EOF
-	    fi
+            fi
 
-	    ${CAT} <<EOF
+            ${CAT} <<EOF
 ------------${startTime}--
 EOF
-	  ) | ${MAILER} $(eval echo "${MAILER_ARGS}") "${PRETEND}"
+          ) | ${MAILER} $(eval echo "${MAILER_ARGS}") "${PRETEND}"
 
-	else
+        else
 
-	  ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
-	  returnValue=3
+          ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
+          returnValue=3
 
-	fi
+        fi
 
       else
 
-	${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
-	returnValue=2
+        ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
+        returnValue=2
 
       fi
 
@@ -190,33 +190,33 @@ function notificationSent() {
   if [[ -f "${notifyDB}" ]] ; then
     while read notification ; do
       if [[ "${notification%:*}" == "${theirName}:${type}" ]] ; then
-	foundPriorNotification=1
-	break
+        foundPriorNotification=1
+        break
       fi
     done < "${notifyDB}"
     # Have we seen this notification before?
     if (( foundPriorNotification )) ; then
       # Has it been more than a day since we last notified?
       if (( ( notificationTime - oneDay ) > "${notification##*:}" )) ; then
-	if ${SED} -i -e "s/^${theirName}:${type}:.*$/${theirName}:${type}:${notificationTime}/" "${notifyDB}" ; then
-	  logit "${0}" 0 "${theirName} NOTICE: '${type}' notification UPDATED at $(strftime %F\ %T ${notificationTime})."
-	else
-	  logit "${0}" 0 "${theirName} WARNING: Unable to UPDATE '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
-	  returnValue=2
-	fi
+        if ${SED} -i -e "s/^${theirName}:${type}:.*$/${theirName}:${type}:${notificationTime}/" "${notifyDB}" ; then
+          logit "${0}" 0 "${theirName} NOTICE: '${type}' notification UPDATED at $(strftime %F\ %T ${notificationTime})."
+        else
+          logit "${0}" 0 "${theirName} WARNING: Unable to UPDATE '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
+          returnValue=2
+        fi
       else
-	# It has been less than a day since we last notified. We are
-	# done here.
-	logit "${0}" 0 "${theirName} NOTICE: quiet time for notification '${type}' at $(strftime %F\ %T ${notificationTime}) ($(strftime %F\ %T ${notification##*:}))."
-	returnValue=0
+        # It has been less than a day since we last notified. We are
+        # done here.
+        logit "${0}" 0 "${theirName} NOTICE: quiet time for notification '${type}' at $(strftime %F\ %T ${notificationTime}) ($(strftime %F\ %T ${notification##*:}))."
+        returnValue=0
       fi
     else
       # This is a new notification for this ${theirName} and ${type}
       if echo "${theirName}:${type}:${notificationTime}" >> "${notifyDB}" ; then
-	logit "${0}" 0 "${theirName} NOTICE: '${type}' notification added at $(strftime %F\ %T ${notificationTime})."
+        logit "${0}" 0 "${theirName} NOTICE: '${type}' notification added at $(strftime %F\ %T ${notificationTime})."
       else
-	logit "${0}" 0 "${theirName} WARNING: Unable to APPEND '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
-	returnValue=3
+        logit "${0}" 0 "${theirName} WARNING: Unable to APPEND '${type}' notification at $(strftime %F\ %T ${notificationTime}) (${?})."
+        returnValue=3
       fi
     fi
   else
@@ -283,7 +283,7 @@ function doSQL() {
     if [[ -r ~/.my.cnf ]] && [[ $(${GREP} -E -c '^(database|host|user|password)' ~/.my.cnf) -ge 4 ]] ; then
       # SC2164: This instance of "cd" is failsafe.
       # shellcheck disable=SC2164
-      cd -q			# Sigh, mapfile cannot deal with path components.
+      cd -q                     # Sigh, mapfile cannot deal with path components.
       # SC2206: ZSH-ism
       # shellcheck disable=SC2206
       myCnfLines=( ${mapfile[.my.cnf]} )
@@ -291,25 +291,25 @@ function doSQL() {
       # Need to check for each of these parameters in .my.cnf in
       # order to be able to use it.
       for parm in database host password user ; do
-	if echo ${myCnfLines[*]} | ${GREP} --quiet --ignore-case "${parm}" ; then
-	  (( useMyCNF++ ))
-	fi
+        if echo ${myCnfLines[*]} | ${GREP} --quiet --ignore-case "${parm}" ; then
+          (( useMyCNF++ ))
+        fi
       done
     else
       # Horribly insecure, but this is the "Rivendell Way".
       if [[ -r "${rdconfig}" ]] ; then
-	DB_HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Hostname=/{print $2}')
-	DB_USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Loginname=/{print $2}')
-	DB_PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Password=/{print $2}')
-	DB_DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Database=/{print $2}')
+        DB_HOST=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Hostname=/{print $2}')
+        DB_USER=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Loginname=/{print $2}')
+        DB_PASSWORD=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Password=/{print $2}')
+        DB_DATABASE=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rdconfig}" | ${AWK} -F'=' '/^Database=/{print $2}')
       else
-	# Last ditch effort to set the MySQL access credentials.
-	# These are the "conventional" defaults that might otherwise
-	# exist in /etc/rd.conf (and friends).
-	DB_HOST="${RD_DB_HOST:-localhost}"
-	DB_USER="${RD_DB_USER:-rduser}"
-	DB_PASSWORD="${RD_DB_PASS:-letmein}"
-	DB_DATABASE="${RD_DB_DATABASE:-Rivendell}"
+        # Last ditch effort to set the MySQL access credentials.
+        # These are the "conventional" defaults that might otherwise
+        # exist in /etc/rd.conf (and friends).
+        DB_HOST="${RD_DB_HOST:-localhost}"
+        DB_USER="${RD_DB_USER:-rduser}"
+        DB_PASSWORD="${RD_DB_PASS:-letmein}"
+        DB_DATABASE="${RD_DB_DATABASE:-Rivendell}"
       fi
     fi
 
@@ -359,9 +359,9 @@ function getMyIPAddresses() {
   ############# END external shell commands used in this function. #############
 
   ipAddresses=( $(${IP} -o -4 addr show |
-		    ${GREP} -E -v '^(lo|virbr|tun)' |
-		    ${AWK} '{print $4}' |
-		    ${SED} -r -e 's,/[[:digit:]]+$,,') )
+                    ${GREP} -E -v '^(lo|virbr|tun)' |
+                    ${AWK} '{print $4}' |
+                    ${SED} -r -e 's,/[[:digit:]]+$,,') )
 
   if (( ${#ipAddresses} )) ; then
     echo ${(j: :)ipAddresses}
@@ -407,8 +407,8 @@ function rdGetStationName() {
 
       if [[ -z "${stationName}" ]] ; then
 
-	logit "${0}" 1 "Cannot determine my Rivendell 'STATION' name. Better fix that before continuing."
-	returnValue=1
+        logit "${0}" 1 "Cannot determine my Rivendell 'STATION' name. Better fix that before continuing."
+        returnValue=1
 
       fi
     fi
@@ -746,12 +746,12 @@ function rdGetNextCartNumber() {
       currentCartNumber=$(doSQL "select NUMBER from CART where NUMBER = ${nextAvailable}")
       if (( currentCartNumber )) ; then
 
-	(( nextAvailable++ ))
+        (( nextAvailable++ ))
 
       else
 
-	useThisCartNumber="${nextAvailable}"
-	break
+        useThisCartNumber="${nextAvailable}"
+        break
 
       fi
     done
@@ -772,31 +772,31 @@ function rdGetNextCartNumber() {
     doSQL 'select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where DEFAULT_LOW_CART > 0 order by DEFAULT_LOW_CART' |
       while read defaultLowCart defaultHighCart ; do
 
-	# Skip this group if its range falls within a previous group
-	# range (yes, this can happen).
-	(( defaultLowCart < lastHigh )) && continue
+        # Skip this group if its range falls within a previous group
+        # range (yes, this can happen).
+        (( defaultLowCart < lastHigh )) && continue
 
-	if (( nextAvailable > lastHigh && nextAvailable < defaultLowCart )) ; then
+        if (( nextAvailable > lastHigh && nextAvailable < defaultLowCart )) ; then
 
-	  # This query returns NULL if there are no assigned carts in
-	  # this range, else the highest assigned cart number in the
-	  # range.
-	  nextCartNum=$(doSQL "select max(NUMBER) from CART where NUMBER >= ${nextAvailable} and NUMBER < ${defaultLowCart}")
-	  if [[ -z "${nextCartNum}" ]] || [[ "${nextCartNum}" = 'NULL' ]] ; then
-	    # SC2030: ZSH: This is not modified in a subshell.
-	    # shellcheck disable=SC2030
-	    useThisCartNumber="${nextAvailable}"
-	    break
+          # This query returns NULL if there are no assigned carts in
+          # this range, else the highest assigned cart number in the
+          # range.
+          nextCartNum=$(doSQL "select max(NUMBER) from CART where NUMBER >= ${nextAvailable} and NUMBER < ${defaultLowCart}")
+          if [[ -z "${nextCartNum}" ]] || [[ "${nextCartNum}" = 'NULL' ]] ; then
+            # SC2030: ZSH: This is not modified in a subshell.
+            # shellcheck disable=SC2030
+            useThisCartNumber="${nextAvailable}"
+            break
 
-	  fi
-	else
-	  # SC2030: ZSH: This is not modified in a subshell.
-	  # shellcheck disable=SC2030
-	  (( nextAvailable = defaultHighCart + 1 ))
+          fi
+        else
+          # SC2030: ZSH: This is not modified in a subshell.
+          # shellcheck disable=SC2030
+          (( nextAvailable = defaultHighCart + 1 ))
 
-	fi
+        fi
 
-	lastHigh="${defaultHighCart}"
+        lastHigh="${defaultHighCart}"
       done
   fi
 
@@ -835,10 +835,10 @@ function rdCreateEmptyCart() {
 
       # Place the query clauses into an array, mostly for visibility.
       query=(
-	"insert into CART"
-	"(NUMBER, TYPE, GROUP_NAME, TITLE, CUT_QUANTITY)"
-	"values"
-	"(${newCartNumber}, 1, '${group}', '${title}', 0)"
+        "insert into CART"
+        "(NUMBER, TYPE, GROUP_NAME, TITLE, CUT_QUANTITY)"
+        "values"
+        "(${newCartNumber}, 1, '${group}', '${title}', 0)"
       )
 
       doSQL "${(j: :)query}"
@@ -855,10 +855,12 @@ function rdCreateEmptyCart() {
   return "${returnValue}"
 }
 
+# Determine the dropbox status for all dropboxes on this host.
+# restarted.
 function rdDropboxStatus() {
-  local myName="${1}" ; shift
-  local interactive="${1}" ; shift
-  local verbose="${1}"
+  local -r myName="${1}" ; shift
+  local -r interactive="${1}" ; shift
+  local -r verbose="${1}"
 
   ############ BEGIN external shell commands used in this function. ############
   # This function uses these 10 external commands.
@@ -872,6 +874,7 @@ function rdDropboxStatus() {
   # of the commands.
   # Refresh this segment in Emacs by marking the appropriate region (or the whole
   # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+  local C D
   for C in ${our_commands[*]} ; do
     # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
     for D in ${path} ; do
@@ -880,7 +883,7 @@ function rdDropboxStatus() {
     done
     [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
   done
-  unset our_commands
+  unset our_commands C D
   ############# END external shell commands used in this function. #############
 
   local -a dropboxIDs
@@ -1029,10 +1032,10 @@ function rdGetDropboxIDFromPath() {
 # rivendell-source-code/rdadmin/edit_dropbox.cpp:EditDropbox::resetData()
 # shellcheck disable=SC2178
 function rdResetDropbox() {
-  local myName="${1}" ; shift
-  local dropbox_id="${1}" ; shift
-  local interactive="${1}" ; shift
-  local verbose="${1}"
+  local -r myName="${1}" ; shift
+  local -r dropbox_id="${1}" ; shift
+  local -r interactive="${1}" ; shift
+  local -r verbose="${1}"
 
   local returnValue=1
   # SC2178: "Variable was used as an array but is now assigned a string.", but in a *different* function!
@@ -1041,17 +1044,17 @@ function rdResetDropbox() {
 
   if [[ -z "${dropbox_id}" ]] ; then
     logit "${myName}" "${interactive}" "Need a dropbox ID number to reset."
-    return "${returnValue}"
+    return 1
   fi
 
   if ! okDatabaseStructure DROPBOX_PATHS:dropbox_id "${verbose}" ; then
     echo "This version of ${0} is not compatible with Rivendell database version '$(rdDatabaseVersion)'."
-    return 128
+    return 2
   fi
 
-  doSQL "${query}" && returnValue=0
+  doSQL "${query}"
 
-  return "${returnValue}"
+  return
 }
 
 # Determine whether the database structure matches our expectation.
@@ -1062,8 +1065,8 @@ function rdResetDropbox() {
 # table does not exist, or false (2) if a column is not found in the
 # table.
 function okDatabaseStructure() {
-  local tablesAndColumns="${1}" ; shift
-  local verbose="${1:-0}"
+  local -r tablesAndColumns="${1}" ; shift
+  local -r verbose="${1:-0}"
 
   local schema
 
@@ -1072,7 +1075,8 @@ function okDatabaseStructure() {
   local -r oIFS="${IFS}" ; IFS=' '
 
   # Split the comma-separated list of
-  # table:colum+column+column... into this ZSH associative array.
+  # table1:colum+column+column,table2:column+column... into this ZSH
+  # associative array.
   local -A tables
   tables=( $(echo ${${tablesAndColumns//,/ }//:/ }) )
 
@@ -1087,15 +1091,36 @@ function okDatabaseStructure() {
 
     for column in $(echo ${tables[${table}]//+/ }) ; do
       if ! echo "${schema}" | grep --quiet --perl-regexp --ignore-case "\s+\`${(U)column}\`\s+" ; then
-	IFS="${oIFS}"
-	((verbose)) && echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
-	return 2
+        IFS="${oIFS}"
+        ((verbose)) && echo "okDatabaseStructure: ERROR: unable to find column '${column}' in table '${table}'" >&2
+        return 2
       fi
     done
   done
 
   IFS="${oIFS}"
   return
+}
+
+# getYesNo() issues the given prompt on /dev/tty until the response
+# resembles an affirmative or a negative response.
+# Returns 0 ("success") for a "yes"-like response and 1
+# ("non-success") for a "no"-like response to the given prompt.
+function getYesNo() {
+  local -r our_prompt="${1}"
+
+  local -i again=0
+  local response=''
+  until [[ "${(L)response}" =~ ^(no*|y(es)*)$ ]] ; do
+    ((again)) && print "Please respond with 'yes' (or 'y') or 'no' (or 'n')." > /dev/tty
+    print "${our_prompt} [y or n] \c" > /dev/tty
+    # response is actually used, but in a non-Bash way, see below.
+    # shellcheck disable=SC2034
+    read response < /dev/tty
+    ((again=1))
+  done
+  [[ "${(L)response}" =~ ^n ]] && return 1
+  return 0
 }
 
 # Convert milliseconds to [HH:]MM:SS.
