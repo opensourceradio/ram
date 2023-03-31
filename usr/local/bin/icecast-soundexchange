@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 9;
+use constant vPATCH => 10;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -36,6 +36,7 @@ sub mon;
 main;
 1;
 
+# main is the script main thread of execution.
 sub main() {
     my $retVal = undef;
     my ($result, $logDirectory, $startDate, $endDate, $outputDir, $mount_points, $rawOutput, $zipFile, $version, $verbose, $debug, $help, $man) =
@@ -57,7 +58,7 @@ sub main() {
         "debug|d+"             => \$debug,
         "help|h"               => \$help,
         "man|M"                => \$man,
-        );
+    );
     die "GetOptions returned " . $result . ". Stopped" if (!$result);
 
     pod2usage(1)             if (defined($help) && $help);
@@ -96,6 +97,8 @@ sub main() {
 
     say STDERR sprintf("main: Start date: %s: %s End date: %s: %s", $startDate, $start, $endDate, $end) if ($verbose);
 
+    # $logLines is an array ref containing lines matching the date range
+    # $startDate to $endDate.
     my $logLines = getLogFiles($startDate, $endDate, $logDirectory, $verbose);
 
     $outputDir = $outputDir || OUTPUTDIR;
@@ -129,34 +132,23 @@ sub main() {
     #ADDR            U A DATE                         REQUEST              CODE BYTES REF AGENT                           TIME
     #207.190.123.196 - - [05/Mar/2013:22:09:36 -0600] "GET /high HTTP/1.0" 200 134755 "-" "WinampMPEG/5.63, Ultravox/2.1" 4
     #166.228.136.249 - - [05/Mar/2013:22:11:55 -0600] "GET /high HTTP/1.1" 200 1002080 "-" "BREW-Applet/0x010950A6 (BREW/3.1.5.189; DeviceId:  1388; Lang: en)" 92
-    foreach my $logLine (
-        sort {
-            #                                      Log line item:      day     month   year    hour   minute  second
-            #                                     Array elements:       0       1       2       3       4       5
-            #                ADDR                 USER     AUTH
-            my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-            my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-            say STDERR q($a: ), $a if ($debug);
-            say STDERR q($b: ), $b if ($debug);
-            $a[2]                <=> $b[2]
-                || mon($a[1], 0) <=> mon($b[1], 0)
-                || $a[0]         <=> $b[0]
-                || $a[3]         <=> $b[3]
-                || $a[4]         <=> $b[4]
-                || $a[5]         <=> $b[5]
-        } @{$logLines}
-        )
-    {
-        next unless ($logLine =~ m#get\s+($mountpointRE)\s+#i);
+    foreach my $logLine (@{$logLines}) {
+        next unless ($logLine =~ m#get\s+/?($mountpointRE)\s+#i);
         say STDERR "main: $logLine" if ($debug > 1);
 
-        # Bug Alert: the sub-expression "(\d{2})00" represents the
-        # timezone offset in the date/time field. It currently assumes
-        # an integral number of hours offset from GMT (UTC).
-
-#               ADDR                  U   A    DATE                                                       REQUEST                                CODE      BYTES   REFERER     AGENT    TIME
-        if ($logLine =~
-            m#^(\d+\.\d+\.\d+\.\d+)\s+-\s+-\s+\[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})00\]\s+"get\s+($mountpointRE)\s+http/\d\.\d"\s+(\d{3})\s+(\d+)\s+"([^"]+)"\s+"(.*)"\s+(\d+)(.*)$#i) {
+        if ($logLine =~ m<
+              ^(\d+\.\d+\.\d+\.\d+)\s+  # ADDR $1
+              -\s+                      # USER
+              -\s+                      # AUTH
+              \[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})\d{2}\]\s+  # DATE $2 (TZ hours offest, $3)
+              "get\s+/?($mountpointRE)\s+ http/\d\.\d"\s+                   # REQUEST $4 (just the mountpoint)
+              (\d{3})\s+                # CODE $5
+              (\d+)\s+                  # BYTES $6
+              "([^"]+)"\s+              # REFERER $7
+              "(.*)"\s+                 # AGENT $8
+              (\d+)(.*)?$               # TIME (duration) $9 (possible extra data: $10)
+            >ix
+        ) {
             my $ipAddress = $1;
             my ($date, $hour, $minute, $second) = split(/:/, $2);
             my $tzOffset         = $3;
@@ -194,8 +186,7 @@ sub main() {
 
             # collect the entries per-mountpoint
             push(@{ $mountpoints->{$loggedMountPoint} }, $entry);
-        }
-        else {
+        } else {
             say STDERR "Regex match failed for logLine:\n\t", $logLine;
         }
     }
@@ -217,8 +208,7 @@ sub main() {
             my $stringMember = $zip->addString($zipString, qq($output_filename.txt));
             $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
             say STDERR "main: Added $output_filename.txt to '$zipFile'." if ($verbose);
-        }
-        else {
+        } else {
             my $outFH = undef;
             open($outFH, ">", "$outputDir/$output_filename.txt") || die "Cannot open $outputDir/$output_filename.txt for writing ($!). Stopped";
             print $outFH "IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer\r\n";
@@ -236,6 +226,7 @@ sub main() {
     }
 }
 
+# showVersion simply displays this script's version number and exits.
 sub showVersion {
     my $program_name = shift;
 
@@ -255,9 +246,10 @@ sub showVersion {
     exit;
 }
 
-# Get the contents of the log files that contain entries in the range
-# of our start and end dates.
-# Returns an array ref containing all relevant log file entries.
+# getLogFiles gets the contents of the log files that contain entries in the
+# range of our start and end dates.
+# Returns an array ref containing log file entries that fall within the date
+# range.
 sub getLogFiles() {
     my $startDate    = shift;
     my $endDate      = shift;
@@ -285,8 +277,13 @@ sub getLogFiles() {
         # Log filename may end with a timestamp suffix, or simply
         # ".log". Skip log files with timestamps outside our date
         # range. We always want to examine "access.log".
-        if (m/^access\.log(\.(\d{8})_\d+)/) {
-            ($lfDate = $_) =~ s/^access\.log(\.(\d{8})_\d+)*/$2/;
+        #
+        # Added on 2023-03-31: '(?:[_-].*?)?', a non-capturing, non-greedy
+        # cluster group (?:) that looks for an underscore or hyphen followed by
+        # any number of characters. This is to support non-standard log file
+        # names containing text between "access" and ".log".
+        if (m/^access(?:_.*?)?\.log(\.(\d{8})_\d+)/) {
+            ($lfDate = $_) =~ s/^access(?:_.*?)?\.log(\.(\d{8})_\d+)*/$2/;
             next if ($lfDate && ($lfDate < $startYYYYMMDD || $lfDate > ($endYYYYMMDD + 7)));
         }
 
@@ -311,8 +308,8 @@ sub getLogFiles() {
     \@validLogLines;
 }
 
-# Determine whether the list of lines is within the startDate and
-# endDate range.
+# inDateRange determines whether the list of lines in $lines is within the
+# startDate and endDate range.
 # Returns true if so, otherwise false.
 sub inDateRange() {
     my $lines     = shift;
@@ -334,8 +331,7 @@ sub inDateRange() {
     0;
 }
 
-# Return the zero-based decimal month number for the month name
-# passed.
+# mon returns the zero-based decimal month number for the month name passed.
 sub mon() {
     my $monthName = shift;
 
