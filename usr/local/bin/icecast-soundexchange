@@ -169,8 +169,8 @@ sub main() {
             my $junk             = $10;
             my ($mday, $mon, $year) = split(/\//, $date);
 
-            if ($duration < 1) {
-                say STDERR sprintf("main: skipping short duration connection (%d)", $duration) if ($verbose);
+            if ($duration < 3) {
+                say STDERR sprintf("main: skipping short duration connection (%d)", $duration) if ($verbose > 1);
                 next;
             }
 
