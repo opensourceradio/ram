@@ -1,6 +1,7 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2048,SC2086,SC2116,SC2128,SC2154,SC2155,SC2162,SC2190,SC2207,SC2248,SC2296,SC2298,SC2299,SC2312
+# shellcheck shell=bash disable=SC2016,SC2046,SC2048,SC2086,SC2116,SC2128,SC2154,SC2155,SC2162,SC2190,SC2207,SC2248,SC2296,SC2298,SC2299,SC2312
 # SC2016: Single quotes are used explicitly to ignore parameter expansion.
+# SC2046: shellcheck is too quote conservative.
 # SC2048: shellcheck is too quote conservative.
 # SC2086: All instances of params are quoted where they need to be.
 # SC2116: Not a "Useless echo", we need it to expand the params correctly.
@@ -36,7 +37,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=18
+  vLibPatch=19
   vLibHash='$Hash$'
 }
 
@@ -51,7 +52,9 @@ function zsh_library_version() {
 }
 
 # sendNotification use the configured mailer to send email to one or more
-# addresses. This relies heavily on msmtp(1) and its configuration file.
+# addresses. This prefers to use msmtp(1). It will use postfix(1)'s sendmail if
+# msmtp is not found and if /etc/postfix/main.cf exists and has a "relayhost"
+# parameter configured.
 #
 # sendNotification sends no more than one notification for each type in 24 hours
 # (and let the recipients know that they will see no more than one per day).
@@ -62,48 +65,79 @@ function sendNotification() {
   local message="${1:?Need a message to send for the notification.}" ; shift
   local messagefile="${1}" # optional text filename to attach
 
+  local -i returnValue=1
+  local my_domain_name
+
   ############ BEGIN external shell commands used in this function. ############
-  # This function uses these 7 external commands.
+  # This function uses these 10 external commands.
   # Look for them in their upper case, parameter expanded form.
-  local -a our_commands
-  our_commands=( awk base64 cat dos2unix hostname logger uuidgen )
+  our_commands=( awk base64 cat cut dos2unix getent grep hostname id uuidgen )
   # Find the executables we need; this uses some basic shell and a ZSH trick:
   # the (U) in the eval says to evaluate the parameter as all upper case
   # letters. This snippet generates shell parameters representing the upper case
   # equivalent of the command names and sets the parameter values to the full path
   # of the commands.
   # Refresh this segment in Emacs by marking the appropriate region (or the whole
-  # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+  # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --func (shell-command-on-region).
   local C D
+  # SC2048: shellcheck overly aggressive quote recommendation.
+  # shellcheck disable=SC2048
   for C in ${our_commands[*]} ; do
     # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
     for D in ${path} ; do
-      # shellcheck disable=SC2140,SC2086 # we need the quotes
+      # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
       [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
     done
+    # shellcheck disable=SC2296 # ZSH-specific expansion
     [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
   done
   unset our_commands C D
   ############# END external shell commands used in this function. #############
 
-  local MAILER=$(command -v msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
   local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/btd/conf.msmtp}"
-  local MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
+  local MAILER MAILER_ARGS MAIL_FROM
+  # Look for msmtp(1) if the MAILER_CONFIG exists *and* is readable.
+  if [[ -f "${MAILER_CONFIG}" ]] && [[ -r "${MAILER_CONFIG}" ]] ; then
+      MAILER=$(command -v msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
+      if [[ -n "${MAILER}" ]] && [[ -x "${MAILER}" ]] ; then
+	MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
+      fi
+      MAIL_FROM=$(${AWK} '/^user /{print $2}' "${MAILER_CONFIG}")
+  fi
+  # Look for sendmail(1) and a standard working postfix(1) configuration if
+  # unable to find msmtp(1).
+  if [[ -z "${MAILER_ARGS}" ]] ; then
+    if [[ -d /etc/postfix ]] ; then
+      if [[ -x /usr/sbin/sendmail ]] && ${GREP} --quiet '^relayhost' /etc/postfix/main.cf ; then
+	MAILER=/usr/sbin/sendmail
+	# See sendmail(1) for these args.
+	MAILER_ARGS="${MAILER_ARGS:-'-bm -t'}"
+	my_domain_name=$(${AWK} -F' ?= ?' '/^mydomain /{print $2}' /etc/postfix/main.cf)
+      fi
+    fi
+  fi
+  # Bail if unable to find a working MTA.
+  if [[ -z "${MAILER_ARGS}" ]] ; then
+    logit "${0}" 0 "Unable to find a working and configured message transfer agent (MTA). Unable to continue."
+    return ${returnValue}
+  fi
   local hostName="$(${HOSTNAME} -f)"
   local PRETEND="${PRETEND}"
   local startTime="${EPOCHSECONDS}"
-  local returnValue=0
-  local MAIL_FROM=$(${AWK} '/^user /{print $2}' "${MAILER_CONFIG}")
 
-  if ! notificationSent "${myName}" "${type}" "${startTime}" ; then
-    if [[ -x "${MAILER}" ]] ; then
-      if [[ -s "${MAILER_CONFIG}" ]] ; then
-        if [[ -n "${MAIL_FROM}" ]] ; then
+  # A notification was already sent for this ${type}, no need to continue.
+  if notificationSent "${myName}" "${type}" "${startTime}" ; then
+    return 0
+  fi
 
-          # SC2046: we need to leave parameters unquoted here.
-          # shellcheck disable=SC2046
-          (
-            ${CAT} <<EOF
+  # Ensure we have a "From" address.
+  if [[ -z "${MAIL_FROM}" ]] ; then
+    local my_user_name=$(${GETENT} passwd $(${ID} -u) | ${CUT} -d: -f1)
+    MAIL_FROM="${my_user_name}@${my_domain_name}"
+  fi
+
+  (
+    ${CAT} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
@@ -132,8 +166,8 @@ entering (or pasting) the command:
   journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
 
 EOF
-            if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
-              ${CAT} <<EOF
+    if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
+      ${CAT} <<EOF
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
  name="${messagefile:t}"
@@ -143,37 +177,17 @@ Content-Disposition: attachment;
 
 $(${DOS2UNIX} < "${messagefile}" | ${BASE64})
 EOF
-            fi
+    fi
 
-            ${CAT} <<EOF
+    ${CAT} <<EOF
 ------------${startTime}--
 EOF
-          ) | ${MAILER} $(eval echo "${MAILER_ARGS}") "${PRETEND}"
+  ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
 
-        else
-
-          ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find a From: address in '${MAILER_CONFIG}'. Cannot send messages."
-          returnValue=3
-
-        fi
-
-      else
-
-        ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find mailer configuration '${MAILER_CONFIG}'. Cannot send messages."
-        returnValue=2
-
-      fi
-
-    else
-
-      ${LOGGER} -t "${0:t}" -p local7.err -i "ERROR: Cannot find executable program '${MAILER}'. Cannot send messages."
-      returnValue=1
-
-    fi
-  fi
-
-  return "${returnValue}"
+  return ${returnValue}
 }
+
+
 
 # notificationSent records the type and time of a notification sent with
 # sendNotification().
@@ -200,7 +214,7 @@ function notificationSent() {
     # Have we seen this notification before?
     if (( foundPriorNotification )) ; then
       # Has it been more than a day since we last notified?
-      if (( ( notificationTime - oneDay ) > "${notification##*:}" )) ; then
+      if (( (notificationTime - oneDay) > ${notification##*:} )) ; then
         if ${SED} -i -e "s/^${theirName}:${type}:.*$/${theirName}:${type}:${notificationTime}/" "${notifyDB}" ; then
           logit "${0}" 0 "${theirName} NOTICE: '${type}' notification UPDATED at $(strftime %F\ %T ${notificationTime})."
         else
@@ -749,8 +763,6 @@ function rdGetNextCartNumber() {
 
   # Get the next available cart number from the group if the group is
   # constrained with default low and default high numbers.
-  # SC2046: We actually *want* the command expansion to yield separate words.
-  # shellcheck disable=SC2046
   read defaultLowCart defaultHighCart <<<$(doSQL "select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
   (( verbose )) && echo "defaultLowCart: ${defaultLowCart}, defaultHighCart: ${defaultHighCart}" >&2
   if (( defaultLowCart )) ; then
