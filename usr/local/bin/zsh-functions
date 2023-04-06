@@ -37,18 +37,19 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=20
+  vLibPatch=21
   vLibHash='$Hash$'
 }
 
 # zsh_library_version returns a string containing a "dotted quad" of this
 # library's version number.
 function zsh_library_version() {
-  printf "%d.%d.%d.%d\n" \
+  printf "%d.%d.%d.%d-%s\n" \
          "${vLibRelease}" \
          "${vLibMajor}" \
          "${vLibMinor}" \
-         "${vLibPatch}"
+         "${vLibPatch}" \
+	 "${${${vLibHash#*Hash: }//\$/}/Hash/prerelease}"
 }
 
 # sendNotification use the configured mailer to send email to one or more
