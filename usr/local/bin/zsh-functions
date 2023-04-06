@@ -37,7 +37,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=19
+  vLibPatch=20
   vLibHash='$Hash$'
 }
 
@@ -69,9 +69,9 @@ function sendNotification() {
   local my_domain_name
 
   ############ BEGIN external shell commands used in this function. ############
-  # This function uses these 10 external commands.
+  # This function uses these 11 external commands.
   # Look for them in their upper case, parameter expanded form.
-  our_commands=( awk base64 cat cut dos2unix getent grep hostname id uuidgen )
+  our_commands=( awk base64 cat cut getent grep hostname id tee unix2dos uuidgen )
   # Find the executables we need; this uses some basic shell and a ZSH trick:
   # the (U) in the eval says to evaluate the parameter as all upper case
   # letters. This snippet generates shell parameters representing the upper case
@@ -137,7 +137,9 @@ function sendNotification() {
   fi
 
   (
-    ${CAT} <<EOF
+    # MAILTO parameter expansion turns spaces and commas into single comma
+    # separating email addresses.
+    ${UNIX2DOS} <<EOF
 To: ${${MAILTO//( |[ ,][ ,])/,}%,}
 From: ${MAIL_FROM}
 Reply-To: ${MAIL_FROM}
@@ -167,7 +169,7 @@ entering (or pasting) the command:
 
 EOF
     if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
-      ${CAT} <<EOF
+      ${UNIX2DOS} <<EOF
 ------------${startTime}
 Content-Type: text/plain; charset=UTF-8;
  name="${messagefile:t}"
@@ -175,19 +177,17 @@ Content-Transfer-Encoding: base64
 Content-Disposition: attachment;
  filename="${messagefile:t}"
 
-$(${DOS2UNIX} < "${messagefile}" | ${BASE64})
+$(${CAT} < "${messagefile}" | ${BASE64})
 EOF
     fi
 
-    ${CAT} <<EOF
+    ${UNIX2DOS} <<EOF
 ------------${startTime}--
 EOF
-  ) | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+  ) | ${TEE} /tmp/mail-${type}.out | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
 
   return ${returnValue}
 }
-
-
 
 # notificationSent records the type and time of a notification sent with
 # sendNotification().
