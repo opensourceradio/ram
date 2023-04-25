@@ -37,7 +37,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=21
+  vLibPatch=22
   vLibHash='$Hash$'
 }
 
@@ -96,29 +96,30 @@ function sendNotification() {
   ############# END external shell commands used in this function. #############
 
   local MAILER_CONFIG="${MAILER_CONFIG:-/usr/local/etc/btd/conf.msmtp}"
-  local MAILER MAILER_ARGS MAIL_FROM
+  local MAILER MAIL_FROM
+  local -a MAILER_ARGS
   # Look for msmtp(1) if the MAILER_CONFIG exists *and* is readable.
   if [[ -f "${MAILER_CONFIG}" ]] && [[ -r "${MAILER_CONFIG}" ]] ; then
       MAILER=$(command -v msmtp) ; MAILER="${MAILER:-/usr/bin/msmtp}"
       if [[ -n "${MAILER}" ]] && [[ -x "${MAILER}" ]] ; then
-	MAILER_ARGS="${MAILER_ARGS:-'--read-recipients --read-envelope-from  --file ${MAILER_CONFIG}'}"
+	  MAILER_ARGS=( --read-recipients --read-envelope-from --file "${MAILER_CONFIG}" )
       fi
       MAIL_FROM=$(${AWK} '/^user /{print $2}' "${MAILER_CONFIG}")
   fi
   # Look for sendmail(1) and a standard working postfix(1) configuration if
   # unable to find msmtp(1).
-  if [[ -z "${MAILER_ARGS}" ]] ; then
+  if [[ -z "${MAILER_ARGS[*]}" ]] ; then
     if [[ -d /etc/postfix ]] ; then
       if [[ -x /usr/sbin/sendmail ]] && ${GREP} --quiet '^relayhost' /etc/postfix/main.cf ; then
 	MAILER=/usr/sbin/sendmail
 	# See sendmail(1) for these args.
-	MAILER_ARGS="${MAILER_ARGS:-'-bm -t'}"
+	MAILER_ARGS=( -bm -t )
 	my_domain_name=$(${AWK} -F' ?= ?' '/^mydomain /{print $2}' /etc/postfix/main.cf)
       fi
     fi
   fi
   # Bail if unable to find a working MTA.
-  if [[ -z "${MAILER_ARGS}" ]] ; then
+  if [[ -z "${MAILER_ARGS[*]}" ]] ; then
     logit "${0}" 0 "Unable to find a working and configured message transfer agent (MTA). Unable to continue."
     return ${returnValue}
   fi
@@ -185,7 +186,7 @@ EOF
     ${UNIX2DOS} <<EOF
 ------------${startTime}--
 EOF
-  ) | ${TEE} /tmp/mail-${type}.out | ${MAILER} $(eval echo ${MAILER_ARGS}) ${PRETEND}
+  ) | ${TEE} /tmp/mail-${type}.out | ${MAILER} ${(j: :)MAILER_ARGS} ${PRETEND}
 
   return ${returnValue}
 }
