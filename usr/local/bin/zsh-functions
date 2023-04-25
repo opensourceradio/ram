@@ -644,9 +644,6 @@ function rdDropCut() {
   result=( $(rdWebInvoke "${verbose}" "${command}" ${curlArguments[*]}) )
   returnValue="${?}"
 
-  echo "${result[*]}"
-  return "${returnValue}"
-
   [[ "${result:-MISSING RESULT}" = 'OK' ]] && returnValue=0
   echo "${result:-MISSING RESULT}"
   return "${returnValue}"
