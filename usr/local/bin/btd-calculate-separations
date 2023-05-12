@@ -18,7 +18,7 @@ setopt NO_CASE_MATCH
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=3
+declare -ri v_patch=4
 declare -r v_hash='$Hash$'
 
 # Get zsh functions necessary for this script.
@@ -53,6 +53,7 @@ ${myName} [ --verbose (-v) ] [ --version (-V) ]
                           [ --help (-h) ]
                           [ --service (-s) <Rivendell-Service-Name> ]
                           [ --group (-g) <Rivendell-Group-Name> ]
+                          [ --sched-code (-c) <Rivendell-Scheduler-Code> ]
                           [ --set [ --interactive (-i) ]]
 EOF
   ${FMT} << EOF
@@ -83,6 +84,11 @@ Restrict the search for Events to the named Group with the --group
 may use the word 'list' as the Group name and ${myName} will prompt
 you for a Group to choose.
 
+Restrict the search for Events to the named Scheduler Code with the
+--sched-code option (short option: -c). Like the above two options,
+you may use the word "list" to have ${myName} list the available
+Scheduler Codes from which you may choose one.
+
 Use the "--set" option to set the Artist and Title separations to the
 suggested values in the Rivendell database.
 
@@ -106,7 +112,7 @@ tracks_per_week() {
   query="${query} order by sc.HOUR"
 
   if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS:name ; then
-    ((VERBOSE>1)) && print "${query}" >&2
+    ((VERBOSE > 1)) && print "${query}" >&2
     return 1
   fi
 
@@ -242,7 +248,7 @@ done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if ! TEMP=$(${GETOPT} -o Vvhg:is: --long version,verbose,help,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o Vvhc:g:is: --long version,verbose,help,sched-code:,group:,interactive,set,service: -n "${0##*/}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -251,6 +257,7 @@ while : ; do
   # VERBOSE is used, but in a non-Bash way.
   # shellcheck disable=SC2034
   case "${1}" in
+    -c|--sched*) SCHEDULER_CODE="${2}" ; shift 2 ;;
     -g|--group) RDGROUP="${2}" ; shift 2 ;;
     -i|--inter*) RUN_INTERACTIVE=1 ; shift ;;
     -s|--serv*) SERVICE=${2} ; shift 2 ;;
@@ -310,7 +317,26 @@ if [[ -z "${RDGROUP}" ]] || [[ "${RDGROUP}" =~ list ]] ; then
   fi
 fi
 
-# Set the shell internal field separator to just <Tab>
+# Snag the SCHEDULER_CODES list. SCHEDULER_CODES may not contain whitespace.
+typeset -a rivendellSchedulerCodesList
+# It seems shellcheck does not know about array assignment?
+# shellcheck disable=SC2207
+rivendellSchedulerCodesList=( $(doSQL "select CODE from SCHED_CODES order by CODE") )
+
+# List the GROUPS and let the user choose one.
+if [[ -z "${SCHEDULER_CODE}" ]] || [[ "${SCHEDULER_CODE}" =~ list ]] ; then
+  if (( ${#rivendellSchedulerCodesList} > 1 )) ; then
+    until [[ ${rivendellSchedulerCodesList[*]} =~ .*${SCHEDULER_CODE}.* ]] ; do
+      print "Available Scheduler Codes:"
+      print ${(F)rivendellSchedulerCodesList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS ))
+      read -r SCHEDULER_CODE\?"Enter an Scheduler Code: "
+    done
+  else
+    SCHEDULER_CODE=${rivendellSchedulerCodesList[1]}
+  fi
+fi
+
+# Set the shell internal field separator to just <Tab>.
 IFS=$'\t'
 
 # Will hold the length of the longest Event Name for better looking
@@ -328,7 +354,7 @@ if ! okDatabaseStructure SERVICE_CLOCKS:clock_name,CLOCK_LINES:clock_name,EVENTS
   print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
   exit 1
 fi
-((VERBOSE>2)) && print "Length query: ${query}" >&2
+((VERBOSE > 2)) && print "Length query: ${query}" >&2
 # The quoting is the way I want it.
 # shellcheck disable=SC2046
 read -r max_event_name_len <<<$(doSQL "${query}")
@@ -343,9 +369,13 @@ if [[ -n "${RDGROUP}" ]] ; then
   outer_query="${outer_query} and e.SCHED_GROUP = '${RDGROUP}'"
 fi
 outer_query="${outer_query} and e.IMPORT_SOURCE = 3"
-outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
+if [[ -n "${SCHEDULER_CODE}" ]] ; then
+  outer_query="${outer_query} and e.HAVE_CODE = '${SCHEDULER_CODE}' or e.HAVE_CODE2 = '${SCHEDULER_CODE}'"
+else
+  outer_query="${outer_query} and e.HAVE_CODE is not NULL and e.HAVE_CODE != ''"
+fi
 outer_query="${outer_query} order by e.NAME"
-((VERBOSE>1)) && print "Outer query: ${outer_query}" >&2
+((VERBOSE > 1)) && print "Outer query: ${outer_query}" >&2
 
 # Use the ZSH "coproc" mechanism to perform the query. We do this
 # because reading the column data directly in the while() loop causes
@@ -378,10 +408,10 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
     print "${myName}: ERROR: incompatible database schema; seek professional help!" >&2
     exit 2
   fi
-  ((VERBOSE>1)) && print "Inner query: ${inner_query}" >&2
+  ((VERBOSE > 1)) && print "Inner query: ${inner_query}" >&2
   read tracks artists <<<"$(doSQL """${inner_query}""")"
-  ((VERBOSE>1)) && print "Track count: ${tracks}" >&2
-  ((VERBOSE>1)) && print "Artist count: ${artists}" >&2
+  ((VERBOSE > 1)) && print "Track count: ${tracks}" >&2
+  ((VERBOSE > 1)) && print "Artist count: ${artists}" >&2
 
   recommended_title_separation=$(recommended_separation title "${tracks}")
   recommended_artist_separation=$(recommended_separation artist "${artists}")
@@ -405,7 +435,6 @@ while read -p event_name title_sep artist_sep sched_group have_code have_code2 ;
 done
 
 exit
-
 # Local Variables: ***
 # mode:shell-script ***
 # indent-tabs-mode: f ***
