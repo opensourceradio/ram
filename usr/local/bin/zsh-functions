@@ -1,14 +1,13 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2046,SC2048,SC2086,SC2116,SC2128,SC2154,SC2155,SC2162,SC2190,SC2207,SC2248,SC2296,SC2298,SC2299,SC2312
+# shellcheck shell=bash disable=SC2016,SC2046,SC2048,SC2086,SC2116,SC2128,SC2154,SC2155,SC2190,SC2207,SC2248,SC2296,SC2298,SC2299,SC2312
 # SC2016: Single quotes are used explicitly to ignore parameter expansion.
 # SC2046: shellcheck is too quote conservative.
 # SC2048: shellcheck is too quote conservative.
 # SC2086: All instances of params are quoted where they need to be.
 # SC2116: Not a "Useless echo", we need it to expand the params correctly.
-# SC2128: ZSH expands arrays without specifying ${param[*]}.
+# SC2128: shellcheck thinks ${query} is an array because of a previous local declaration.
 # SC2154: Used but not assigned: these values are set by the shell.
 # SC2155: Ignoring all return values in assignments.
-# SC2162: Because we do not ever encounter backslashes.
 # SC2190: ZSH: associative array assignment "just works"(TM).
 # SC2207: "prefer mapfile or read -a" these are all ZSH-isms.
 # SC2248: shellcheck is too quote conservative.
@@ -37,7 +36,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=22
+  vLibPatch=23
   vLibHash='$Hash$'
 }
 
@@ -186,7 +185,7 @@ EOF
     ${UNIX2DOS} <<EOF
 ------------${startTime}--
 EOF
-  ) | ${TEE} /tmp/mail-${type}.out | ${MAILER} ${(j: :)MAILER_ARGS} ${PRETEND}
+  ) | ${TEE} /tmp/mail-${type}.out | ${MAILER} ${MAILER_ARGS[*]} ${PRETEND}
 
   return ${returnValue}
 }
@@ -207,7 +206,7 @@ function notificationSent() {
 
   # Is there a notification database?
   if [[ -f "${notifyDB}" ]] ; then
-    while read notification ; do
+    while read -r notification ; do
       if [[ "${notification%:*}" == "${theirName}:${type}" ]] ; then
         foundPriorNotification=1
         break
@@ -502,7 +501,7 @@ function rdWebInvoke() {
   # existing with NO password.
   response=( $(${CURL} --include "${curlVerbosity}" -d LOGIN_NAME='user' -d PASSWORD='' -d "COMMAND=${command}" ${curlArguments:+'-d'} ${(zj: -d :)curlArguments} "http://${httpServer}/rd-bin/rdxport.cgi") )
   returnValue="${?}"
-  while read responseLine ; do
+  while read -r responseLine ; do
     if echo "${responseLine}" | grep --quiet --perl-regexp --ignore-case '^http/\d+\.\d+ 200 ok' ; then
       result=OK
       break
@@ -762,7 +761,7 @@ function rdGetNextCartNumber() {
 
   # Get the next available cart number from the group if the group is
   # constrained with default low and default high numbers.
-  read defaultLowCart defaultHighCart <<<$(doSQL "select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
+  read -r defaultLowCart defaultHighCart <<<$(doSQL "select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where NAME = '${group}'")
   (( verbose )) && echo "defaultLowCart: ${defaultLowCart}, defaultHighCart: ${defaultHighCart}" >&2
   if (( defaultLowCart )) ; then
 
@@ -798,7 +797,7 @@ function rdGetNextCartNumber() {
     # range for this group), so find the next available cart number
     # outside all group ranges.
     doSQL 'select DEFAULT_LOW_CART,DEFAULT_HIGH_CART from GROUPS where DEFAULT_LOW_CART > 0 order by DEFAULT_LOW_CART' |
-      while read defaultLowCart defaultHighCart ; do
+      while read -r defaultLowCart defaultHighCart ; do
 
         # Skip this group if its range falls within a previous group
         # range (yes, this can happen).
@@ -1021,8 +1020,8 @@ function rdGetDropboxIDFromPath() {
   if (( ${#id} > 1 )) ; then
     logit "${myName}" "${interactive}" "Unable to determine the exact DROPBOX ID for ${pathPrefix}. Make sure this is a unique path."
   else
-    if (( id[1] )) ; then
-      echo "${id}"
+    if ((id[1])) ; then
+      echo "${id[1]}"
       returnValue=0
     else
       echo -1
@@ -1121,7 +1120,7 @@ function getYesNo() {
     print "${our_prompt} [y or n] \c" > /dev/tty
     # response is actually used, but in a non-Bash way, see below.
     # shellcheck disable=SC2034
-    read response < /dev/tty
+    read -r response < /dev/tty
     ((again=1))
   done
   [[ "${(L)response}" =~ ^n ]] && return 1
