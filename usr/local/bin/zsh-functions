@@ -36,7 +36,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=23
+  vLibPatch=24
   vLibHash='$Hash$'
 }
 
@@ -603,6 +603,30 @@ function rdListCuts() {
   return "${returnValue}"
 }
 
+# rdListCut uses the Rivendell Web API to list the contents of the named
+# Cart and Cut.
+function rdListCut() {
+  local -r cart_number="${1}"
+  shift
+  local -r cut_number="${1}"
+  shift
+  local -r verbose="${1:-0}"
+
+  local -r command=8
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # Command 22: ListLog, NAME: The name of the log
+  curlArguments=( "CART_NUMBER=${cart_number}" "CUT_NUMBER=${cut_number}" )
+
+  result=$(rdWebInvoke "${verbose}" "${command}" ${curlArguments[*]})
+  returnValue="${?}"
+
+  echo "${result}"
+  return "${returnValue}"
+}
+
 # rdDropCart uses the Rivendell Web API to delete the Cart, all its Cuts, and
 # the actual audio file for the specified Cart.
 function rdDropCart() {
@@ -663,6 +687,28 @@ function rdListServices() {
   # List Services: Command 21: ListServices
   # BUG ALERT: this code depends on the Rivendell username 'user' existing with NO password.
   curlArguments=( "TRACKABLE=${trackable}" )
+
+  result=$(rdWebInvoke "${verbose}" "${command}" ${curlArguments[*]})
+  returnValue="${?}"
+
+  echo "${result}"
+  return "${returnValue}"
+}
+
+# rdListLog uses the Rivendell Web API to list all the contents of the named
+# Log.
+function rdListLog() {
+  local -r log_name="${1}"
+  shift
+  local -r verbose="${1:-0}"
+
+  local -r command=22
+  local -a curlArguments
+  local result
+  local returnValue
+
+  # Command 22: ListLog, NAME: The name of the log
+  curlArguments=( "NAME=${log_name}" )
 
   result=$(rdWebInvoke "${verbose}" "${command}" ${curlArguments[*]})
   returnValue="${?}"
