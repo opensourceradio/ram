@@ -46,9 +46,9 @@ subsequent shows start one hour later.
 
 <table>
  <tr>
-  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
-  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
-  <td width="30%"><img src="../../images/ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
+  <td width="30%"><img src="../../assets/ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
+  <td width="30%"><img src="../../assets/ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
+  <td width="30%"><img src="../../assets/ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
  </tr>
  <tr>
   <td>DST, 24 Hours</td>
@@ -103,4 +103,3 @@ Lengthen your schedule for a day in the Fall:
   1. Go ‘Back to Admin’ and save the playlist
 
   1. Go back to the week you changed and make sure the times are right
-
