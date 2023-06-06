@@ -7,7 +7,7 @@
 -->
 <!-- Create formatted output with one of these commands:
 	pandoc --toc --standalone --self-contained -f markdown -t html -o pubfile.html  pubfile.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o rules.pdf rules.md
+	pandoc --toc --standalone --self-contained -f markdown -t latex -o pubfile.pdf pubfile.md
 -->
 
 # The Public File #
