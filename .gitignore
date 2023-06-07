@@ -15,6 +15,15 @@
 profile_default/
 ipython_config.py
 
+# local pandoc playouts
+*.html
+*.pdf
+doit
+index.php
+
+# Goofy Apple crap
+._*
+
 # Remove previous ipynb_checkpoints
 #   git rm -r .ipynb_checkpoints/
 
