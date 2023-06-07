@@ -1,9 +1,13 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2034,SC2064,SC2069,SC2207
+# shellcheck shell=bash disable=SC2034,SC2048,SC2064,SC2069,SC2154,SC2207,SC2296,SC2312
 # SC2034: Ignore unused parameters (mainly version number)
+# SC2048: shellcheck conservative quoting recommendations
 # SC2064: I *want* parameters to expand at the time of setting the trap
 # SC2069: ZSH handles redirection specifiers differentley from BASH
+# SC2154: referenced parameters are set by the our_commands stuff.
 # SC2207: ZSH mapfile is different from BASH
+# SC2296: ZSH parameter expansions *can* start with (
+# SC2312: I considered invoking commands separately...
 
 ##############################################################################
 ##
@@ -22,7 +26,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=6
+vPatch=7
 # The '$' is not a parameter expansion here.
 # shellcheck disable=SC2016
 vHash='$Hash$'
