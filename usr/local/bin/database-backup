@@ -39,7 +39,6 @@ exec 2> "/var/tmp/${0:t}.err"
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 10 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
 our_commands=( find grep logger mkdir mktemp mysql mysqldump rm rsync tar )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
@@ -47,22 +46,28 @@ our_commands=( find grep logger mkdir mktemp mysql mysqldump rm rsync tar )
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
-unset our_commands
+unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if [[ -r /usr/local/bin/zsh-functions ]] ; then
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
   source /usr/local/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read '/usr/local/bin/zsh-functions' support library. Cannot continue."
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read zsh-functions in '/usr/local/bin' or in 'usr/bin'. Cannot continue."
   exit
 fi
 
@@ -94,10 +99,8 @@ KEEP=${KEEP:-31}
 test -d "${DUMPDIR}" || ${MKDIR} -p "${DUMPDIR}"
 test -n "${BACKUP_DIR}" && { test -d "${BACKUP_DIR}" || ${MKDIR} -p "${BACKUP_DIR}" ; }
 
-# Get a list of all the databases.
-databases=( $(${MYSQL} --defaults-file="${MY_CNF}" -s -N -e 'show databases') )
-# Dump master data only if binary logging is enabled.
-masterData=$(${MYSQL} --defaults-file="${MY_CNF}" -s -N -e 'show master status' | ${GREP} -F -q 'mysqld-bin.' && echo '--master-data')
+# The list of all databases to backup.
+databases=( Rivendell )
 
 # Make the ouput files readable only by the owner.
 # u=r,g=,o=
@@ -106,11 +109,8 @@ umask 0377
 # Dump each database into two separate files: one with data and one
 # without (to recreate an empty database).
 for database in ${databases[*]} ; do
-  # Skip these databases.
-  [[ "${database}" =~ (information|performance)_schema ]] && continue
-
   # Dump the database.
-  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date "${masterData}" --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${DUMPDIR}/${database}-${TODAY}.sql"
+  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${DUMPDIR}/${database}-${TODAY}.sql"
   dbDumpVal=${?}
   # Dump just the database schema.
   ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date --no-data --databases "${database}" > "${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql"
@@ -222,7 +222,7 @@ exit
 
 # Local Variables: ***
 # mode:shell-script ***
-# indent-tabs-mode: f ***
+# indent-tabs-mode: nil ***
 # sh-indentation: 2 ***
 # sh-basic-offset: 2 ***
 # sh-indent-for-do: 0 ***
