@@ -15,11 +15,11 @@ The
 [Pacifica Internet Technology Package](https://pacificanetwork.org/pacificainternetpackage/)
 is a suite of cloud-based applications that consists of three elements:
 
-- [Simulcast Streaming](streaming/index.md) of your station's primary terrestrial FM broadcast
+- [Simulcast Streaming](streaming/overview.md) of your station's primary terrestrial FM broadcast
 
-- [Audio Archiving](archive/index.md) of your primary terrestrial FM broadcast
+- [Audio Archiving](archive/overview.md) of your primary terrestrial FM broadcast
 
-- [Notation and Logging](confessor/index.md) of copyrighted music played on your web stream
+- [Notation and Logging](confessor/overview.md) of copyrighted music played on your web stream
 
 This guide is a work in progress and intends to document all these services.
 

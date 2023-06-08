@@ -72,7 +72,7 @@ If you enter the information before the show airs, it will show up on the weekly
 
 It will also appear in the 'Coming Soon' window (if your station implements it).
 
-<img src="../assets/comingsoon_fibble_shot.png" style="border:1pt solid black;">
+<img src="/assets/comingsoon_fibble_shot.png" style="border:1pt solid black;">
 <!--
 <span style="border:2p5 solid black">
 ![](../assets/comingsoon_fibble_shot.png)

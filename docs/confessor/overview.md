@@ -6,8 +6,8 @@
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o index.html index.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o index.pdf index.md
+	pandoc --toc --standalone --self-contained -f markdown -t html -o overview.html overview.md
+	pandoc --toc --standalone --self-contained -f markdown -t latex -o overview.pdf overview.md
 -->
 
 # Pacifica Confessor #
