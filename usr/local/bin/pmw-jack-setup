@@ -71,8 +71,7 @@ EOF
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 13 external commands.
 # Look for them in their upper case, parameter expanded form.
-#our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack-load logger sort zita-a2j zita-j2a )
-our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack-load logger sort )
+our_commands=( alsa_in alsa_out amixer aplay awk cat fmt grep jack_load logger sort zita-a2j zita-j2a )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
