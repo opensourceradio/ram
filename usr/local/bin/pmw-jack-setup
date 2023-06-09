@@ -1,7 +1,8 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2030,SC2031,SC2154,SC2155,SC2181,SC2296,SC2299,SC2312
+# shellcheck shell=bash disable=SC2030,SC2031,SC2086,SC2154,SC2155,SC2181,SC2296,SC2299,SC2312
 # SC2030: ZSH implements pipelines in the current shell, not a subshell
 # SC2031: ZSH implements loops in the current shell, not a subshell
+# SC2086: shellcheck conservative quoting recommendations
 # SC2154: parmeters are initialized in a non-bash way
 # SC2155: do not worry about declaring and assigning parameters at the same time
 # SC2181: checking $? due to multiple condition branches
@@ -25,7 +26,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=3
-v_patch=1
+v_patch=2
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -100,12 +101,14 @@ typeset -i VERBOSE=0
 typeset -i SHOW_VERSION=0
 
 ## Get zsh functions necessary for this script.
-if [[ ! -r /usr/local/bin/zsh-functions ]] ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
-	      "ERROR: Unable to read /usr/local/bin/zsh-functions. Unable to continue."
-    exit 1
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
+  exit 3
 fi
-source /usr/local/bin/zsh-functions
 
 ## Assume they want to connect both input AND output ports.
 typeset direction=both
@@ -361,7 +364,8 @@ case "${direction}" in
 esac
 
 exit
-
+# SC2317: This is here only for documentation.
+# shellcheck disable=2317
 ## Example (contrived) output of aplay -l
 ${CAT} << EOF
 **** List of PLAYBACK Hardware Devices ****

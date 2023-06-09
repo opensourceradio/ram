@@ -1,4 +1,6 @@
 #!/bin/zsh
+# shellcheck shell=bash disable=SC2086
+# SC2086: shellcheck conservative quoting recommendations
 
 ######################################################################
 ##
@@ -9,6 +11,14 @@
 ######################################################################
 
 ## Get zsh functions necessary for this script.
+if [[ -r /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -r /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  print "ERROR: Cannot continue without zsh-functions! (Error: ${?})" >&2
+  exit 3
+fi
 [[ -r /usr/local/bin/zsh-functions ]] && source /usr/local/bin/zsh-functions
 [[ -r /usr/bin/zsh-functions ]] && source /usr/bin/zsh-functions
 
@@ -16,7 +26,8 @@
 exec 1> /var/tmp/${0##*/}.out
 exec 2> /var/tmp/${0##*/}.err
 
-(( VERBOSE )) && setopt xtrace
+typeset -i VERBOSE=${VERBOSE:-0}
+((VERBOSE)) && setopt xtrace
 
 # Get Rivendell's sample rate, we will use that for JACK.
 system_sample_rate=$(doSQL "select SAMPLE_RATE from SYSTEM")
@@ -28,4 +39,8 @@ export XDG_DATA_DIRS=/usr/local/share/:/usr/share/
 export XDG_RUNTIME_DIR=/run/user/1000
 export QT_GRAPHICSSYSTEM_CHECKED=1
 
+# SC2069: ZSH allows 2>&1 before stdout redirection
+# shellcheck disable=SC2069
 exec /usr/bin/jackd --realtime --name default -d dummy -r "${system_sample_rate}" 2>&1 > /var/tmp/jackd.log
+
+exit
