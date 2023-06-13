@@ -9,6 +9,7 @@
 *.pdf
 doit
 *.php
+.vimrc
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
