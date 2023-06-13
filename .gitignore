@@ -27,6 +27,7 @@ ipython_config.py
 *.pdf
 doit
 index.php
+.vimrc
 
 # Goofy Apple crap
 ._*
