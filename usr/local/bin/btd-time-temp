@@ -9,7 +9,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=3
+vPatch=4
 vHash='$Hash$'
 
 ##############################################################################
@@ -590,7 +590,7 @@ typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
 ## SC2064: We want these variables to be expanded when referenced rather than
 ## when signaled.
 # shellcheck disable=SC2064
-if ! ((VERBOSE)) ; then
+if ! ((DEBUG)) ; then
   trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
 fi
 
