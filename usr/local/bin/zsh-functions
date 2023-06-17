@@ -36,7 +36,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=24
+  vLibPatch=25
   vLibHash='$Hash$'
 }
 
@@ -214,8 +214,11 @@ function notificationSent() {
     done < "${notifyDB}"
     # Have we seen this notification before?
     if (( foundPriorNotification )) ; then
-      # Has it been more than a day since we last notified?
-      if (( (notificationTime - oneDay) > ${notification##*:} )) ; then
+      # Has it been more than a day since we last notified? Or, are we ignoring
+      # quiet times? (Set shell parameter NOTIFICATIONS_IGNORE_QUIET_TIME to any
+      # value to ignore "quiet time" and send the notification.
+      if (( (notificationTime - oneDay) > ${notification##*:} )) ||
+	   [[ -n "${NOTIFICATIONS_IGNORE_QUIET_TIME}" ]]; then
         if ${SED} -i -e "s/^${theirName}:${type}:.*$/${theirName}:${type}:${notificationTime}/" "${notifyDB}" ; then
           logit "${0}" 0 "${theirName} NOTICE: '${type}' notification UPDATED at $(strftime %F\ %T ${notificationTime})."
         else
