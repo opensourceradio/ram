@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 10;
+use constant vPATCH => 11;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -132,7 +132,22 @@ sub main() {
     #ADDR            U A DATE                         REQUEST              CODE BYTES REF AGENT                           TIME
     #207.190.123.196 - - [05/Mar/2013:22:09:36 -0600] "GET /high HTTP/1.0" 200 134755 "-" "WinampMPEG/5.63, Ultravox/2.1" 4
     #166.228.136.249 - - [05/Mar/2013:22:11:55 -0600] "GET /high HTTP/1.1" 200 1002080 "-" "BREW-Applet/0x010950A6 (BREW/3.1.5.189; DeviceId:  1388; Lang: en)" 92
-    foreach my $logLine (@{$logLines}) {
+    foreach my $logLine (
+        sort {
+            #                                      Log line item:      day     month   year    hour   minute  second
+            #                                     Array elements:       0       1       2       3       4       5
+            #                ADDR                 USER     AUTH
+            my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+            my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+            say STDERR q($a: ), $a if ($debug);
+            say STDERR q($b: ), $b if ($debug);
+            $a[2]                <=> $b[2]
+                || mon($a[1], 0) <=> mon($b[1], 0)
+                || $a[0]         <=> $b[0]
+                || $a[3]         <=> $b[3]
+                || $a[4]         <=> $b[4]
+                || $a[5]         <=> $b[5]
+        } @{$logLines}) {
         next unless ($logLine =~ m#get\s+/?($mountpointRE)\s+#i);
         say STDERR "main: $logLine" if ($debug > 1);
 
