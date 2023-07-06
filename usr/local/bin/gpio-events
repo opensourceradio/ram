@@ -1,11 +1,15 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC1105,SC2016,SC2046,SC2079,SC2086,SC2154
+# shellcheck shell=bash disable=SC1105,SC2016,SC2046,SC2079,SC2086,SC2128,SC2179,SC2154,SC2299,SC2312
 # SC1105: using (( )) correctly for ZSH
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # SC2046: We do not care about the word splitting in unquoted $() expansion
 # SC2079: ZSH arithmetic expressions can do floating point
 # SC2086: all instances of parameters are double-quoted the way I want them
+# SC2128: query is not an array, it just looks like it to shellcheck
+# SC2179: ZSH accepts appending to a string with "+="
 # SC2154: reference parameters are set by ZSH for us
+# SC2299: ZSH parameter expansions CAN be nested
+# SC2312: ignore shellcheck's aggressive "invoke separately..." advice
 
 ##########################################################################################
 ##########################################################################################
@@ -24,7 +28,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=2
+declare -ri v_patch=3
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -42,7 +46,7 @@ SUMMARY
 
 ${myName} [ --verbose (-v) ] [ --version (-V) ]
             [ --end <ending-date [time]> (-e) ]
-            [ --csv (-c) ]
+            [ --csv (-c) ] [ --station (-s) <Workstation Name> ]
             <start-date [time]> [ <switcher> ]
 
 DESCRIPTION
@@ -58,10 +62,13 @@ Options include:
 
   --csv - produce Comma Separated Value output
   --end <ending-date [time]> (-e) - specify an end date (and time)
+  --station <Workstation Name> (-s) - specify a Rivendell workstation
   --verbose (-v) - enable chattiness in the operation
   --version (-V) - display the app version number and exit
 
-You may also specify a switcher by typing the numeric ID of the switcher after the start date
+You may also specify a switcher by typing the numeric ID of the switcher after
+the start date. The default is the first switcher on the workstation (switcher
+Zero [0]).
 
 ${myName} sends diagnostic and verbose output to the standard error
 (STDERR) channel.
@@ -74,35 +81,49 @@ EOF
 ##########################################################################################
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 3 external commands.
+# This script uses these 2 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
-our_commands=( cat getopt mysql )
+our_commands=( cat getopt )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-declare -i VERBOSE=0
-declare -i SHOW_VERSION=0
-declare -i CSV_OUTPUT=0
-declare END_DATE=""
+# Prefer the instance in /usr/bin (that gets installed with the
+# rdfetch package) over /usr/local/bin
+if [[ -f /usr/bin/zsh-functions ]] ; then
+  source /usr/bin/zsh-functions
+elif [[ -f /usr/local/bin/zsh-functions ]] ; then
+  source /usr/local/bin/zsh-functions
+else
+  print "Missing zsh-functions library. Cannot continue." >&2
+  exit 1
+fi
 
-if ! TEMP=$(${GETOPT} -o cehVv --long csv,end:,help,version,verbose -n "${0:t}" -- "${@}") ; then
+typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
+typeset -i CSV_OUTPUT=0
+typeset END_DATE=""
+typeset STATION_NAME
+
+if ! TEMP=$(${GETOPT} -o ce:s:hVv --long csv,end:,station:,help,version,verbose -n "${0:t}" -- "${@}") ; then
     print "getopt(1) Fatal Error (${?}). Terminating..." >&2
     return 1
 fi
@@ -111,6 +132,7 @@ while : ; do
     case "${1}" in
 	-c|--csv) CSV_OUTPUT=1 ; shift ;;
 	-e|--end) END_DATE="${2}" ; shift 2 ;;
+        -s|--station) STATION_NAME="${2}" ; shift 2 ;;
 	-h|--help*) usage ${0:t} ; exit ;;
 	-v|--verb*) VERBOSE=1 ; shift ;;
 	-V|--vers*) SHOW_VERSION=1 ; shift ;;
@@ -130,23 +152,29 @@ if ((SHOW_VERSION)) ; then
     exit 0
 fi
 
-event_date=${1:?"Please specify a date for the events (YYYY-MM-DD format)."}
-matrix=${2:-0}
+typeset event_date=${1:?"Please specify a starting date/time for the events (YYYY-MM-DD format)."}
+typeset matrix=${2:-0}
 
-query='select * from GPIO_EVENTS'
-query="${query} where MATRIX = ${matrix}"
-query="${query} and EVENT_DATETIME >= '${event_date}'"
+# SC2178: query *is* a string
+# shellcheck disable=SC2178
+typeset query='select * from GPIO_EVENTS '
+if [[ -n "${STATION_NAME}" ]] ; then
+    query+="where STATION_NAME = '${STATION_NAME}' and MATRIX = ${matrix} "
+else
+    query+="where MATRIX = ${matrix} "
+fi
+query+="and EVENT_DATETIME >= '${event_date}' "
 if [[ -n "${END_DATE}" ]] ; then
     # Specify the end of the end-date if they did not include the time
     # in their ending date.
     if ! [[ "${END_DATE}" =~ .*[[:digit:]]{2}:[[:digit:]]{2}(:[[:digit:]]{2})*$ ]] ; then
 	END_DATE="${END_DATE}T23:59:59"
     fi
-    query="${query} and EVENT_DATETIME <= '${END_DATE}'"
+    query+="and EVENT_DATETIME <= '${END_DATE}' "
 else
-    query="${query} and EVENT_DATETIME <= '${event_date%[T ]*} 23:59:59'"
+    query+="and EVENT_DATETIME <= '${event_date%[T ]*} 23:59:59' "
 fi
-query="${query} order by EVENT_DATETIME asc"
+query+="order by EVENT_DATETIME asc"
 
 ((VERBOSE)) &&
     print "GPIO query: ${query}" >&2
@@ -161,7 +189,7 @@ if ((CSV_OUTPUT)) ; then
     print '"ID","STATION_NAME","MATRIX","NUMBER","TYPE","EDGE","EVENT_DATETIME"'
     #oIFS="${IFS}"
     IFS=$'\t\n'
-    ${MYSQL} -s -N -B Rivendell -e "${query}" | while read -r id station_name matrix number type edge event_datetime ; do
+    doSQL "${query}" | while read -r id station_name matrix number type edge event_datetime ; do
 	printf '%d,"%s",%d,%d,%d,%d,"%s"'"\n" \
 	       "${id}" \
 	       "${station_name}" \
@@ -172,7 +200,7 @@ if ((CSV_OUTPUT)) ; then
 	       "${event_datetime}"
     done
 else
-    ${MYSQL} --table Rivendell -e "${query}"
+    doSQL "${query}"
 fi
 
 exit
