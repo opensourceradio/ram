@@ -52,7 +52,7 @@ Weeks can be saved ahead like the template.
 They can be saved in a pattern - i.e. every other week, every three weeks, etc. etc. This makes it easy to 
 alternate shows.
 
-The save dialog whil show the last week that show is saved to.
+The save dialog will show the last week that show is saved to.
 
 ## How to Schedule ##
 
