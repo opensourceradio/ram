@@ -9,6 +9,7 @@
 *.pdf
 doit
 *.php
+.vimrc
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
@@ -26,6 +27,7 @@ ipython_config.py
 *.pdf
 doit
 index.php
+.vimrc
 
 # Goofy Apple crap
 ._*
