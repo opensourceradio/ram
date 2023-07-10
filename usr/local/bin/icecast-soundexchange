@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 11;
+use constant vPATCH => 12;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -21,7 +21,7 @@ use Pod::Usage;
 
 use constant ICECASTLOGDIR       => $ENV{ICECASTLOGDIR} || q(/var/log/icecast);
 use constant OUTPUTDIR           => $ENV{OUTPUTDIR}     || q(/var/tmp);
-use constant DEFAULT_MOUNTPOINTS => ('high', 'low',);
+use constant DEFAULT_MOUNTPOINTS => ( 'stream', );
 use constant ONE_DAY             => 60 * 60 * 24;
 
 # Pattern is DD/Mon/YYYY
