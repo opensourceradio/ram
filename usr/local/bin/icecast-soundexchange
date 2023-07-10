@@ -222,15 +222,13 @@ sub main() {
 
             my $stringMember = $zip->addString($zipString, qq($output_filename.txt));
             $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
-            say STDERR "main: Added $output_filename.txt to '$zipFile'." if ($verbose);
+            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines in ", $output_filename, ".txt to '", $zipFile, "'." if ($verbose);
         } else {
             my $outFH = undef;
             open($outFH, ">", "$outputDir/$output_filename.txt") || die "Cannot open $outputDir/$output_filename.txt for writing ($!). Stopped";
-            print $outFH "IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer\r\n";
-            foreach my $line (@{ $mountpoints->{$mount} }) {
-                print $outFH $line, "\r\n";
-            }
+            print $outFH join("\r\n", ("IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer", @{ $mountpoints->{$mount} }, ''));
             close($outFH);
+            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines to '", $outputDir, "/", $output_filename, ".txt'." if ($verbose);
         }
     }
 
