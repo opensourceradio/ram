@@ -36,7 +36,7 @@ zmodload zsh/datetime
   vLibRelease=0
   vLibMajor=0
   vLibMinor=2
-  vLibPatch=25
+  vLibPatch=26
   vLibHash='$Hash$'
 }
 
@@ -161,12 +161,12 @@ Sent from ${hostName}.
 
 ${message}
 
-Note that you will see only one notification per day for this
-condition. You may see all notifications (including those for which
-no email was sent) by opening a terminal window on ${hostName} and
-entering (or pasting) the command:
+$([[ -z "${NOTIFICATIONS_IGNORE_QUIET_TIME}" ]] && print "Note that you will see only one notification per day for this condition.\n")
+You may see all notifications (including those for which no email was
+sent) by opening a terminal window on ${hostName} and entering (or
+pasting) the command:
 
-  journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
+    journalctl _COMM=logger SYSLOG_IDENTIFIER=notificationSent
 
 EOF
     if [[ -n "${messagefile}" ]] && [[ -s "${messagefile}" ]] ; then
