@@ -180,6 +180,9 @@ echo "rdDropCart ${cart_number_to_drop} 1: \c" && read -q ok\?"THIS IS DESTRUCTI
 rdDropCart "${cart_number_to_drop}" 1
 unset cart_number_to_drop
 
+export NOTIFICATIONS_IGNORE_QUIET_TIME=1
+export MAILER_CONFIG=/home/dklann/.config/msmtp/conf.msmtp
+export MAILTO=dklann@grunch.org
 echo "sendNotification() without attachment (conf.msmtp must be configured). \c" &&
   read -q ok\?"Press a key to continue: "
 x=$(sendNotification test dklann@grunch.org TEST-MESSAGE "This is a test message")
