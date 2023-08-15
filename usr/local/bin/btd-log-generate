@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=0
+declare -ri v_patch=1
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -308,6 +308,7 @@ for (( day_offset = start_day_offset; day_offset <= end_day_offset; day_offset++
   # This "(ok)" parameter expansion flag says to return the keys (k) in sorted
   # (o) order.
   for service in ${(ok)services[*]} ; do
+    printf "Generating log for Service '%s'.\n" "${service}"
     if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1 ; then
       declare -i exit_code="${?}"
       ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (day: ${day_offset}) exited with value ${exit_code} (${rdlogmanager_exit_values[${exit_code}]})"
