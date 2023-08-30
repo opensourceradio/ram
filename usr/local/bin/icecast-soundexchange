@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 12;
+use constant vPATCH => 13;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -137,8 +137,8 @@ sub main() {
             #                                      Log line item:      day     month   year    hour   minute  second
             #                                     Array elements:       0       1       2       3       4       5
             #                ADDR                 USER     AUTH
-            my @a = $a =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
-            my @b = $b =~ qr(\d+\.\d+\.\d+\.\d+\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+            my @a = $a =~ qr((?:[\d\.:a-f]+?)\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
+            my @b = $b =~ qr((?:[\d\.:a-f]+?)\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
             say STDERR q($a: ), $a if ($debug);
             say STDERR q($b: ), $b if ($debug);
             $a[2]                <=> $b[2]
@@ -152,7 +152,7 @@ sub main() {
         say STDERR "main: $logLine" if ($debug > 1);
 
         if ($logLine =~ m<
-              ^(\d+\.\d+\.\d+\.\d+)\s+  # ADDR $1
+              ^([\d\.:a-f]+?)\s+        # ADDR $1
               -\s+                      # USER
               -\s+                      # AUTH
               \[(\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2})\s+[+-](\d{2})\d{2}\]\s+  # DATE $2 (TZ hours offest, $3)
@@ -308,8 +308,11 @@ sub getLogFiles() {
         close($lfFH);
         say STDERR sprintf("getLogFiles: %s has %d lines", $_, $#lines) if ($verbose > 1);
 
-        if (inDateRange(\@lines, $startDate, $endDate, $verbose)) {
-            push(@validLogLines, @lines);
+        # Leave off entries logged by monitor.btd.support (private address).
+        my @actual_lines = grep {!/^10.111.0.254 /} @lines;
+
+        if (inDateRange(\@actual_lines, $startDate, $endDate, $verbose)) {
+            push(@validLogLines, @actual_lines);
         }
     }
 
