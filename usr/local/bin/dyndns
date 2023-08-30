@@ -1,14 +1,21 @@
 #!/bin/bash
-# shellcheck shell=bash disable=SC2086
+# shellcheck shell=bash disable=SC2086,SC2312
 # SC2086: shellcheck is too aggressive with quoting recommendations
+# SC2312: shellcheck's aggressive command "invoke separately" messages
 
 ##############################################################################
 ##############################################################################
 ##
-## This script needs write access to files in /var/cache/public
+## dyndns: update DNS records for hostnames at Digital Ocean or Cloudflare
+## authoritative name servers
 ##
+## This script needs write access to files in /var/cache/public.
 ## Create this directory and set its permission mode to 01777
 ## (sudo chmod 1777 /var/cache/public), similarly to /tmp and /var/tmp
+##
+## Use your favorite timed execution job scheduler (cron, systemd timer, etc.)
+## to cause this script to run as often as you need it to keep the A record
+## accurate.
 ##
 ##############################################################################
 ##############################################################################
@@ -16,7 +23,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=10
+declare -r vPatch=12
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -30,11 +37,15 @@ declare -r WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
 # See API_BASE_ROUTE below for the API route.
 declare -r API_PROTO='https'
 declare -a API_HOSTS
+# SC2034: reserved for future use.
+# shellcheck disable=SC2034
 API_HOSTS=( api.cloudflare.com api.digitalocean.com )
 declare -r API_HOST='api.digitalocean.com'
+
+# The D.O. API key is expected to be on the only non-comment line in this file.
 # ShellCheck does not seem to know about read-only variables.
 # shellcheck disable=SC2155
-declare -r DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && cat ${HOME}/.config/doctl/api-access)
+declare -r DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && grep -v '^#' ${HOME}/.config/doctl/api-access)
 declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
 declare -i INTERACTIVE=0
@@ -103,7 +114,8 @@ all output to the terminal (STDERR) rather than a file.
 EOF
 }
 
-# do_curl executes curl(1) against the chosen API server.
+# do_curl executes curl(1) against the chosen API server. Return value is that
+# of curl(1).
 function do_curl() {
   local -r api_host="${1}" ; shift
   local -r method="${1}" ; shift
@@ -116,6 +128,7 @@ function do_curl() {
   fi
 
   curl --silent \
+       --ipv4 \
        -X "${method}" \
        -H 'Content-Type: application/json' \
        -H "Authorization: Bearer ${DO_API_KEY}" \
@@ -232,8 +245,8 @@ fi
 
 # Hit the server at WHATS_MY_IP_URL to get the current public IPv4 and IPv6
 # addresses.
-current_ipv4=$(curl -4 --silent -o - "${WHATS_MY_IP_URL}")
-current_ipv6=$(curl -6 --silent -o - "${WHATS_MY_IP_URL}")
+current_ipv4=$(curl --ipv4 --connect-timeout 5 --silent -o - "${WHATS_MY_IP_URL}")
+current_ipv6=$(curl --ipv6 --connect-timeout 5 --silent -o - "${WHATS_MY_IP_URL}")
 
 # Empty IP address cache: create it with the IPv4 (and optionally, the IPv6)
 # address.
@@ -259,6 +272,8 @@ if [[ -z "${cached_ip_list[1]}" ]] ; then
     if ((DRY_RUN)) ; then
       printf "Would have added IPv6 address '%s' to '%s'\n" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
     else
+      # SC2155: I'm not worried about the return value of mktemp(1).
+      # shellcheck disable=SC2155
       typeset temp_file="$(mktemp)"
       # SC2064: I *want* this parameter expanded now.
       # shellcheck disable=SC2064
@@ -272,7 +287,8 @@ if [[ -z "${cached_ip_list[1]}" ]] ; then
 fi
 
 # Get the entire domain record (zone) from Digital Ocean.
-if ! DOMAIN_JSON=$(do_curl GET "${API_BASE_ROUTE}?page=1&per_page=100") ; then
+# BUG ALERT: large DNS zones may reside on more than one "page".
+if ! DOMAIN_JSON=$(do_curl "${API_HOST}" GET "${API_BASE_ROUTE}?page=1&per_page=100") ; then
   curl_exit_value="${?}"
   printf '%s: unable to get domain records.\n' "${0##*/}" >&2
   exit "${curl_exit_value}"
@@ -313,7 +329,7 @@ if ((FORCE)) || [[ "${cached_ip_list[0]}" != "${current_ipv4}" ]] ; then
     # Update the 'A' record for this hostname.
     # https://docs.digitalocean.com/reference/api/api-reference/#operation/patch_update_domain_record
     # (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
-    if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${A_RECORD_ID}" '{"data":"'"${current_ipv4}"'"}') ||
+    if ! RESPONSE=$(do_curl "${API_HOST}" PUT "${API_BASE_ROUTE}/${A_RECORD_ID}" '{"data":"'"${current_ipv4}"'"}') ||
 	! [[ "${RESPONSE}" =~ .*${A_RECORD_ID}.* ]] ; then
       curl_exit_value="${?}"
       ((VERBOSE)) && printf '"%s: unable to update domain record %s (%d).\n' \
@@ -333,6 +349,8 @@ if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != 
     printf "Would have %sadded IPv6 address '%s' to '%s'\n" "$( ((FORCE)) && echo 'forcefully ' )" "${current_ipv6}" "${IP_ADDRESS_CACHE}"
   else
     # Save this new IPv6 address in the cache.
+    # SC2155: I'm not worried about the return value of mktemp(1).
+    # shellcheck disable=SC2155
     typeset temp_file="$(mktemp)"
     # SC2064: I *want* this parameter expanded now.
     # shellcheck disable=SC2064
@@ -343,7 +361,8 @@ if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != 
     ) > "${temp_file}" && mv "${temp_file}" "${IP_ADDRESS_CACHE}"
   fi
 
-  # Get the 'AAAA' record ID from D.O. This is not a fatal problem.
+  # Get the 'AAAA' record ID from D.O. This is not fatal if there is no AAAA
+  # record.
   # TODO: create a new AAAA record if we have an IPv6 address.
   # https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record
   if ! AAAA_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'AAAA' 'name' "${THE_HOST_NAME}") ||
@@ -357,7 +376,7 @@ if ((FORCE)) || [[ -n "${cached_ip_list[1]}" ]] && [[ "${cached_ip_list[1]}" != 
     # Update the 'AAAA' record for this hostname if we have an existing one.
     # https://developers.digitalocean.com/documentation/v2/#update-a-domain-record
     if [[ -n "${AAAA_RECORD_ID}" ]] ; then
-      if ! RESPONSE=$(do_curl PUT "${API_BASE_ROUTE}/${AAAA_RECORD_ID}" '{"data":"'"${current_ipv6}"'"}') ||
+      if ! RESPONSE=$(do_curl "${API_HOST}" PUT "${API_BASE_ROUTE}/${AAAA_RECORD_ID}" '{"data":"'"${current_ipv6}"'"}') ||
 	  ! [[ "${RESPONSE}" =~ .*${AAAA_RECORD_ID}.* ]] ; then
 	curl_exit_value="${?}"
 	((VERBOSE)) && printf '"%s: unable to update domain record %s (%d).\n' \
