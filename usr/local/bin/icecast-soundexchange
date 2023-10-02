@@ -432,8 +432,7 @@ launch B<icecast-soundexchange> in verbose mode (not quite as verbose as B<--deb
 =item B<--mount-points (-m) E<lt>comma-separated-listE<gt>>
 
 Specify one or more mount points for which to report. All mount points must
-begin with a left-leaning slash I</> and must match actual mount points provided
-by the Icecast server.
+match actual mount points provided by the Icecast server.
 
 =item B<--log-directory (-l) E<lt>directory-nameE<gt>>
 
