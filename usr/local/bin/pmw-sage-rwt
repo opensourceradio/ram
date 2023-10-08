@@ -1,5 +1,5 @@
 #!/bin/zsh
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2154
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
@@ -82,7 +82,6 @@ EOF
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 5 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
 our_commands=( cat curl getopt logger ping )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
@@ -90,14 +89,17 @@ our_commands=( cat curl getopt logger ping )
 # equivalent of the command names and sets the parameter values to the full path
 # of the commands.
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
-# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands (shell-command-on-region).
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
@@ -121,6 +123,8 @@ while : ; do
 done
 
 if ((showVersion)) ; then
+  # SC2299: ZSH parameter expansions can be nested
+  # shellcheck disable=SC2299
   echo "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
