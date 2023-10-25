@@ -1,8 +1,13 @@
 ---
 site_name: Pacifica Internet Technology Package
-use_directory_urls: false
+docs_dir: docs
+# use_directory_urls: false
 theme:
-    name: readthedocs
+  name: readthedocs
+# These extensions recommended by
+# https://squidfunk.github.io/mkdocs-material/reference/images/
 markdown_extensions:
-    - attr_list
-    - md_in_html
+  - attr_list
+  - md_in_html
+plugins:
+  - glightbox
