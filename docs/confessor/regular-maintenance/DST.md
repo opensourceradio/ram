@@ -70,8 +70,8 @@ that Sunday. If you don't do this, all recordings after 1:59 AM will start one
 hour later than the actual clock time because the show that starts at (or
 crosses) 2AM is one hour longer than the length of that day.
 
-As you can see in the example screenshots, the show that starts at 2AM ('TBA
-OPEN TBA') in standard time (Sun 5) starts at 3AM in _DST_ (Sun 12). And all
+As shown in the example screenshots, the show that starts at 2AM ('TBA OPEN
+TBA') in standard time (Sun 5) starts at 3AM in _DST_ (Sun 12). And all
 subsequent shows start one hour later.
 
 <table>
@@ -87,8 +87,8 @@ subsequent shows start one hour later.
  </tr>
 </table>
 
-Its length in the schedule is 3 hours, i.e. from 2AM to 5AM. In _DST_ (before
-correction) it’s still 3 hours long, i.e. from 3AM to 6AM. The next show
+The show ("TBA OPEN TBA") length is 3 hours, i.e. from 2AM to 5AM. In _DST_
+(before correction) it’s still 3 hours long, i.e. from 3AM to 6AM. The next show
 actually starts at 5AM, but now appears in the schedule to start at 6AM.
 
 #### Shorten your schedule in the Spring ####
