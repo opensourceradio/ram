@@ -19,4 +19,4 @@ listeners to "time shift" their listening to stations' programs.
 
 Once you have completed entering your station's schedule in the
 [Confessor](../confessor/overview.md), you can
-[start the archiving process](archive/startup.md).
+[start the archiving process](../archive/startup.md).
