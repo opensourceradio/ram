@@ -49,9 +49,9 @@ subsequent shows start one hour later.
 
 <table>
  <tr>
-  <td width="30%"><img src="assets/ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
-  <td width="30%"><img src="assets/ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
-  <td width="30%"><img src="assets/ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
+  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
+  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
+  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
  </tr>
  <tr>
   <td>DST, 24 Hours</td>
@@ -116,26 +116,26 @@ To add one hour of programming to your schedule for a day in the Fall:
   1. after your schedule is set the way you want it, click _Back to Admin_ and,
      when prompted save the playlist, as shown:
 
-      ![](assets/confessor-save-playlist-1.png)
+      ![](confessor-save-playlist-1.png)
 
   1. choose _Save Only This Week_ as shown in the next
      screenshot:
 
-      ![](assets/confessor-save-playlist-2.png)
+      ![](confessor-save-playlist-2.png)
 
   1. Confessor than offers to update the recorder playlist; choose _Update
      Playlist_ at the next prompt, as shown:
 
-      ![](assets/confessor-save-playlist-3.png)
+      ![](confessor-save-playlist-3.png)
 
   1. in the _Confessor Playlist Generator_ screen, simply click _Write Playlist_
      to save the archive recorder playlist file:
 
-      ![](assets/confessor-save-playlist-4.png)
+      ![](confessor-save-playlist-4.png)
 
   1. and finally, also in the _Confessor Playlist Generator_ screen, the _Write Playlist_ button is replaced with a green _Done_ button:
 
-      ![](assets/confessor-save-playlist-5.png)
+      ![](confessor-save-playlist-5.png)
 
   1. you'll be returned to the main menu when you click _Back to Admin_
 
