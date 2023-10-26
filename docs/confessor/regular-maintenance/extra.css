@@ -1,0 +1,16 @@
+img[src*='#left'] {
+  float: right;
+  max-width: 20%;
+}
+
+img[src*='#right'] {
+  float: left;
+  max-width: 20%;
+}
+
+img[src*='#center'] {
+  display: block;
+  max-width: 20%;
+  height: auto;
+  float: none!important;
+}

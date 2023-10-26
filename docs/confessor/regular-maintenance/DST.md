@@ -10,9 +10,9 @@
 -->
 # Pacifica Confessor and Daylight Saving Time #
 
-Currently, in most US time zones there are two time changes each year: one when
-we switch our clocks to _[Daylight Saving
-Time](https://en.wikipedia.org/wiki/Daylight_saving_time)_ (_DST_), and one when
+In most US time zones there are two time changes each year: one when we switch
+our clocks to [_Daylight Saving
+Time_](https://en.wikipedia.org/wiki/Daylight_saving_time) (_DST_), and one when
 we switch them back to _Standard Time_.
 
 As of this writing (October, 2023), the change **from** _Standard Time_ **to**
@@ -45,12 +45,12 @@ want to adjust your schedule. You need to tell it at each seasonal transition.
 
 ## Adjusting Your Station's Schedule ##
 
-In the "Spring" your schedule must be shortened by one hour (just as the day is
+In the Spring your schedule must be shortened by one hour (just as the day is
 shortened by one hour). You can either remove the one-hour show that airs
 between 2:00 AM and 3:00 AM (if there is one), or you can simply shorten the
 show that crosses the 2:00 AM hour (if that's how your schedule is set up).
 
-You must lengthen your schedule in the "Fall" (by adding an hour of programming
+You must lengthen your schedule in the Fall (by adding an hour of programming
 to the schedule), just as the day is one hour longer when switching to _Standard
 Time_.
 
@@ -74,18 +74,7 @@ As shown in the example screenshots, the show that starts at 2AM ('TBA OPEN
 TBA') in standard time (Sun 5) starts at 3AM in _DST_ (Sun 12). And all
 subsequent shows start one hour later.
 
-<table>
- <tr>
-  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.24.46_AM.png" /></td>
-  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.25.35_AM.png" /></td>
-  <td width="30%"><img src="ScreenShot_2023-02-21_at_9.45.08_AM.png" /></td>
- </tr>
- <tr>
-  <td>DST, 24 Hours</td>
-  <td>Standard Time, uncorrected</td>
-  <td>Standard Time, corrected</td>
- </tr>
-</table>
+![](confessor-schedule-admin-dst.png)
 
 The show ("TBA OPEN TBA") length is 3 hours, i.e. from 2AM to 5AM. In _DST_
 (before correction) it’s still 3 hours long, i.e. from 3AM to 6AM. The next show
