@@ -29,7 +29,7 @@ At 'Schedule Admin' in the main menu.
 - Just a note: the background color is reddish when you're working the template and blue when you're working a week.
 - The Central menu turns red if you've made any modifications to the schedule.
 - When you return to 'Admin' after editing you will be given the option of updating the 'recorder playlist'. The recorder playlist tells the recorder what to record and when. Unless you're planning on more edits later, it never hurts to update the playlist. 
-- **If you don't update the recoreder playlist for whatever changes you've made, the recorder won't see them and continue recording the earlier schedule.**
+- **If you don't update the recorder playlist for whatever changes you've made, the recorder won't see them and continue recording the earlier schedule.**
 - In other words, **always update the playlist unless there's something wrong with the schedule.**
 
 ### The Template ###
