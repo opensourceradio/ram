@@ -1,12 +1,12 @@
 <!--
 ---
+
 	title: Pacifica Archiver
 	author: David Klann <dklann@broadcasttool.com>
 	date: Tue Mar 28 09:34:06 AM CDT 2023
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o startup.html startup.md
 	pandoc --toc --standalone --self-contained -f markdown -t latex -o startup.pdf startup.md
 -->
 
@@ -25,7 +25,7 @@ Start the archiving process by logging in to your archive instance at
 
 <table>
  <tr>
-  <td width="30%"><img src="../assets/archive-startup.png" /></td>
+  <td width="30%"><img src="archive-startup.png" /></td>
  </tr>
  <tr>
   <td>Screenshot Sequence: Add stream URL</td>
@@ -39,7 +39,7 @@ Start the archiving process by logging in to your archive instance at
 
 <table>
  <tr>
-  <td width="30%"><img src="../assets/archive-startup-2.png" /></td>
+  <td width="30%"><img src="archive-startup-2.png" /></td>
  </tr>
  <tr>
   <td>Screenshot Sequence: Start the Recorder</td>
