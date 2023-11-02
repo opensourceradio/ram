@@ -1,12 +1,12 @@
 <!--
 ---
+
 	title: Pacifica Archiver Features
 	author: David Klann <dklann@broadcasttool.com>
 	date: Tue May  2 10:37:36 AM CDT 2023
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o features.html features.md
 	pandoc --toc --standalone --self-contained -f markdown -t latex -o features.pdf features.md
 -->
 
@@ -22,7 +22,7 @@ Here is what a typical playback session looks like for stations that do not have
 
 <table>
  <tr>
-  <td><img src="../../assets/example-archive-without-metadata.png" /></td>
+  <td><img src="example-archive-without-metadata.png" /></td>
  </tr>
  <tr>
   <td style="text-align: center;">Pacifica Archive Without Metadata</td>
@@ -35,7 +35,7 @@ Here is a view of the Archive for a station _with_ ACR Cloud integration and met
  <tr>
   <td>
     <video controls width="100%">
-      <source src="../../assets/archive-metadata-demo.webm" type="video/webm">
+      <source src="archive-metadata-demo.webm" type="video/webm">
     </video>
   </td>
  </tr>
