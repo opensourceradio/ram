@@ -639,7 +639,8 @@ doSQL "${selectStatement}" | while read -r line ; do
 	   $( ((${PROdata})) && quote "${cartAlbum}") \
 	   $( ((${PROdata})) && quote "${cartLabel}") \
 	   $( ((${PROdata})) && quote "${cartPublisher}") \
-	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
+	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}") |
+      sed -e 's/[[:space:]][[:space:]]*$//'
   fi
 
   # Save the meta data and the maximum field widths (we already know it for Title).
