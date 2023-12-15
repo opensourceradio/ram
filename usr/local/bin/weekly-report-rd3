@@ -34,7 +34,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=12
+typeset -ir v_patch=13
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -559,7 +559,9 @@ if okDatabaseStructure ELR_LINES:EVENT_DATETIME+CUT_NUMBER+ARTIST+ALBUM+TITLE+LE
   selectStatement+="and elr.STATION_NAME like '${stationName}' "
   selectStatement+="and elr.EVENT_DATETIME > '${reportStartDate}' "
   selectStatement+="and elr.EVENT_DATETIME <= '${reportEndDate}' "
-  selectStatement+="order by elr.EVENT_DATETIME"
+  selectStatement+="order by "
+  ((INCLUDE_CUTS)) && selectStatement+="elr.DESCRIPTION, "
+  selectStatement+="elr.EVENT_DATETIME"
   ((VERBOSE > 1)) &&
     print "${0:t}: selectStatement: '${selectStatement}'" >&2
 else
