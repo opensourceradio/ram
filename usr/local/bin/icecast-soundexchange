@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 13;
+use constant vPATCH => 14;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -141,6 +141,8 @@ sub main() {
             my @b = $b =~ qr((?:[\d\.:a-f]+?)\s+[-%\w]+\s+[-%\w]+\s+\[(\d{2})/(\w{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s+);
             say STDERR q($a: ), $a if ($debug);
             say STDERR q($b: ), $b if ($debug);
+            say STDERR Dumper @a if ($verbose && ! ($a[0] || $a[1] || $a[2] || $a[3] || $a[4] || $a[5]));
+            say STDERR Dumper @b if ($verbose && ! ($b[0] || $b[1] || $b[2] || $b[3] || $b[4] || $b[5]));
             $a[2]                <=> $b[2]
                 || mon($a[1], 0) <=> mon($b[1], 0)
                 || $a[0]         <=> $b[0]
@@ -248,7 +250,7 @@ sub showVersion {
     ($hash = vHASH) =~ s/\$Hash: //;
 
     # Handle "prerelease" versions.
-    $hash =~ s/\$Hash\$/prerelease/;
+    $hash =~ s/\$Hash$/prerelease/;
 
     my $version_string = vMAJOR . "." . vMINOR . "." . vPATCH . "-" . $hash;
 
