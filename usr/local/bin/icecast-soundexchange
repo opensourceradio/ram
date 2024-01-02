@@ -6,7 +6,7 @@ use warnings;
 
 use constant vMAJOR => 0;
 use constant vMINOR => 2;
-use constant vPATCH => 14;
+use constant vPATCH => 15;
 use constant vHASH  => '$Hash$';
 
 use Data::Dumper;
@@ -274,11 +274,11 @@ sub getLogFiles() {
     my @logFileNames  = ();
     my @validLogLines = ();
 
-    # strptime() returns this array: ($ss,$mm,$hh,$day,$month,$year,$zone)
-    my @start         = strptime($startDate);
-    my $startYYYYMMDD = sprintf("%04d%02d%02d", $start[5] + 1900, $start[4] + 1, $start[3]);
-    my @end           = strptime($endDate);
-    my $endYYYYMMDD   = sprintf("%04d%02d%02d", $end[5] + 1900, $end[4] + 1, $end[3]);
+    # Time::Piece->strptime() creates a new Time::Piece object
+    my $start         = Time::Piece->strptime($startDate, q(%d/%b/%Y));
+    my $startYYYYMMDD = sprintf("%04d%02d%02d", $start->year, $start->mon, $start->day_of_month);
+    my $end           = Time::Piece->strptime($endDate, q(%d/%b/%Y));
+    my $endYYYYMMDD = sprintf("%04d%02d%02d", $end->year, $end->mon, $end->day_of_month);
 
     opendir(my $dirH, $logDirectory)
         || die "Cannot open icecast log directory '$logDirectory'. Stopped";
@@ -299,7 +299,10 @@ sub getLogFiles() {
         # names containing text between "access" and ".log".
         if (m/^access(?:_.*?)?\.log(\.(\d{8})_\d+)/) {
             ($lfDate = $_) =~ s/^access(?:_.*?)?\.log(\.(\d{8})_\d+)*/$2/;
-            next if ($lfDate && ($lfDate < $startYYYYMMDD || $lfDate > ($endYYYYMMDD + 7)));
+            next unless ($lfDate);
+            my $lfPiece = Time::Piece->strptime($lfDate, q(%Y%m%d 00:00:00));
+            next if ($lfPiece->epoch < $start->epoch ||
+                      $lfPiece->epoch > ($end->epoch + (7 * ONE_DAY)));
         }
 
         say STDERR "getLogFiles: Looking at $_" if ($verbose);
