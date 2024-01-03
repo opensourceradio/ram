@@ -3,29 +3,28 @@
 use 5.012;    # so readdir assigns to $_ in a lone while test
 use strict;
 use warnings;
+use Readonly;
 
-use constant vMAJOR => 0;
-use constant vMINOR => 2;
-use constant vPATCH => 15;
-use constant vHASH  => '$Hash$';
+Readonly my $vMAJOR => 0;
+Readonly my $vMINOR => 2;
+Readonly my $vPATCH => 16;
+Readonly my $vHASH  => '$Hash$';
 
+use Carp;
 use Data::Dumper;
 use Time::Local;
-use Time::Piece;
-use Date::Parse;
+use Time::Piece; # in which we find strptime
+use Date::Parse; # in which we find str2time.
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 
 use Getopt::Long;
 Getopt::Long::Configure("bundling");
 use Pod::Usage;
 
-use constant ICECASTLOGDIR       => $ENV{ICECASTLOGDIR} || q(/var/log/icecast);
-use constant OUTPUTDIR           => $ENV{OUTPUTDIR}     || q(/var/tmp);
-use constant DEFAULT_MOUNTPOINTS => ( 'stream', );
-use constant ONE_DAY             => 60 * 60 * 24;
-
-# Pattern is DD/Mon/YYYY
-use constant DATE_PATTERN => qr(\d{2}/[A-Z][a-z]{2}/\d{4});
+Readonly my $ICECASTLOGDIR       => $ENV{ICECASTLOGDIR} || q(/var/log/icecast);
+Readonly my $OUTPUTDIR           => $ENV{OUTPUTDIR}     || q(/var/tmp);
+Readonly my $DEFAULT_MOUNTPOINTS => ( 'stream', );
+Readonly my $ONE_DAY             => 60 * 60 * 24;
 
 sub main;
 sub showVersion;
@@ -59,7 +58,7 @@ sub main() {
         "help|h"               => \$help,
         "man|M"                => \$man,
     );
-    die "GetOptions returned " . $result . ". Stopped" if (!$result);
+    croak("GetOptions returned " . $result . ". Stopped") if (!$result);
 
     pod2usage(1)             if (defined($help) && $help);
     pod2usage(-verbose => 2) if (defined($man)  && $man);
@@ -76,13 +75,13 @@ sub main() {
             $mountpoints->{$m} = ();
         }
     } else {
-        foreach my $m (DEFAULT_MOUNTPOINTS) {
+        foreach my $m ($DEFAULT_MOUNTPOINTS) {
             $mountpoints->{$m} = ();
         }
     }
     say STDERR Dumper $mountpoints if ($debug);
 
-    $logDirectory = $logDirectory || ICECASTLOGDIR;
+    $logDirectory = $logDirectory || $ICECASTLOGDIR;
 
     if ($zipFile) {
         $zip = Archive::Zip->new();
@@ -91,9 +90,13 @@ sub main() {
     my $mountpointRE = join('|', sort(keys(%{$mountpoints})));
     say STDERR "mountpointRE: ", $mountpointRE if ($debug);
 
+    # We need the start and end dates in UNIX epoch seconds.
     my $start = str2time($startDate);
     my $end   = str2time($endDate);
-    $end += ONE_DAY;
+
+    # Perl treats dates as Midnight on the given date, and we want to include
+    # listener connections /on/ the ending date, so make the end one day out.
+    $end += $ONE_DAY;
 
     say STDERR sprintf("main: Start date: %s: %s End date: %s: %s", $startDate, $start, $endDate, $end) if ($verbose);
 
@@ -101,7 +104,7 @@ sub main() {
     # $startDate to $endDate.
     my $logLines = getLogFiles($startDate, $endDate, $logDirectory, $verbose);
 
-    $outputDir = $outputDir || OUTPUTDIR;
+    $outputDir = $outputDir || $OUTPUTDIR;
 
     # From icecast-kh/src/logging.h:
     # /* this is the logging call to write entries to the access_log
@@ -167,7 +170,7 @@ sub main() {
             >ix
         ) {
             my $ipAddress = $1;
-            my ($date, $hour, $minute, $second) = split(/:/, $2);
+            my ($date, $hours, $minutes, $seconds) = split(/:/, $2);
             my $tzOffset         = $3;
             my $loggedMountPoint = $4;
             my $statusCode       = $5;
@@ -189,11 +192,11 @@ sub main() {
             # from the stream. We need to calculate the time at
             # which they connected to the stream by subtracting
             # the duration from this 'end time'
-            my $time = timelocal($second, $minute, $hour, $mday, mon($mon), $year);
+            my $time = timelocal($seconds, $minutes, $hours, $mday, mon($mon), $year);
             $time -= $duration;
 
             my $connectTime = gmtime($time);
-            next unless ($connectTime >= $start && $connectTime <= $end);
+            next if ($connectTime < $start && $connectTime > $end);
 
             say STDERR
                 sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client)
@@ -214,29 +217,35 @@ sub main() {
 
         my $output_filename = $mount;
 
+        # Deal with "no mountpoint" instances (first seen with WHCP).
         if ($mount =~ m#^/$#) {
             $output_filename = q(root);
         }
 
+        # After seeing timestamped files from Spinitron in the NPR Composer
+        # sites, I decided to timestamp the per-mountpoint log filenames.
+        $output_filename = sprintf q(%s-%s.txt), $mount, $endDate;
+
         # Stash the per-mountpoint files into the zip archive if so requested.
         if ($zipFile) {
+            # Gosh this is going to use gobs of memory for full-quarter logs...
             my $zipString = join("\r\n", ("IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer", @{ $mountpoints->{$mount} }, ''));
 
-            my $stringMember = $zip->addString($zipString, qq($output_filename.txt));
+            my $stringMember = $zip->addString($zipString, qq($output_filename));
             $stringMember->desiredCompressionMethod(COMPRESSION_DEFLATED);
-            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines in ", $output_filename, ".txt to '", $zipFile, "'." if ($verbose);
+            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines in ", $output_filename, " to '", $zipFile, "'." if ($verbose);
         } else {
             my $outFH = undef;
-            open($outFH, ">", "$outputDir/$output_filename.txt") || die "Cannot open $outputDir/$output_filename.txt for writing ($!). Stopped";
+            open($outFH, ">", "$outputDir/$output_filename") || croak("Cannot open $outputDir/$output_filename for writing ($!). Stopped");
             print $outFH join("\r\n", ("IP Address\tDate\tTime\tStream\tDuration\tStatus\tReferrer", @{ $mountpoints->{$mount} }, ''));
             close($outFH);
-            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines to '", $outputDir, "/", $output_filename, ".txt'." if ($verbose);
+            say STDERR "main: Added ". scalar @{$mountpoints->{$mount}}. " lines to '", $outputDir, "/", $output_filename, "'." if ($verbose);
         }
     }
 
     if ($zipFile) {
         unless ($zip->writeToFileNamed($zipFile) == AZ_OK) {
-            die "Error writing to Zip archive '$zipFile'. Stopped";
+            croak("Error writing to Zip archive '$zipFile'. Stopped");
         }
     }
 }
@@ -247,12 +256,12 @@ sub showVersion {
 
     my $hash = undef;
 
-    ($hash = vHASH) =~ s/\$Hash: //;
+    ($hash = $vHASH) =~ s/\$Hash: //;
 
     # Handle "prerelease" versions.
     $hash =~ s/\$Hash$/prerelease/;
 
-    my $version_string = vMAJOR . "." . vMINOR . "." . vPATCH . "-" . $hash;
+    my $version_string = $vMAJOR . "." . $vMINOR . "." . $vPATCH . "-" . $hash;
 
     $program_name =~ s{.*/}{};
 
@@ -281,7 +290,7 @@ sub getLogFiles() {
     my $endYYYYMMDD = sprintf("%04d%02d%02d", $end->year, $end->mon, $end->day_of_month);
 
     opendir(my $dirH, $logDirectory)
-        || die "Cannot open icecast log directory '$logDirectory'. Stopped";
+        || croak("Cannot open icecast log directory '$logDirectory'. Stopped");
 
     while (readdir $dirH) {
         next unless (/^access/);
@@ -297,18 +306,18 @@ sub getLogFiles() {
         # cluster group (?:) that looks for an underscore or hyphen followed by
         # any number of characters. This is to support non-standard log file
         # names containing text between "access" and ".log".
-        if (m/^access(?:_.*?)?\.log(\.(\d{8})_\d+)/) {
+        if (m/^access(?:_.*?)?\.log(?:\.(?:\d{8})_\d+)/) {
             ($lfDate = $_) =~ s/^access(?:_.*?)?\.log(\.(\d{8})_\d+)*/$2/;
             next unless ($lfDate);
             my $lfPiece = Time::Piece->strptime($lfDate, q(%Y%m%d 00:00:00));
             next if ($lfPiece->epoch < $start->epoch ||
-                      $lfPiece->epoch > ($end->epoch + (7 * ONE_DAY)));
+                      $lfPiece->epoch > ($end->epoch + (7 * $ONE_DAY)));
         }
 
         say STDERR "getLogFiles: Looking at $_" if ($verbose);
 
         open($lfFH, "<", $logDirectory . "/" . $_)
-            || die "Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped";
+            || croak("Cannot open " . $logDirectory . "/" . $_ . " for reading. Stopped");
         my @lines = <$lfFH>;
         close($lfFH);
         say STDERR sprintf("getLogFiles: %s has %d lines", $_, $#lines) if ($verbose > 1);
@@ -326,7 +335,7 @@ sub getLogFiles() {
     say STDERR Dumper @logFileNames                                        if ($verbose > 1);
     say STDERR sprintf("getLogFiles: found %d log lines", $#validLogLines) if ($verbose);
 
-    \@validLogLines;
+    return \@validLogLines;
 }
 
 # inDateRange determines whether the list of lines in $lines is within the
@@ -340,7 +349,7 @@ sub inDateRange() {
 
     my $s = str2time($startDate);
     my $e = str2time($endDate);
-    $e += ONE_DAY;
+    $e += $ONE_DAY;
 
     foreach my $line (@$lines) {
         my ($j1, $dateTime, $j2) = split(/[\[\]]/, $line);
@@ -349,7 +358,7 @@ sub inDateRange() {
         return 1                                                  if ($lineDate >= $s && $lineDate <= $e);
     }
 
-    0;
+    return 0;
 }
 
 # mon returns the zero-based decimal month number for the month name passed.
@@ -371,7 +380,7 @@ sub mon() {
         Dec => 11,
     };
 
-    $months->{$monthName};
+    return $months->{$monthName};
 }
 
 __END__;
@@ -391,7 +400,7 @@ B<icecast-soundexchange> - munge icecast logs into NPR soundexchange format
 
 =head1 DESCRIPTION
 
-B<icecast-soundexchange> reads icecast access log files and writes tab-separated fields into (DOS-format) text files, one per icecast mount-point.
+B<icecast-soundexchange> reads icecast access log files and writes tab-separated fields into (DOS-format, line-endings <CR><LF>) text files, one per icecast mount-point.
 
 B<--start-date> and B<--end-date> are required.
 
@@ -457,6 +466,8 @@ individual files named for the mount points, I<or> you may request a
 zip archive containing all the mount-point files.
 
 =back
+
+Output files are named by concatenating the mount point with the requested end-date (in YYYY-MM-DD format).
 
 =head1 SEE ALSO
 
