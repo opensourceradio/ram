@@ -1,16 +1,22 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2086,SC2154,SC2162,SC2248
+# shellcheck shell=bash disable=SC2016,SC2030,SC2031,SC2086,SC2154,SC2155,SC2162,SC2248,SC2296,SC2299,SC2312
 # SC2016: The single quotes are inside a double-quoted string
+# SC2030: ZSH conditionals are not run in subshells
+# SC2031: ZSH math expressions are not run in subshells
 # SC2086: shellcheck is too quote-happy
 # SC2154: I know about all the referenced but not assigned variables
+# SC2155: declare and assign separately
 # SC2162: I do not care about read and its backslashes
 # SC2248: shellcheck is too quote-happy
+# SC2296: ZSHism, parameter expansion starting with "("
+# SC2299: ZSHism, nested parameter expansion
+# SC2312: consider invoking separately...
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=6
-vHash='$Hash: 98ce362$'
+vPatch=2
+vHash='$Hash$'
 
 ##############################################################################
 ##############################################################################
@@ -21,8 +27,9 @@ vHash='$Hash: 98ce362$'
 ##
 ## This script uses the current system time (ensure the system time is
 ## synchronized to a working network time protocol (NTP) service), and the
-## United States National Weather Service (NWS) (and Synoptic Data) to import
-## audio files into a specific audio Cart in the Rivendell Library.
+## United States National Weather Service (NWS) and the Maryland Department of
+## Transportation to import audio files into a specific audio Cart in the
+## Rivendell Library.
 ##
 ## Audio files containing time readings can contain any meaningful sounds, and
 ## must be named using four digits like this: HHMM. You should at least provide
@@ -39,10 +46,14 @@ vHash='$Hash: 98ce362$'
 ## RSS file. The URL is formed using the four-character code inserted into this
 ## string (substituting for "XXXX"):
 ## https://w1.weather.gov/xml/current_obs/XXXX.xml See also
-## https://developers.synopticdata.com/mesonet/
+## https://chart.maryland.gov/DataFeeds/GetDataFeeds and
+## https://chart.maryland.gov/DataFeeds/GetRwisXml
 ##
-## Specify the NWS location code using the "-l" (or "--location") command line
+## Specify the location code using the "-l" (or "--location") command line
 ## parameter. See usage() for more details.
+##
+## Specify the site ID number when retrieving conditions from the MD DOT. The
+## locations for Cambridge, MD are likely ID 124 and ID 146.
 ##
 ##############################################################################
 ##############################################################################
@@ -57,8 +68,9 @@ vHash='$Hash: 98ce362$'
 ##
 ## zsh(1): needed to run this script. Install it with `sudo yum install zsh`.
 ##
-## xmlstarlet(1): this is used to parse the XML from the NWS website. Install it
-## with the command `sudo yum install xmlstarlet` (from the epel repository).
+## xmlstarlet(1): this is used to parse the XML from the NWS website and from
+## the MD DOT. Install it with the command `sudo yum install xmlstarlet` (from
+## the epel repository).
 ##
 ## jq(1): this is used to parse the JSON from the Synoptic Mesonet API. Install
 ## it with the command `sudo yum install jq`.
@@ -91,7 +103,7 @@ SUMMARY
 
 ${my_name} [ --verbose ... ] [ --debug ]
               --cart (-c) <Cart Number>
-              --location (-l) <NWS Location Code>[,<NWS Location Code>]...
+              --location (-l) <Location Code/ID>[,<Location Code/ID>]...
 
 DESCRIPTION
 
@@ -126,32 +138,27 @@ EOF
 ## Get the current temperature (generic). This wraps the service-specific
 ## "current conditions" retrieval. It checks the "last updated" timestamp at NWS
 ## and uses Synoptic when the NWS conditions have not been updated for more than
-## one hour.
+## two hours.
 get_temp() {
-  local -r nws_location="${1}"
+  local -r location="${1}"
 
   local current_observation
 
-  ## Get observation data from the NWS.
-  ## Read the data from the API, then set the variable to read-only.
-  if ! current_observation=$(nws_get_observation "${nws_location}") ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to get observation from NWS for '${nws_location}'."
-
-    ## Unable to get a current temperature from NWS, try Synoptic.
-    if ! current_observation=$(syn_get_observation "${nws_location}") ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to get observation from Synoptic for '${nws_location}'."
-      print ""
-      return 1
-    fi
+  ## Get observation data from the MD DOT.
+  if ! current_observation=$(mddot_get_observation "${location}") ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to get observation from MD DOT for '${location}'."
+    print ""
+    return 1
   fi
 
   printf "%d" "${current_observation}"
   return
 }
 
-## Get the current conditions from the US National Weather Service.
-## Returns the current temperature as an integer. On error, returns an empty
-## string with the return code set appropriately.
+## nws_get_observation gets the current conditions from the US National Weather
+## Service.
+## Returns the current temperature as an integer. On error, returns an
+## empty string with the return code set appropriately.
 nws_get_observation() {
   local -r NWS_LOCATION="${1}"
 
@@ -180,9 +187,9 @@ nws_get_observation() {
   fi
 
   ## Return an empty string with an error if the observation time is more than
-  ## one hour old.
-  if (( (CURRENT_TIME - observation_time) > 3600 )) ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than one hour old."
+  ## two hours old.
+  if (( (CURRENT_TIME - observation_time) > 7200 )) ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: NWS observation time is more than two hours old."
     print ""
     return 99
   fi
@@ -199,41 +206,55 @@ nws_get_observation() {
   printf "%d" ${current_temperature%.*}
 }
 
-## Get the current conditions from Synoptic MESONET.
-## Returns the current temperature as an integer. On error, returns an empty
-## string with the return code set appropriately.
-syn_get_observation() {
-  local -r NWS_LOCATION="${1}"
-  ## Synoptic Mesonet API base URL.
-  local -r url_base="https://api.synopticdata.com/v2/stations/latest"
-  typeset -r synoptic_api_token="$(${GREP} -v '^#' ${SYNOPTIC_API_TOKEN_FILE})"
+## mddot_get_observation gets the current conditions from the State of Maryland
+## DOT.
+## Returns the current temperature (in degrees Fahrenheit) as an integer.
+## On error, returns an empty string with the return code set appropriately.
+mddot_get_observation() {
+  local -r LOCATION="${1}"
+  ## MD DOT API base URL.
+  local -r url_base="https://chart.maryland.gov/DataFeeds/GetRwisXml"
   local raw_observation_data
-  local -i current_temperature
+  local current_temperature
 
-  case _${TEMPERATURE_UNIT} in
-    _[Ff]) syn_unit=english ;;
-    _[Cc]) syn_unit=metric ;;
-    *) syn_unit=english ;;
-  esac
-
-  local -r url="${url_base}?radius=${NWS_LOCATION},10&limit=1&vars=air_temp&within=60&timeformat=%Y%m%d-%H%M%S&units=${syn_unit}&fields=stid&token=${synoptic_api_token}"
+  local -r url="${url_base}"
 
   ## Grab the entire output from Synoptic for this location.
   if ! read -r raw_observation_data <<<"$(api_get_with_errors "${url}")" ; then
     local -i api_get_exit_value=${?}
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to retrieve data from Synpotic for '${NWS_LOCATION}'."
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to retrieve data from MD DOT for '${LOCATION}'."
     print ""
     return ${api_get_exit_value}
   fi
 
-  ## Note that the jq(1) expression is cAsE SenSiTive.
-  if ! read -r current_temperature <<<"$(print "${raw_observation_data}" | ${JQ} '.STATION[].OBSERVATIONS.air_temp_value_1.value')" ; then
-    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'air_temp_value_1.value}' from '${current_observation}'."
+  ## Note that the xmlstarlet(1) expression is cAsE SenSiTive. The MD DOT always
+  ## returns values for all locations. Use awk(1) to find the one we are
+  ## interested in.
+  # SC2046: no word splitting to worry about
+  # shellcheck disable=SC2046
+  if ! print "${raw_observation_data}" |
+      ${XMLSTARLET} select --template \
+		    --match WeatherStations/WeatherStation \
+		    --value-of id --output " " \
+		    --value-of "lastUpdate div 1000" --output " " \
+		    --value-of airTemp --nl |
+      ${AWK} "/^${LOCATION} /{print \$2 \" \" \$3}" | read -r last_update current_temperature ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'airTemp' from '${raw_observation_data}'."
     print ""
     return 103
   fi
+  ((VERBOSE)) && print "last_update: ${last_update} current_temperature: ${current_temperature}" >&2
 
-  printf "%d" ${current_temperature%.*}
+  ## Return an empty string with an error if the observation time is more than
+  ## two hours old.
+  if (( (CURRENT_TIME - last_update) > 7200 )) ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: MD DOT observation time is more than two hours old."
+    print ""
+    return 99
+  fi
+
+  # The MD DOT adds an "F" suffix to the current air temperature. Drop it.
+  printf "%d" ${current_temperature%F}
 }
 
 ## Get data from an HTTP API with error checking.
@@ -410,10 +431,9 @@ zmodload zsh/datetime
 zmodload zsh/stat
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 14 external commands.
+# This script uses these 13 external commands.
 # Look for them in their upper case, parameter expanded form.
-typeset -a our_commands
-our_commands=( awk cat date ffmpeg grep jq logger mktemp mysql rdimport rm sed wget xmlstarlet )
+our_commands=( awk cat date ffmpeg grep logger mktemp mysql rdimport rm sed wget xmlstarlet )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -422,12 +442,15 @@ our_commands=( awk cat date ffmpeg grep jq logger mktemp mysql rdimport rm sed w
 # Refresh this segment in Emacs by marking the appropriate region (or the whole
 # buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
 typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
@@ -447,7 +470,7 @@ LOGGER_VERBOSE=''
 ##
 ##############################################################################
 ##############################################################################
-NWS_LOCATION_CODE=''
+LOCATION_CODE=''
 typeset -i TO_CART=0
 
 TOP_DIR="${TOP_DIR:-/usr/local/share/time-temp}"
@@ -462,11 +485,6 @@ typeset -rx TEMPERATURE_UNIT=${TEMPERATURE_UNIT:-f}
 ## often. Use the file in $(LAST_OBSERVATION} as a cache.
 typeset -rx LAST_OBSERVATION="${TOP_DIR}/last-observation"
 
-## Synoptic Data API token. This credential grants permission to request weather
-## data from the server. The file format is simply a single line containing the
-## token. Comments lines start with a "#" symbol.
-typeset -rx SYNOPTIC_API_TOKEN_FILE="${TOP_DIR}/synoptic_api_token"
-
 if ! TEMP=$(getopt -o c:l:hVvd --long cart:,location:,help,version,verbose,debug -n "${0:t}" -- "${@}") ; then
   echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
@@ -477,7 +495,7 @@ while : ; do
   # shellcheck disable=SC2034
   case "${1}" in
     -c|--cart) TO_CART="${2}" ; shift 2 ;;
-    -l|--location) NWS_LOCATION_CODE="${2}" ; shift 2 ;;
+    -l|--location) LOCATION_CODE="${2}" ; shift 2 ;;
     -h|--help*) usage "${0}" ; exit ;;
     -v|--verb*) ((VERBOSE += 1)) ; shift ;;
     -d|--debu*) ((DEBUG=1)) ; shift ;;
@@ -488,10 +506,7 @@ while : ; do
 done
 
 if ((showVersion)) ; then
-  typeset commit_hash="${vHash}"
-  [[ "${vHash}" == '$Hash$' ]] &&
-    commit_hash="prerelase"
-  print "${0:t}: version ${vMajor}.${vMinor}.${vPatch}-${${commit_hash#\$Hash: }%$}"
+  echo "${0##*/}: version ${vMajor}.${vMinor}.${vPatch}-${${vHash#\$Hash: }%$}"
   exit 0
 fi
 
@@ -515,8 +530,8 @@ if [[ -z "${TO_CART}" ]] ; then
   usage "${0}"
   exit 2
 fi
-if [[ -z "${NWS_LOCATION_CODE}" ]] ; then
-  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing NWS Location Code(s) on the command line."
+if [[ -z "${LOCATION_CODE}" ]] ; then
+  ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Missing Location Code(s) on the command line."
   usage "${0}"
   exit 3
 fi
@@ -562,14 +577,14 @@ typeset -r current_minute=$(strftime "%M" "${CURRENT_TIME}")
 ##
 ## BUG ALERT: this assumes the script is run (at least) at fifteen minutes past
 ## the hour. Adjust the conditional statement if your schedule is different.
-if ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
+if ((DEBUG)) || ((current_minute == 15)) || ! [[ -s "${LAST_OBSERVATION}" ]] ; then
 
   ## Attempt to retrieve observation data from all locations specified on the
   ## command line. Break out of the loop when we have data.
   # shellcheck disable=SC2086,SC2116
-  for NWS_LOCATION in $(echo ${NWS_LOCATION_CODE//,/ }) ; do
-    if ! current_temperature=$(get_temp "${NWS_LOCATION}") ; then
-      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to obtain current temperature for '${NWS_LOCATION_CODE}'."
+  for LOCATION in $(echo ${LOCATION_CODE//,/ }) ; do
+    if ! current_temperature=$(get_temp "${LOCATION}") ; then
+      ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to obtain current temperature for '${LOCATION_CODE}'."
     fi
     break
   done
@@ -587,14 +602,13 @@ if [[ -z "${current_temperature}" ]] ; then
 fi
 
 ## Save the concatenated time and temperature audio in this file.
-typeset -r current_time_and_temperature="${current_temperature} degrees at $(strftime '%I%M %p' ${CURRENT_TIME}).wav"
-#typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
+typeset -r current_time_and_temperature="$(${MKTEMP} --suffix=.wav)"
 
 ## Set the shell to remove the temporary files on script exit or interruption.
 ## SC2064: We want these variables to be expanded when referenced rather than
 ## when signaled.
 # shellcheck disable=SC2064
-if ! ((DEBUG)) ; then
+if ! ((VERBOSE)) ; then
   trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
 fi
 
@@ -611,11 +625,10 @@ fi
 
 ## Use rdimport(1) to import the audio to the specified Cart.
 delete_source='--delete-source'
-if ((DEBUG)) ; then
+if ((VERBOSE)) ; then
   typeset -r delete_source=''
 fi
-###  --set-string-title="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
-## SC2248: We need to leave variables used as command line parameters unquoted otherwise
+## We need to leave variables used as command line parameters unquoted otherwise
 ## rdimport(1) interprets them as required parameters.
 # shellcheck disable=SC2248
 ${RDIMPORT} \
@@ -624,7 +637,7 @@ ${RDIMPORT} \
   --delete-cuts \
   ${delete_source} \
   --fix-broken-formats \
-  --metadata-pattern="%t.wav" \
+  --set-string-title="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
   --to-cart="${TO_CART}" \
   "${group_name}" \
   "${current_time_and_temperature}"
