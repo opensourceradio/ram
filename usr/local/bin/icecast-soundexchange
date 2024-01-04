@@ -7,7 +7,7 @@ use Readonly;
 
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 16;
+Readonly my $vPATCH => 17;
 Readonly my $vHASH  => '$Hash$';
 
 use Carp;
@@ -93,6 +93,10 @@ sub main() {
     # We need the start and end dates in UNIX epoch seconds.
     my $start = str2time($startDate);
     my $end   = str2time($endDate);
+
+    # We also need the end date in Time::Piece "format" in order to generate the
+    # output filename.
+    my $endPiece = Time::Piece->strptime($endDate, q(%d/%b/%Y));
 
     # Perl treats dates as Midnight on the given date, and we want to include
     # listener connections /on/ the ending date, so make the end one day out.
@@ -224,7 +228,7 @@ sub main() {
 
         # After seeing timestamped files from Spinitron in the NPR Composer
         # sites, I decided to timestamp the per-mountpoint log filenames.
-        $output_filename = sprintf q(%s-%s.txt), $mount, $endDate;
+        $output_filename = sprintf q(%s-%s.txt), $mount, $endPiece->strftime(q(%F));
 
         # Stash the per-mountpoint files into the zip archive if so requested.
         if ($zipFile) {
