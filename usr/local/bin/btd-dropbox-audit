@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=0
+declare -ri v_patch=1
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -496,6 +496,37 @@ for id in ${(k)path_specs[*]} ; do
 done
 ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
+# Check the dropbox Groups for various things.
+typeset -A dropbox_groups
+oIFS="${IFS}"
+IFS=$'\t\n'
+# dropbox_groups is an associative array containing the dropbox Group names,
+# indexed by dropbox ID.
+dropbox_groups=($(doSQL "select distinct ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
+printf "Checking dropbox groups...\n"
+if (( ${#dropbox_groups} > 0 )) ; then
+  for group_name in "${dropbox_groups[@]}" ; do
+    typeset -i low_cart high_cart
+    ((VERBOSE)) && printf 'Group: %s: ' "${group_name}" >&2
+    typeset group_capacity=$(doSQL "select DEFAULT_HIGH_CART - DEFAULT_LOW_CART from GROUPS where NAME = '${group_name}'")
+    # SC2046: Quote this to prevent word splitting. (splitting desired)
+    # shellcheck disable=SC2046
+    read -r low_cart high_cart <<<$(doSQL "select DEFAULT_LOW_CART, DEFAULT_HIGH_CART from GROUPS where NAME = '${group_name}'")
+    # Skip groups with no cart number range.
+    (( (low_cart == 0) && (high_cart == 0) )) && continue
+
+    typeset -i capacity=$(doSQL "select DEFAULT_HIGH_CART - DEFAULT_LOW_CART from GROUPS where NAME = '${group_name}'")
+    typeset -i used=$(doSQL "select count(*) from CART where group_name = '${group_name}'")
+    # Warn them if the group is above 90% capacity.
+    # SC2079: (( )) doesn't support decimals (ZSH)
+    # shellcheck disable=SC2079
+    if ((used > (capacity * 0.9))) ; then
+      printf '\nWarning: Group: %s capacity: %d carts, used %d (low:%d high:%d)\n' "${group_name}" ${capacity} ${used} ${low_cart} ${high_cart}
+    fi
+    ((VERBOSE)) && print >&2
+  done
+fi
+
 # A "stranded" file is one that is in a dropbox directory and is not
 # registered in DROPBOX_PATHS. This likely means the file was never
 # successfully imported. It may also mean the file does not match the
@@ -508,8 +539,6 @@ if ((CHECK_STRANDED_FILES)) ; then
   typeset -A file_history
   file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
   ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}" >&2
-  typeset -A dropbox_groups
-  dropbox_groups=($(doSQL "select ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
 
   for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
     typeset -a possibly_stranded
