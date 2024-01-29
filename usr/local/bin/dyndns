@@ -23,7 +23,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -r vMajor=0
 declare -r vMinor=2
-declare -r vPatch=12
+declare -r vPatch=13
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
@@ -45,7 +45,16 @@ declare -r API_HOST='api.digitalocean.com'
 # The D.O. API key is expected to be on the only non-comment line in this file.
 # ShellCheck does not seem to know about read-only variables.
 # shellcheck disable=SC2155
-declare -r DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && grep -v '^#' ${HOME}/.config/doctl/api-access)
+declare DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && grep -v '^#' ${HOME}/.config/doctl/api-access)
+# Also support the API key in .ini format (used for letsencrypt certbot with the
+# dns-digitalocean plugin). Added 2024-01-18.
+if [[ -z "${DO_API_KEY}" ]] ; then
+  DO_API_KEY=$([[ -r "${HOME}/.config/do.ini" ]] && awk -F '[[:space:]]*=[[:space:]]*' '/^[^#]/{print $2}' "${HOME}/.config/do.ini")
+fi
+if [[ -z "${DO_API_KEY}" ]] ; then
+  printf '%s: ERROR: Missing API Key. Cannot continue.\n' "${0##*/}" >&2
+  exit 10
+fi
 declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
 declare -i INTERACTIVE=0
