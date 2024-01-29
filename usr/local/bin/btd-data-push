@@ -1,0 +1,464 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2016,SC2034,SC2046,SC2086,SC2154,SC2155,SC2190,SC2207,SC2296,SC2312
+# SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
+# SC2034: shellcheck does not know about ZSH param expansions.
+# SC2046: shellcheck is too "quote aggressive".
+# SC2086: shellcheck is too "quote aggressive".
+# SC2154: the only "unassigned" parameters *should be* upper case command names.
+# SC2155: not worried about masking return values.
+# SC2190: ZSH associative arrays work differently from Bash associative arrays.
+# SC2207: mapfile or read -a are Bash-isms.
+# SC2296: ZSH parameter expansions *can* start with "(".
+# SC2312: We don't care about return values in command expansions (process substitution).
+
+zmodload zsh/stat
+zmodload zsh/datetime
+zmodload zsh/mapfile
+
+##############################################################################
+##############################################################################
+##
+## btd-data-push
+##
+## A Broadcast Tool & Die ZSH script to push the Rivendell database contents and
+## the Rivendell audio store to one or more remote station player machines.
+##
+## This script assumes passwordless (public key) SSH access to all remote
+## Rivendell computers. See ~rivendell/.ssh/id_ed25519 and
+## ~rivendell/.ssh/authorized_keys on any of the computers participating in this
+## synchronization system.
+##
+## /etc/ssh/sshd_config on each of the "receiving" machines MUST BE CONFIGURED
+## WITH "StrictModes no". This is due to the fact that "StrictModes" (default:
+## yes) requires the .ssh parent directory (~rivendell, /var/snd) to be set to
+## 0700 (no group or other access).
+##
+## The permissions on /var/snd on each of the station machines must be
+## 'u=rwx,go=rx or ug=rwx,o=rx and be owned by Linux user 'rivendell' and in
+## Linux group 'rivendell'.
+##
+## See also, `crontab -u rivendell -l`.
+## A typical crontab entry might look like this:
+## 17 */2 * * * zsh /usr/local/bin/btd-data-push > /var/tmp/btd-data-push.log 2>&1
+## which causes this script to be run every other (even) hour at seventeen
+## minutes past the hour and saves extraneous output in /var/tmp/btd-data-push.log.
+##
+##############################################################################
+##############################################################################
+
+## This script complies with Semantic Versioning: http://semver.org/
+declare -ri v_major=0
+declare -ri v_minor=1
+declare -ri v_patch=0
+declare -r v_hash='$Hash$'
+
+## Send mail to the following addresses if email notifications are configured
+## and if a relay MTA is configured.
+typeset -r MAILTO="dklann@broadcasttool.com"
+
+typeset -ri CURRENT_TIME=${EPOCHSECONDS}
+typeset -ri ONE_DAY=$((60 * 60 * 24))
+
+##########################################################################################
+##########################################################################################
+##
+## Locally defined subroutines
+##
+##########################################################################################
+##########################################################################################
+
+# Show how to use this command.
+function usage() {
+  local -r my_name="${1:t}"
+
+  ${CAT} <<EOF
+NAME
+
+${my_name} - a TU Public Radio Rivendell data synchronizer
+
+SYNOPSIS
+
+${my_name} [ --verbose (-v) ]
+             [ --stations <STATION_LIST> ]
+             [ --audioroot <DIRECTORY> ]
+             [ --dry-run ]
+             [ --help (-h) ] [ --version (-V) ]
+
+DESCRIPTION
+
+$(${FMT} <<<"${my_name} copies the audio store (typically /var/snd) and the Rivendell database contents to either a) all machines listed in the Rivendell database STATIONS table, or b) the comma-separated list of stations specified in the --stations parameter on the command line.")
+
+$(${FMT} <<<"Specify one or more stations to push data to using the '--stations <STATION_LIST>' option (no short option). The list of stations must be separated with commas and NO spaces.")
+
+$(${FMT} <<<"Specify the audio store directory using the '--audioroot <DIRECTORY>' option (no short option). The default is taken from the 'AudioRoot' option in the '[Cae]' section of '/etc/rd.conf', or '/var/snd' if 'AudioRoot' is not set.")
+
+$(${FMT} <<<"Use the '--dry-run' option (no short option) to report what would be done without actually making any changes.")
+
+$(${FMT} <<<"Specify '--verbose' (short option: '-v') to have ${my_name} be chatty about its progress. Verbose output is logged in the files '/var/tmp/${my_name}.out' and '/var/tmp/${my_name}.err'.")
+
+$(${FMT} <<<"Specify '--version' (short option: '-V') to have ${my_name} output its version number and exit.")
+
+$(${FMT} <<<"${my_name} expects to be run by a Linux user (typically Linux user 'rivendell') that has SSH private keys and authorized_keys configured for public-key-based passwordless login. The login shell (specified in /etc/passwd) for the user must be set to the pathname of a login shell in /etc/shells (something other than '/sbin/nologin').")
+
+$(${FMT} <<<"See the documentation for ssh(1) and ssh_config(5) for details about public key authentication.")
+
+EOF
+}
+
+# get_rd_conf gets the value of a Rivendell configuration parameter from the named
+# section.
+function get_rd_conf() {
+    local -r section="${1:?Please name a configuration file section.}"
+    local -r param="${2:?Please name a configuration parameter to retrieve.}"
+    local -r rd_config="${RD_CONFIG:-/etc/rd.conf}"
+
+    local value
+    if ! value=$(${SED} -e '1,/^\[mySQL\]$/d' -e '/^\[/,$d' "${rd_config}" | ${AWK} -F'=' "/^${param}=/{print \$2}") ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "ERROR: unable to read '${rd_config}'."
+        return 1
+    fi
+
+    print "${value}"
+    return
+}
+
+# do_sql executes a MariaDB SQL statement on the Rivendell database and returns
+# the results (if any).
+function do_sql() {
+    local -r statement="${1:?Need a database query to run.}"
+    local -r rdconfig="${RD_CONFIG:-/etc/rd.conf}"
+    local rdconf_db_stanza
+
+    if [[ -r "${rdconfig}" ]] ; then
+        local -r DB_HOST="$(get_rd_conf mySQL Hostname)"
+        local -r DB_USER="$(get_rd_conf mySQL Loginname)"
+        local -r DB_PASSWORD="$(get_rd_conf mySQL Password)"
+        local -r DB_DATABASE="$(get_rd_conf mySQL Database)"
+    else
+        # These are the "conventional defaults" that might otherwise exist in
+        # /etc/rd.conf (and friends).
+        local -r DB_HOST="${RD_DB_HOST:-localhost}"
+        local -r DB_USER="${RD_DB_USER:-rduser}"
+        local -r DB_PASSWORD="${RD_DB_PASS:-letmein}"
+        local -r DB_DATABASE="${RD_DB_DATABASE:-Rivendell}"
+    fi
+
+    ${MYSQL} -s -N -B -u "${DB_USER}" -p"${DB_PASSWORD}" -h "${DB_HOST}" "${DB_DATABASE}" -e "${statement}"
+}
+
+##########################################################################################
+##########################################################################################
+##
+## Script Main Line
+##
+##########################################################################################
+##########################################################################################
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 16 external commands.
+# Look for them in their upper case, parameter expanded form.
+our_commands=( awk cat find fmt getopt hostname logger man mysql mysqldump ping rm rsync sed ssh wc )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+typeset AUDIOROOT=""
+typeset STATIONS=""
+typeset -i DRY_RUN=0
+typeset -i SHOW_VERSION=0
+typeset -i VERBOSE=0
+typeset LOCKFILE=${TMP:-/var/tmp}/${0:t}.lock
+
+## Maximum age (in days) of Rivendell database export files to keep.
+typeset -i KEEP_AGE="${KEEP_AGE:-14}"
+
+typeset -a stations
+
+typeset -r this_host_name=$(${HOSTNAME} -s)
+
+if ! TEMP=$(${GETOPT} -o hVv --long audioroot:,dry-run,help,stations:,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+    # VERBOSE is used, but in a non-Bash way.
+    # shellcheck disable=SC2034
+    case "${1}" in
+        --audioroot) AUDIOROOT="${2}" ; shift 2 ;;
+        --dry-run) DRY_RUN=1 ; shift ;;
+        -h|--help) usage "${0}" ; exit ;;
+        --station*) STATIONS="${2}" ; shift 2 ;;
+        -V|--version) SHOW_VERSION=1 ; shift ;;
+        -v|--verbose) ((VERBOSE += 1)) ; shift ;;
+        --) shift ; break ;;
+        *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+    esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" == '$Hash$' ]] &&
+        commit_hash="prerelase"
+    # SC2299: ZSH handles nested parameter expansion.
+    # shellcheck disable=SC2299
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
+fi
+
+##
+## Avoid running if there is an existing instance.
+##
+if [[ -f "${LOCKFILE}" ]] ; then
+    running_pid=$(< "${LOCKFILE}")
+    zstat -H running_pid_stat "${LOCKFILE}"
+    if [[ -d /proc/"${running_pid}" ]] ; then
+	if (((CURRENT_TIME - running_pid_stat[mtime]) > 7300)) ; then
+	    ## The running instance has been running for longer than two hours.
+	    ## This seems excessive.
+	    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i \
+		      "INFO: process ID '${running_pid}' has been running more than two hours. Started at $(strftime %FT%T ${running_pid_stat[mtime]})."
+	    exit 2
+	elif (((CURRENT_TIME - running_pid_stat[mtime]) > 3500)) ; then
+	    ## Just exit if the previous instance has been running for more than an
+	    ## hour and less than two hours.
+	    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i \
+		      "INFO: process ID '${running_pid}' still active. Started at $(strftime %FT%T ${running_pid_stat[mtime]})."
+	    exit
+	else
+	    ## The running instance has been running for less than an hour. This
+	    ## seems weird.
+	    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i \
+		      "INFO: process ID '${running_pid}' has been running less than an hour. Started at $(strftime %FT%T ${running_pid_stat[mtime]})."
+	    exit
+	fi
+    else
+	## The previous instance is no longer running, but left a lock file.
+	## Clean it up and proceed.
+	rm -f "${LOCKFILE}"
+    fi
+fi
+## Create the lock file and set a trap to remove it on script exit.
+if ! printf "%d\n" "${$}" > "${LOCKFILE}" ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: unable to create lock file '${LOCKFILE}'. Cannot continue."
+    exit 1
+fi
+# SC2064: We want the variables expanded now, not later.
+# shellcheck disable=SC2064
+trap "${RM} -f ${LOCKFILE} ; exit ;" 0 1 2
+
+typeset dry_run_text=""
+if ((DRY_RUN)) ; then
+    dry_run_text=" (Dry run)"
+fi
+    
+# Tell them we are starting just before sending all output to the temporary
+# files.
+((VERBOSE)) && printf "%s: commencing Rivendell data push%s.\n" "${0:t}" "${dry_run_text}" >&2
+((VERBOSE)) || { exec 1> /var/tmp/${0:t}.out ; exec 2> /var/tmp/${0:t}.err ; }
+((VERBOSE)) && ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: commencing Rivendell data push${dry_run_text}. See '/var/tmp/${0:t}.{err,out}' for runtime details."
+((VERBOSE > 1)) && setopt xtrace
+
+## The audio store directory on this server.
+typeset server_var_snd
+## Look up the audio store if it is not specified on the command line.
+if [[ -z "${AUDIOROOT}" ]] ; then
+    if ! server_var_snd=$(get_rd_conf Cae AudioRoot) ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: unable to read '/etc/rd.conf' and no audioroot specified. Cannot continue."
+        exit 3
+    fi
+    # The usual case is for AudioRoot to be unset. Use "/var/snd" as the audio store.
+    if [[ -z "${server_var_snd}" ]] ; then
+        server_var_snd="/var/snd"
+    fi
+else
+    server_var_snd="${AUDIOROOT}"
+fi
+if ! [[ -d "${server_var_snd}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.error -i "ERROR: unable to access local audio store directory '${server_var_snd}'. Cannot continue."
+    exit 4
+fi
+var_snd_file_count=$(${FIND} "${server_var_snd}" -maxdepth 1 -name \*.wav -print | ${WC} -l)
+
+## The database backup directory.
+typeset -r database_backup_dir="/var/tmp"
+## Create a backup of the Rivendell database. The dump files get cleaned up below.
+typeset -r rd_db_host="$(get_rd_conf mySQL Hostname)"
+typeset -r rd_db_user="$(get_rd_conf mySQL Loginname)"
+typeset -r rd_db_password="$(get_rd_conf mySQL Password)"
+typeset -r rd_db_database="$(get_rd_conf mySQL Database)"
+typeset -r db_dump_filename="${database_backup_dir}"/"${rd_db_database}"-$(strftime "%F-%H%M%S" "${CURRENT_TIME}").sql
+## See mysqldump(8) for options, both present, absent, and default.
+## Specifically, from the man page: "Use of --opt is the same as specifying
+## --add-drop-table, --add-locks, --create-options, --disable-keys,
+## --extended-insert, --lock-tables, --quick, and --set-charset. All of the
+## options that --opt stands for also are on by default because --opt is on by
+## default."
+##
+## Set --opt explicitely just to be sure.
+if ((DRY_RUN)) ; then
+    ${CAT} <<EOF
+Would have run:
+
+${MYSQLDUMP} -h "${rd_db_host}" \
+             -u "${rd_db_user}" \
+             -p"${rd_db_password}" \
+             --opt \
+             --add-drop-database \
+             --databases "${rd_db_database}" \
+             > "${db_dump_filename}"
+
+EOF
+else
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: dumping Rivendell database to '${db_dump_filename}'."
+    if ! ${MYSQLDUMP} -h "${rd_db_host}" \
+         -u "${rd_db_user}" \
+         -p"${rd_db_password}" \
+         --opt \
+         --add-drop-database \
+         --databases "${rd_db_database}" \
+         > "${db_dump_filename}" ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: ${MYSQLDUMP} exited with code '${?}'. Aborting."
+        exit 5
+    fi
+    if ! [[ -s "${db_dump_filename}" ]] ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: ${MYSQLDUMP} extracted no data from the database. Aborting."
+        exit 6
+    fi
+fi
+
+## Each PC's `hostname -s` *MUST* match the station name in the Rivendell
+## database STATIONS table.
+## /etc/hosts *MUST* contain entries for all the Rivendell workstations.
+typeset -a stations
+if [[ -n "${STATIONS}" ]] ; then
+    stations=( $(print ${(s:,:)STATIONS}) )
+else
+    stations=( $(do_sql "select NAME from STATIONS order by NAME") )
+fi
+
+## Put the rsync(1) exit codes from the manual page into the associative array. The
+## exit code number is the array index and the textual description is its value.
+typeset -A rsync_exit_codes
+oIFS="${IFS}"
+IFS=$'=\n'
+## This worked on CentOS 7 but not on Ubuntu 22.04:
+#rsync_exit_codes=( $(MANWIDTH=999 ${MAN} rsync |
+#                         ${SED} -e '1,/EXIT VALUES/d' -e '/ENVIRONMENT VARIABLES/,$d' -e '/^$/d' |
+#                         ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}') )
+## This works on CentOS 7 and Ubuntu 22.04 (at least) as of Wed Jan 17 12:14:14 PM CST 2024:
+rsync_exit_codes=( $(MANWIDTH=999 ${MAN} rsync |
+                         ${SED} -n -e '1,/EXIT VALUES/d' \
+                                -e '/ENVIRONMENT VARIABLES/,$d' -e 's/^[[:space:]][[:space:]]*o//' \
+                                -e '/[[:space:]][[:space:]]*an /d' -e 's/ - /    /' \
+                                -e '/^$/d' \
+                                -e p |
+                         ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}') )
+IFS="${oIFS}"
+
+((VERBOSE > 1)) && printf 'rsync(1) exit codes:\n%s\n' "${(o)rsync_exit_codes[*]}" >&2
+
+## Iterate over all the stations, pushing the current data sets to them.
+# SC2048: overly aggressive shellcheck quoting recommendation
+# shellcheck disable=SC2048
+for station in "${stations[@]}" ; do
+    if [[ "${station}" = "${this_host_name}" ]] ; then
+        ((VERBOSE)) && printf "%s: skipping this host: %s\n" "${0:t}" "${this_host_name}" >&2
+        continue
+    fi
+    # Again, for this to work, /etc/hosts *MUST* be populated with all Rivendell workstations.
+    ((VERBOSE)) || ping_quiet='-q'
+    ((VERBOSE)) && printf "%s: about to ping %s.\n" "${0:t}" "${station}" >&2
+    # SC2248: shellcheck is too "quote aggressive".
+    # shellcheck disable=SC2248
+    if ! ${PING} ${ping_quiet} -c 2 -w 2 ${station} 2>/dev/null ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: Cannot ping ${station}."
+        continue
+    fi
+
+    ############################################################################
+    ## Push the audio store to the remote machines. Also, delete files on those
+    ## machines that no longer exist on the server.
+    ############################################################################
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: pushing ${var_snd_file_count} audio files to '${station}'${dry_run_text}."
+    ## Note the trailing "/" on the source directory; we use this to specify the
+    ## contents of ${server_var_snd}.
+    ${RSYNC} --archive ${VERBOSE:+--verbose} --delete $( ((DRY_RUN)) && print -- "--dry-run") "${server_var_snd}"/ ${station}:/var/snd
+    typeset -i rsync_exit_value="${?}"
+    if ((rsync_exit_value != 0)) ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}."
+    fi
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: synchronized audio store with '${station}'."
+
+    ############################################################################
+    ## Replace the database on the remote machine.
+    ## Note the hard-coded value of the mysql(1) defaults file!
+    ############################################################################
+    ## Push the database dump to the station player machine.
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: pushing database to '${station}'."
+    if ! ${RSYNC} --archive ${VERBOSE:+--verbose} $( ((DRY_RUN)) && print -- "--dry-run") "${db_dump_filename}" "${station}":/var/tmp ; then
+        typeset -i rsync_exit_value="${?}"
+        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}."
+    fi
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: loading database on '${station}' from '${db_dump_filename:t}'."
+    if ((DRY_RUN)) ; then
+        ${CAT} <<EOF
+
+Would have run:
+    ${SSH} "${station}" ${CAT} /var/tmp/"${db_dump_filename:t}" \| ${MYSQL} --defaults-file=/var/snd/.my.cnf Rivendell
+
+    ${SSH} "${station}" ${RM} -f /var/tmp/"${db_dump_filename:t}"
+
+EOF
+    else
+        ${SSH} "${station}" ${CAT} /var/tmp/"${db_dump_filename:t}" \| ${MYSQL} --defaults-file=/var/snd/.my.cnf Rivendell
+        typeset -i ssh_exit_value="${?}"
+        if ((ssh_exit_value != 0)) ; then
+            ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: error encountered when loading '${db_dump_filename:t}' on '${station}': '${ssh_exit_value}'."
+        fi
+        ${SSH} "${station}" ${RM} -f /var/tmp/"${db_dump_filename:t}"
+        typeset -i ssh_exit_value="${?}"
+        if ((ssh_exit_value != 0)) ; then
+            ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: error encountered when removing database dump file on '${station}': '${ssh_exit_value}'."
+        fi
+        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: completed loading database on '${station}'."
+    fi
+done
+
+## Clean up the local database dump files; remove all files older than seven
+## days old.
+if ((DRY_RUN)) ; then
+    ${FIND} "${database_backup_dir}" -name "${rd_db_database}"-\*.sql -mtime +7 -print | ${WC} -l
+else
+    if deleted_count=$(${FIND} "${database_backup_dir}" -maxdepth 1 -name "${rd_db_database}"-\*.sql -mtime +"${KEEP_AGE}" -print -delete | ${WC} -l) ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: cleaned up ${deleted_count} database backup files older than ${KEEP_AGE} days old."
+    else
+        ${LOGGER} --stderr -t "${0:t}" -p local7.warn -i "WARNING: encountered an error (code '${?}') while cleaning up old database backup files."
+    fi
+fi
+
+## Remove the database extract file and its parent directory and the lock file.
+${RM} -f "${LOCKFILE}"
+
+${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: audio store and database synchronization complete${dry_run_text}."
+
+exit
