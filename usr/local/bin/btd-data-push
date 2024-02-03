@@ -49,7 +49,7 @@ zmodload zsh/mapfile
 ## This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=0
+declare -ri v_patch=1
 declare -r v_hash='$Hash$'
 
 ## Send mail to the following addresses if email notifications are configured
@@ -402,7 +402,9 @@ for station in "${stations[@]}" ; do
     ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: pushing ${var_snd_file_count} audio files to '${station}'${dry_run_text}."
     ## Note the trailing "/" on the source directory; we use this to specify the
     ## contents of ${server_var_snd}.
-    ${RSYNC} --archive ${VERBOSE:+--verbose} --delete $( ((DRY_RUN)) && print -- "--dry-run") "${server_var_snd}"/ ${station}:/var/snd
+    ## Note also the two excluded directories: pushing these may cause conflicts
+    ## with other software.
+    ${RSYNC} --archive ${VERBOSE:+--verbose} --exclude .local/ --exclude .config/ --delete $( ((DRY_RUN)) && print -- "--dry-run") "${server_var_snd}"/ ${station}:/var/snd
     typeset -i rsync_exit_value="${?}"
     if ((rsync_exit_value != 0)) ; then
         ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}."
