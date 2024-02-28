@@ -11,3 +11,7 @@ markdown_extensions:
   - md_in_html
 extra_css:
   - extra.css
+plugins:
+  - search
+  - mkdocs-nav-weight:
+      index_weight: -10
