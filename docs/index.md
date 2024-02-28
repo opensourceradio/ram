@@ -1,13 +1,14 @@
 <!--
 ---
+
 	title: Pacifica Internet Technology Package
 	author: David Klann <dklann@broadcasttool.com>
 	date: Mon Mar 13 12:08:39 PM CDT 2023
+    weight: -10
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o index.html index.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o index.pdf index.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o index.pdf index.md
 -->
 # Pacifica Internet Technology Package #
 

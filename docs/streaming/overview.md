@@ -1,13 +1,14 @@
 <!--
 ---
+
 	title: Pacifica Streaming Service
 	author: David Klann <dklann@broadcasttool.com>
 	date: Mon Mar 13 12:12:22 PM CDT 2023
+    weight: 1
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o overview.html overview.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o overview.pdf overview.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o overview.pdf overview.md
 -->
 # Pacifica Streaming Service #
 

@@ -4,17 +4,18 @@
 	title: Pacifica Archiver
 	author: David Klann <dklann@broadcasttool.com>
 	date: Tue Mar 28 09:34:06 AM CDT 2023
+    weight: 4
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o startup.pdf startup.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o startup.pdf startup.md
 -->
 
 # Starting the Archive #
 
 Start the archiving process by logging in to your archive instance at
 
- https://archive.STATION_NAME.TLD/login/login.php
+https://archive._STATION\_NAME.TLD_/login/login.php
 
 (Substitute your station's domain name for _STATION\_NAME.TLD_.)
 

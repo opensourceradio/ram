@@ -1,13 +1,14 @@
 <!--
 ---
+
 	title: Scheduling
 	author: Otis Maclay  <maclay@gmail.com>
 	date: Fri Jun 23 12:15:00 PM CDT 2023
+    weight: 11
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o scheduling.html scheduling.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o scheduling.pdf scheduling.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o scheduling.pdf scheduling.md
 -->
 
 # Scheduling #

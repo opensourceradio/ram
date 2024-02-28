@@ -6,8 +6,8 @@
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o encoders.html encoders.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o encoders.pdf encoders.md
+	pandoc --toc --embed-resources --standalone -f markdown -t html -o encoders.html encoders.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o encoders.pdf encoders.md
 -->
 
 # Common Stream Encoders #

@@ -1,13 +1,14 @@
 <!--
 ---
+
 	title: Public File Enrty
 	author: Otis Maclay <omaclay@gmail.com>
 	date: Thu Jun  1 17:48:42 CDT 2023
+    weight: 13
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t html -o pubfile.html  pubfile.md
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o pubfile.pdf pubfile.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o pubfile.pdf pubfile.md
 -->
 
 # The Public File #

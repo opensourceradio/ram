@@ -4,10 +4,11 @@
 	title: Pacifica Archiver Features
 	author: David Klann <dklann@broadcasttool.com>
 	date: Tue May  2 10:37:36 AM CDT 2023
+    weight: 3
 ---
 -->
 <!-- Create formatted output with one of these commands:
-	pandoc --toc --standalone --self-contained -f markdown -t latex -o features.pdf features.md
+	pandoc --toc --embed-resources --standalone -f markdown -t latex -o features.pdf features.md
 -->
 
 # Pacifica Archive Features #
