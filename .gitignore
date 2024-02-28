@@ -10,6 +10,7 @@
 doit
 *.php
 .vimrc
+*.bak
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
