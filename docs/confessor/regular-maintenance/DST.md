@@ -129,10 +129,16 @@ need to fill this hour in order to keep all your archiving on time.
 #### Lengthen your schedule in the Fall ####
 
   1. browse to _Schedule Admin_ and click _Next_ in the schedule (upper right)
-     until the first Sundy in November is visible; you'll see a "gap" or empty
-     hour at the end of that day
+     until the first Sunday in November is visible; you'll see a "gap" or empty
+     hour at the end of that day. You'll also notice that there are 2 1:00 AMs.
+	 That's because the way the "fall back" works, at 2:00 AM, the change occurs
+	 officially, and the correct time is now 1:00 AM.
+	
+1.	you'll notice that all the shows after 1:00 AM are starting an hour earlier than in the
+	regular schedule. From the bottom, move all the shows down one hour to 
+	place them a the right time.
      
-  1. rearrange your first-Sunday-in-November schedule either by adding an
+  1. now you can rearrange your first-Sunday-in-November schedule either by adding an
      hour-long show (or two half-hour shows), or by lengthening the show that
      normally ends on or before 2:00am Sunday morning (technically, you can make
      up the one-hour of programming any time that day, but doing it over night
