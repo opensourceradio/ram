@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=1
+declare -ri v_patch=2
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -31,19 +31,20 @@ declare -r v_hash='$Hash$'
 ##########################################################################################
 ##########################################################################################
 
-# Attempt to kill all PIDs passed. Try first without privilege
-# escalation, then try _with_ privilege escalation.
+# Attempt to kill all PIDs passed. Try first without privilege escalation, then
+# try _with_ privilege escalation. History and experience show that SIGINT does
+# not terminate the rdxport.cgi processes, so I changed this on Tue Mar 5
+# 11:47:06 AM CST 2024 to use SIGKILL.
 # Returns with non-zero status if we are unable to kill any of the
 # passed PIDs.
 function kill_with_privilege() {
   local -i proc_id
   local -ir attempt_limit=5
   local -i count=0
-  local sig=INT
+  local sig=KILL
   local -i return_value=0
   for proc_id ; do
     while ((count < attempt_limit)) ; do
-      ((count > (attempt_limit/2))) && sig=KILL
       ((VERBOSE)) && printf "Attempting to terminate process ID %d with signal SIG%s..." "${proc_id}" "${sig}" >&2
       ${KILL} -"${sig}" "${proc_id}"
       ${SLEEP} 0.5
@@ -56,7 +57,6 @@ function kill_with_privilege() {
       if ! [[ -d "/proc/${proc_id}" ]] ; then
 	continue 2	# next proc_id in the for loop
       fi
-      ${SLEEP} 0.5
       print
       ((count++))
     done
