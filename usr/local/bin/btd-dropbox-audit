@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=2
+declare -ri v_patch=3
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -104,6 +104,7 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --stranded-files (-s) ] [ --interactive (-i) ]
+                  [ --groups (-g) ]
                   [ --verbose (-v) ] [ --no (-n) ]
                   [ --help (-h) ] [ --version (-V) ]
 
@@ -118,6 +119,8 @@ $(${FMT} <<<"${my_name} performs several checks on Rivendell dropboxes in order 
   * existence of dropbox folders (directories)
 
   * 'stale' import records in the dropbox history table ('stale' is defined as the import date/time being older than the file timestamp)
+
+  * Cart capacity for the Groups in the dropboxes (whether the Group is running out of Cart numbers)
 
   * existence of Carts for dropboxes that specify them
 
@@ -163,6 +166,7 @@ fi
 
 typeset -i ANSWER_NO=0
 typeset -i CHECK_STRANDED_FILES=0
+typeset -i CHECK_GROUPS=0
 typeset -i INTERACTIVE=0
 typeset -i SHOW_VERSION=
 typeset -i VERBOSE=00
@@ -194,7 +198,7 @@ done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-if ! TEMP=$(${GETOPT} -o hinsVv --long help,interactive,no,stranded-files,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o ghinsVv --long groups,help,interactive,no,stranded-files,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -203,6 +207,7 @@ while : ; do
   # VERBOSE is used, but in a non-Bash way.
   # shellcheck disable=SC2034
   case "${1}" in
+    -g|--groups) CHECK_GROUPS=1 ; shift ;;
     -h|--help) usage "${0}" ; exit ;;
     -i|--inter*) INTERACTIVE=1 ; shift ;;
     -n|--no) ANSWER_NO=1 ; shift ;;
@@ -225,6 +230,12 @@ fi
 if ((INTERACTIVE)) && ! ((CHECK_STRANDED_FILES)) ; then
   if get_yes_no "Do you want to check for files that have not been imported?" 0 ; then
     CHECK_STRANDED_FILES=1
+  fi
+fi
+
+if ((INTERACTIVE)) && ! ((CHECK_GROUPS)) ; then
+  if get_yes_no "Do you want to check for exhausted dropbox Groups capacity?" 0 ; then
+    CHECK_GROUPS=1
   fi
 fi
 ((VERBOSE)) && printf "%s: beginning audit of Rivendell dropboxes.\n" "${0:t}" >&2
@@ -392,12 +403,12 @@ fi
 print "Checking for 'forbidden' directory names..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
   typeset path_spec_dir=${path_spec%/*}
-  if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?]') ; then
+  if p=$(print "${path_spec_dir}" | ${GREP} --color=always '[|&\{\}#\$\<\>\?\*]') ; then
     ${CAT} <<EndOfText >&2
 
 One ore more directory components in Dropbox PATH spec
 ${p}
-contains one of the characters |, &, {, }, # \$, <, >, and ?.
+contains one or more of the characters |, &, {, }, # \$, <, >, ? and *.
 Please consider choosing a PATH spec without these characters.
 
 EndOfText
@@ -496,58 +507,71 @@ for id in ${(k)path_specs[*]} ; do
 done
 ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
 
-# Check the dropbox Groups for various things.
-typeset -A dropbox_groups
-oIFS="${IFS}"
-IFS=$'\t\n'
-# dropbox_groups is an associative array containing the dropbox Group names,
-# indexed by dropbox ID.
-dropbox_groups=($(doSQL "select distinct ID,GROUP_NAME from DROPBOXES where STATION_NAME='${station}'"))
-printf "Checking dropbox groups...\n"
-if (( ${#dropbox_groups} > 0 )) ; then
-  for group_name in "${dropbox_groups[@]}" ; do
-    typeset -i low_cart high_cart
-    ((VERBOSE)) && printf 'Group: %s: ' "${group_name}" >&2
-    typeset group_capacity=$(doSQL "select DEFAULT_HIGH_CART - DEFAULT_LOW_CART from GROUPS where NAME = '${group_name}'")
-    # SC2046: Quote this to prevent word splitting. (splitting desired)
-    # shellcheck disable=SC2046
-    read -r low_cart high_cart <<<$(doSQL "select DEFAULT_LOW_CART, DEFAULT_HIGH_CART from GROUPS where NAME = '${group_name}'")
-    # Skip groups with no cart number range.
-    (( (low_cart == 0) && (high_cart == 0) )) && continue
+# Check the dropbox Groups for Cart number capacity.
+if ((CHECK_GROUPS)) ; then
+  typeset -a dropbox_groups
+  oIFS="${IFS}"
+  IFS=$'\t\n'
+  # dropbox_groups is an array of distinct dropbox Group names.
+  dropbox_groups=( $(doSQL "select distinct GROUP_NAME from DROPBOXES where STATION_NAME='${station}' ORDER BY GROUP_NAME") )
+  print "Checking dropbox groups..."
+  if (( ${#dropbox_groups} > 0 )) ; then
+    for group_name in "${dropbox_groups[@]}" ; do
+      typeset -i low_cart high_cart
+      typeset -i group_capacity
+      # SC2046: (warning): Quote this to prevent word splitting. [aggressive]
+      # shellcheck disable=SC2046
+      read -r low_cart high_cart <<<$(doSQL "select DEFAULT_LOW_CART, DEFAULT_HIGH_CART from GROUPS where NAME = '${group_name}'")
+      # Skip groups with no cart number range.
+      if (( (low_cart == 0) && (high_cart == 0) )) ; then
+	continue
+      fi
+      group_capacity=$((high_cart - low_cart + 1))
+      ((VERBOSE)) && printf "Group: '%s': Cart capacity: %d\n" "${group_name}" "${group_capacity}" >&2
 
-    typeset -i capacity=$(doSQL "select DEFAULT_HIGH_CART - DEFAULT_LOW_CART from GROUPS where NAME = '${group_name}'")
-    typeset -i used=$(doSQL "select count(*) from CART where group_name = '${group_name}'")
-    # Warn them if the group is above 90% capacity.
-    # SC2079: (( )) doesn't support decimals (ZSH)
-    # shellcheck disable=SC2079
-    if ((used > (capacity * 0.9))) ; then
-      printf '\nWarning: Group: %s capacity: %d carts, used %d (low:%d high:%d)\n' "${group_name}" ${capacity} ${used} ${low_cart} ${high_cart}
-    fi
-    ((VERBOSE)) && print >&2
-  done
+      typeset -i used=$(doSQL "select count(*) from CART where group_name = '${group_name}'")
+      # Warn them if the group is above 90% capacity.
+      # SC2079: (( )) doesn't support decimals [ZSH]
+      # shellcheck disable=SC2079
+      if ((used > (group_capacity * 0.9))) ; then
+	printf "Warning: Group: '%s' capacity: %d cart(s), used %d (start: %d end: %d)\n" "${group_name}" ${group_capacity} ${used} ${low_cart} ${high_cart} >&2
+      fi
+    done
+  fi
+  IFS="${oIFS}"
 fi
 
 # A "stranded" file is one that is in a dropbox directory and is not
 # registered in DROPBOX_PATHS. This likely means the file was never
 # successfully imported. It may also mean the file does not match the
-# pattern in DROPBOX.PATH.
-oIFS="${IFS}"
-IFS=$'\t\n'
-x=1
+# pattern in DROPBOXES.PATH.
 if ((CHECK_STRANDED_FILES)) ; then
+  oIFS="${IFS}"
+  IFS=$'\t\n'
   print "Checking for 'stranded' files (in a dropbox folder, but not imported). This may take some time..." >&2
   typeset -A file_history
-  file_history=($(doSQL "select DROPBOX_ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'"))
-  ((VERBOSE > 1)) && print "File history:\n${(v)file_history[*]}" >&2
+  file_history=( $(doSQL "select DROPBOX_PATHS.ID,FILE_PATH from DROPBOX_PATHS join DROPBOXES on (DROPBOX_ID = DROPBOXES.ID) where STATION_NAME='${station}'") )
+  ((VERBOSE > 1)) && { print "DROPBOX_PATHS:" >&2 ; print "${(j:\n:)file_history[@]}" >&2 ; }
 
-  for path_dir in $(print ${(vj:\n:)${path_specs[*]#*${myFS}}%/*} | ${SORT} -u) ; do
+  # Iterate over the dropboxes, checking each PATH spec directory for files not
+  # in DROPBOX_PATHS.
+  for id in ${(okn)path_specs[*]} ; do
     typeset -a possibly_stranded
+    # Just the directory name from the PATH spec.
+    path_dir="${${path_specs[${id}]#*${myFS}}%/*}"
+    # Just the filename glob pattern from the PATH spec.
+    path_spec_pattern="${${path_specs[${id}]#*${myFS}}##*/}"
     if ! [[ -d "${path_dir}" ]] ; then
       ((VERBOSE)) && printf "Skipping missing Rivendell dropbox folder '%s'\n" "${path_dir}" >&2
       continue
     fi
+    if [[ -z "${path_spec_pattern}" ]] ; then
+      printf "Missing PATH pattern from '%s' (dropbox ID %d). NEEDS ATTENTION.\n" "${path_specs[${id}]}" "${id}" >&2
+      continue
+    fi
+    x=1
     possibly_stranded=(
-      $(${FIND} "${path_dir}" -maxdepth 1 -type f -print | while read -r line ; do
+      $(${FIND} "${path_dir}" -maxdepth 1 -type f -iname "${path_spec_pattern}" -print | while read -r line ; do
 	  declare escaped_line=""
 	  escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
 	  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
@@ -564,8 +588,9 @@ if ((CHECK_STRANDED_FILES)) ; then
 	typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
 	typeset plural=''
       fi
-      printf "The following %s in dropbox folder '%s' appear%c to be stranded:\n" \
-	     "${thing}" "${path_dir}" "${plural}"
+      printf "Looking at dropbox %d with path spec '%s'\n" "${id}" "${path_specs[${id}]#*${myFS}}"
+      printf "The following %s in dropbox folder '%s' (ID %d) appear%c to be stranded:\n" \
+	     "${thing}" "${path_dir}" "${id}" "${plural}"
       print "\t${(oj:\n\t:)possibly_stranded[*]}"
       if get_yes_no "Do you want to reset this dropbox?" ${ANSWER_NO} ; then
 	((VERBOSE)) && print "Resetting dropbox..." >&2
@@ -576,6 +601,7 @@ if ((CHECK_STRANDED_FILES)) ; then
     fi
   done
   ((INTERACTIVE)) && printf "\r  \r\n" > /dev/tty
+  IFS="${oIFS}"
 fi
 
 if ((INTERACTIVE)) ; then
