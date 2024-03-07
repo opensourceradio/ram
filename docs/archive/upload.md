@@ -8,6 +8,7 @@
 <!-- Create formatted output with one of these commands:
 	pandoc --toc --standalone --self-contained -f markdown -t html -o pubfile.html  pubfile.md
 	pandoc --toc --standalone --self-contained -f markdown -t latex -o pubfile.pdf pubfile.md
+	pandoc --toc --standalone --self-contained -f markdown -t latex -o upload.pdf upload.md
 -->
 
 <!-- IN PROGRESS !!! -->
@@ -17,6 +18,7 @@
 ## Creating an Upload Show ###
 Uploaded shows are created in the archive.
 If you don't already have one, you can create it:
+
 - shows (in the menu on the right)
 - dropdown to 'Upload - KPFK Online Programming'
 - click Add New Show button
@@ -25,6 +27,7 @@ If you don't already have one, you can create it:
 
 ## Uploading a Show ##
 To upload a show:
+
 - make sure it's an mp3 file at 128kbps, 44100 sample rate, stereo
 - log in to the archive
 - upload (in the menu on the right)
