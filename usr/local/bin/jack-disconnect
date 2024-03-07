@@ -1,0 +1,145 @@
+#!/bin/zsh
+# shellcheck shell=bash disable=SC2154,SC2312
+# SC2154 (warning): <thing> is referenced but not assigned.
+# SC2312 (info): Consider invoking this command separately to avoid masking its return value (or use '|| true' to ignore).
+
+##########################################################################################
+##########################################################################################
+##
+## jack-usb-disconnect - disconnect a USB audio adapter to the JACK graph
+##
+## Disconnect a USB audio adapter from the JACK graph.
+##
+## It is expected that this script is called from a Linux UDEV rules file,
+## typically stored in /etc/udev/rules.d/. Inspiration for this is from
+## https://unix.stackexchange.com/questions/28548/how-to-run-custom-scripts-upon-usb-device-plug-in
+## (retrieved 2024-03-06).
+##
+##########################################################################################
+##########################################################################################
+
+# This script complies with Semantic Versioning: http://semver.org/
+v_major=0
+v_minor=1
+v_patch=0
+# SC2016: Hash is not a shell variable.
+# shellcheck disable=SC2016
+v_hash='$Hash$'
+
+## How does this work again?
+function usage() {
+    my_name="${1:t}"
+
+    ${CAT} << EOF
+
+SUMMARY
+
+${my_name} - disconnect a USB audio adapter from the JACK graph
+
+SYNOPSIS
+
+${my_name} [ --help (-h) ] [ --verbose (-v) ] [ --version (-V) ] \\
+                    Jack-Client-Name
+
+DESCRIPTION
+
+$(${FMT} <<<'This script unloads the USB audio device "Jack-Client-Name" from the currently-running JACK graph.')
+
+SEE ALSO
+
+$(${FMT} <<<'/usr/local/bin/pmw-jack-setup, aplay(1), amixer(1), modprobe(1), jack_load(1), alsa_in(1), alsa_out(1), zita-a2j(1), zita-j2a(1)')
+
+EOF
+}
+
+############# BEGIN external shell commands used in this script. #############
+# This script uses these 7 external commands.
+# Look for them in their upper case, parameter expanded form.
+our_commands=( cat fmt grep jack_lsp jack_unload logger pmw-jack-setup )
+# Find the executables we need; this uses some basic shell and a ZSH trick:
+# the (U) in the eval says to evaluate the parameter as all upper case
+# letters. This snippet generates shell parameters representing the upper case
+# equivalent of the command names and sets the parameter values to the full path
+# of the commands.
+# Refresh this segment in Emacs by marking the appropriate region (or the whole
+# buffer with C-xH) and replacing it with C-uM-|mk-ourCommands --script (shell-command-on-region).
+typeset C D
+# SC2048: shellcheck overly aggressive quote recommendation.
+# shellcheck disable=SC2048
+for C in ${our_commands[*]} ; do
+  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+  for D in ${path} ; do
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
+    [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
+  done
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
+  [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
+done
+unset our_commands C D
+############## END external shell commands used in this script. ##############
+
+zmodload zsh/regex
+
+typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
+
+if ! TEMP=$(getopt -o hVv --long help,verbose,version -n "${0:t}" -- "${@}") ; then
+    echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
+    return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+    case "${1}" in
+        -h|--help) usage "${0}" ; exit ;;
+        -V|--vers*) SHOW_VERSION=1 ; shift ;;
+        -v|--verb*) ((VERBOSE+=1)) ; shift ;;
+        --) shift ; break ;;
+        *) echo 'Internal error!' ; exit 1 ;;
+    esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    # SC2016: Hash is not a shell variable.
+    # shellcheck disable=SC2016
+    [[ "${v_hash}" == '$Hash$' ]] &&
+	commit_hash="prerelase"
+    # SC2299 (error): Parameter expansions can't be nested. Use temporary variables. [ZSH]
+    # shellcheck disable=SC2299
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
+fi
+
+## log STDOUT and STDERR of this script and all commands called by this script to separate files
+exec 1> "/var/tmp/${0:t}${1:+-${1}}.out"
+exec 2> "/var/tmp/${0:t}${1:+-${1}}.err"
+((VERBOSE > 1)) && setopt xtrace
+
+if [[ -z "${1}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i \
+	      "ERROR: Missing Jack Client Name on the command line. Cannot continue."
+    exit 2
+fi
+typeset jack_device="${1}"
+
+# Do we need to run?
+if ${JACK_LSP} | ${GREP} -q "${jack_device}" ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i \
+	      "INFO: found a device named '${jack_device}' in the current JACK graph. Unloading it."
+
+    # There /should/ be a separate rule to jack_unload the device, but do it here
+    # for good measure.
+    if ! ${JACK_UNLOAD} "${jack_device}" ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i \
+                  "NOTICE: unable to unload JACK device '${jack_device}'."
+    fi
+    # Check again to see if the device was unloaded.
+    if ${JACK_LSP} | ${GREP} -q "${jack_device}" ; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.info -i \
+	          "INFO: (second look) found a device named '${jack_device}' in the current JACK graph. Cannot continue."
+        exit 4
+    fi
+fi
+
+exit
