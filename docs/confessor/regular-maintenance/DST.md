@@ -83,7 +83,7 @@ actually starts at 5AM, but now appears in the schedule to start at 6AM.
 #### Shorten your schedule in the Spring ####
 
   1. browse to _Schedule Admin_ and click _Next_ in the schedule (upper right)
-     until the first Sundy in November is visible; you'll see a "gap" or empty
+     until the first Sunday in November is visible; you'll see a "gap" or empty
      hour at the end of that day
 
   1. remove the hour from 2AM to 3AM (or shorten the length of the show that
