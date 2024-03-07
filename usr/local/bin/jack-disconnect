@@ -21,7 +21,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=1
-v_patch=0
+v_patch=1
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -83,7 +83,7 @@ zmodload zsh/regex
 typeset -i VERBOSE=0
 typeset -i SHOW_VERSION=0
 
-if ! TEMP=$(getopt -o hVv --long help,verbose,version -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o hVv --long help,verbose,version -n "${0:t}" -- "${@}") ; then
     echo "getopt(1) Fatal Error (${?}). Terminating..." >&2
     return 1
 fi
