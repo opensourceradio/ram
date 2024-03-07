@@ -55,7 +55,7 @@ EOF
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 7 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( cat fmt grep jack_lsp jack_unload logger pmw-jack-setup )
+our_commands=( cat fmt getopt grep jack_lsp jack_unload logger )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
