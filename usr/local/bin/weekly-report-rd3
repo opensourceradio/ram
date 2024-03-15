@@ -1,10 +1,12 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2004,SC2030,SC2031,SC2034,SC2046,SC2086,SC2116,SC2153,SC2154,SC2206,SC2207,SC2248,SC2296,SC2312
+# shellcheck shell=bash disable=SC2004,SC2027,SC2030,SC2031,SC2034,SC2046,SC2048,SC2086,SC2116,SC2153,SC2154,SC2206,SC2207,SC2248,SC2296,SC2312
 # SC2004: ZSH does not spawn subshells like Bash does
+# SC2027: shellcheck's aggressive quoting suggestions
 # SC2030: ZSH does not spawn subshells like Bash does
-# SC2034: parameters are used in a ZSH way
 # SC2031: ZSH does not spawn subshells like Bash does
+# SC2034: parameters are used in a ZSH way
 # SC2046: overly aggressive quoting recommendations
+# SC2048: shellcheck's aggressive quoting suggestions
 # SC2086: overly aggressive quoting recommendations
 # SC2115: we need the echo in order to properly expand the parameter
 # SC2153: COLUMN is assigned by ZSH
@@ -20,7 +22,7 @@
 ##
 ## weekly-report
 ##
-## A BTD tool to report on weekly events, per Group and per Service.
+## A BTD tool to report on weekly events, per Cart, or per Group and per Service.
 ##
 ##########################################################################################
 ##########################################################################################
@@ -34,7 +36,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=13
+typeset -ir v_patch=14
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -72,17 +74,18 @@ version works only with Rivendell version 3.X.
 SYNOPSIS
 
 ${myName:t} [ --start-date (-S) YYYY-MM-DD [HH:MM:SS] ]
-              [ --end-date (-e) YYYY-MM-DD [HH:MM:SS] ]
-              [ --group (-g) <Group Name>[,<Group Name>...] (or "list") ]
-              [ --all ]
-              [ --service (-s) Service-Name (or "list") ]
-              [ --workstation (-w) Workstation-Name ]
-              [ --schedcodes Code[,Code,...] (or "list") ]
-              [ --csv (-c) ]
-              [ --cuts (-C) ]
-              [ --pro-data (-p) ]
-              [ --verbose (-v) ]
-	      [ --version (-V) ]
+                  [ --end-date (-e) YYYY-MM-DD [HH:MM:SS] ]
+                  [ --cart <CartNumber> ]
+                  [ --group (-g) <Group Name>[,<Group Name>...] (or "list") ]
+                  [ --all ]
+                  [ --service (-s) Service-Name (or "list") ]
+                  [ --workstation (-w) Workstation-Name ]
+                  [ --schedcodes Code[,Code,...] (or "list") ]
+                  [ --csv (-c) ]
+                  [ --cuts (-C) ]
+                  [ --pro-data (-p) ]
+                  [ --verbose (-v) ]
+                  [ --version (-V) ]
 
 DESCRIPTION
 
@@ -100,6 +103,9 @@ you. ${myName:t} prompts for a Service if you do not specify it.
 You may limit the search to a specific Rivendell workstation name with
 the --workstation option. Use the word "all" to report playout history
 for all workstations.
+
+You may also limit the search to a specific Rivendell Cart number using the
+'--cart <CartNumber>' option.
 
 Using the --schedcodes option causes ${myName:t} to include Carts
 that have any of the Scheduler Codes "Code,..." assigned (separate
@@ -169,7 +175,7 @@ function getSchedCodes() {
   print ${newCodes%${fieldSeparator}}
 }
 
-## maxLength finds the longest string in the requested colum name for proper
+## maxLength finds the longest string in the requested column name for proper
 ## horizontal spacing in the text report.
 function maxLength() {
   local columnName=${1}
@@ -179,10 +185,11 @@ function maxLength() {
   selectStatement="select max(length(elr.${columnName})) from ELR_LINES as elr "
   selectStatement+="${schedCodesJoinClause} "
   selectStatement+="where elr.CART_NUMBER in "
-  # SC2027: hush shellcheck's aggressive quoting suggestions
-  # SC2048: hush shellcheck's aggressive quoting suggestions
-  # shellcheck disable=SC2027,SC2048
-  selectStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})" ${schedCodesAndClause}) "
+  if ((cart_number > 0)) ; then
+    selectStatement+="(${cart_number}) "
+  else
+    selectStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})" ${schedCodesAndClause}) "
+  fi
   selectStatement+="and "
   selectStatement+="elr.SERVICE_NAME = '${service}' "
   selectStatement+="and "
@@ -222,9 +229,6 @@ function quoteGroupsForQuery() {
     open_paren='('
     close_paren=')'
   fi
-  # SC2027: hush shellcheck's aggressive quoting suggestions
-  # SC2048: hush shellcheck's aggressive quoting suggestions
-  # shellcheck disable=SC2027,SC2048
   print "${open_paren} '"${(j:',':)group_list[*]}"' ${close_paren}"
 }
 
@@ -267,8 +271,9 @@ typeset -i INCLUDE_CUTS=0
 # This will be set to 4 (the number of PRO fields) if requested on
 # invocation.
 typeset -i PROdata=0
+typeset -i cart_number=0
 
-if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,cart:,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -276,6 +281,7 @@ eval set -- "${TEMP}"
 while : ; do
   case "${1}" in
     -a|--all) group=ALL_GROUPS ; shift ;;
+    --cart) cart_number="${2}" ; shift 2 ;;
     -c|--csv) CSV=1 ; shift ;;
     -C|--cut*) INCLUDE_CUTS=1 ; shift ;;
     -g|--grou*) group=${2} ; shift 2 ;;
@@ -388,34 +394,35 @@ else
 fi
 
 ((VERBOSE)) &&
-  printf "%18s: Using Start Date: %s and End Date: %s\n" "${0:t}" "${startDate}" "${endDate}" >&2
+  printf "%s: Using Start Date: %s and End Date: %s\n" "${0:t}" "${reportStartDate}" "${reportEndDate}" >&2
 
 ## List the Groups and prompt for a Group to use in this report unless they have
-## specified a Group (or list of Groups) on the command line.
+## specified a Cart Number or a Group (or list of Groups) on the command line.
 typeset -a groups
-if [[ -n "${group}" ]] ; then
-  ## quote the individual Group names if they specified a list of Groups.
-  if [[ "${group}" =~ .*,.* ]] ; then
-    groups=( ${(s:,:)group} )
-    whereClauseOp="in"
-  elif [[ "${group}" == 'ALL_GROUPS' ]] ; then
-    groups=( "%" )
-    whereClauseOp="like"
-  elif [[ "${group}" = 'list' ]] ; then
-    echo "Current Groups:" >&2
-    echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
-    oIFS="${IFS}"
-    IFS=$'\t\n'
-    read -r group\?"Enter (type or paste) a Group on which to report: "
-    until validGroup "${rivendellGroupList[*]}" ${group} ; do
+if ((cart_number == 0)) ; then
+  if [[ -n "${group}" ]] ; then
+    ## quote the individual Group names if they specified a list of Groups.
+    if [[ "${group}" =~ .*,.* ]] ; then
+      groups=( ${(s:,:)group} )
+      whereClauseOp="in"
+    elif [[ "${group}" == 'ALL_GROUPS' ]] ; then
+      groups=( "%" )
+      whereClauseOp="like"
+    elif [[ "${group}" = 'list' ]] ; then
+      echo "Current Groups:" >&2
+      echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
+      oIFS="${IFS}"
+      IFS=$'\t\n'
       read -r group\?"Enter (type or paste) a Group on which to report: "
-    done
-    groups=( ${group} )
-    IFS="${oIFS}"
+      until validGroup "${rivendellGroupList[*]}" ${group} ; do
+	read -r group\?"Enter (type or paste) a Group on which to report: "
+      done
+      groups=( ${group} )
+      IFS="${oIFS}"
+    else
+      groups=( ${group} )
+    fi
   else
-    groups=( ${group} )
-  fi
-else
     echo ${(F)rivendellGroupList} | ${COLUMN} -x -c $(( COLUMNS > 80 ? 78 : COLUMNS )) >&2
     oIFS="${IFS}"
     IFS=$'\t\n'
@@ -425,8 +432,9 @@ else
     done
     groups=( ${group} )
     IFS="${oIFS}"
+  fi
+  ((VERBOSE)) && printf "%s: reporting on Group(s) %s\n" "${0:t}" ${(oj:, :)groups[*]} >&2
 fi
-((VERBOSE)) && printf "%18s: reporting on Group(s) %s\n" "${0:t}" ${(j:, :)groups[*]} >&2
 
 ## List the SERVICES if there are more than one, otherwise use the lone SERVICE.
 if [[ -z "${service}" ]] || [[ "${service}" = 'list' ]] ; then
@@ -438,7 +446,7 @@ if [[ -z "${service}" ]] || [[ "${service}" = 'list' ]] ; then
     service=${rivendellServiceList[1]}
   fi
 fi
-((VERBOSE)) && printf "%18s: reporting on Service %s\n" "${0:t}" "${service}" >&2
+((VERBOSE)) && printf "%s: reporting on Service %s\n" "${0:t}" "${service}" >&2
 
 ## List the STATION names if they did not specify one, and if there is
 ## more than one, otherwise use the lone STATION_NAME.
@@ -454,7 +462,7 @@ fi
 if [[ "${stationName}" = 'all' ]] ; then
   stationName='%'
 fi
-((VERBOSE)) && printf "%18s: reporting on Workstaion %s\n" "${0:t}" "${stationName//%/all}" >&2
+((VERBOSE)) && printf "%s: reporting on Workstation %s\n" "${0:t}" "${stationName//\%/all}" >&2
 
 ## List the Scheduler Codes and prompt for one (or more) to use in this report.
 if [[ "${schedCodes}" = 'list' ]] ; then
@@ -472,9 +480,7 @@ if [[ -n "${schedCodes}" ]] ; then
   }
   typeset -a scA
   scA=( $(echo ${schedCodes//,/ }) )
-  schedCodesJoinClause="left join CART_SCHED_CODES as csch on elr.CART_NUMBER = csch.CART_NUMBER"
-  # SC2027: shellcheck does not quite understand quoting for ZSH.
-  # shellcheck disable=SC2027
+  schedCodesJoinClause="left join CART_SCHED_CODES as csch on elr.CART_NUMBER= csch.CART_NUMBER"
   schedCodesAndClause="and csch.SCHED_CODE in ($(print "'"${(j:',':)scA}"'"))"
   SCHEDCODES=1
 
@@ -487,10 +493,11 @@ selectCountStatement+="from ELR_LINES as elr "
 selectCountStatement+="left join CART as c on (elr.CART_NUMBER = c.NUMBER) "
 selectCountStatement+="${schedCodesJoinClause} "
 selectCountStatement+="where elr.CART_NUMBER in "
-# SC2027: hush shellcheck's aggressive quoting suggestions
-# SC2048: hush shellcheck's aggressive quoting suggestions
-# shellcheck disable=SC2027,SC2048
-selectCountStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") "
+if ((cart_number > 0)) ; then
+  selectCountStatement+="(${cart_number}) "
+else
+  selectCountStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") "
+fi
 selectCountStatement+="${schedCodesAndClause} "
 selectCountStatement+="and elr.SERVICE_NAME = '${service}' "
 selectCountStatement+="and "
@@ -551,10 +558,11 @@ if okDatabaseStructure ELR_LINES:EVENT_DATETIME+CUT_NUMBER+ARTIST+ALBUM+TITLE+LE
   selectStatement+="left join CART as c on (elr.CART_NUMBER = c.NUMBER) "
   selectStatement+="${schedCodesJoinClause} "
   selectStatement+="where elr.CART_NUMBER in "
-  # SC2027: hush shellcheck's aggressive quoting suggestions
-  # SC2048: hush shellcheck's aggressive quoting suggestions
-  # shellcheck disable=SC2027,SC2048
-  selectStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") ${schedCodesAndClause} "
+  if ((cart_number > 0)) ; then
+    selectStatement+="(${cart_number}) "
+  else
+    selectStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") "
+  fi
   selectStatement+="and elr.SERVICE_NAME = '${service}' "
   selectStatement+="and elr.STATION_NAME like '${stationName}' "
   selectStatement+="and elr.EVENT_DATETIME > '${reportStartDate}' "
@@ -613,8 +621,7 @@ doSQL "${selectStatement}" | while read -r line ; do
   # Insert a blank line between days.
   [[ "${airDateTime% *}" = "${lastAirDate}" ]] || print
 
-  if ((CSV || MARKDOWN)) ; then
-    ((MARKDOWN)) && printf '|'
+  if ((CSV)) ; then
     printf "%s${fs}%d$( ((INCLUDE_CUTS)) && print ${fs}%d${fs}%s)${fs}%s${fs}%s$( ((${PROdata})) && echo ${fs}%s${fs}%s${fs}%s${fs}%s)$( ((${SCHEDCODES})) && echo ${fs}%s)" \
 	   $(quote "${airDateTime}") \
 	   "${cartNumber}" \
@@ -627,7 +634,6 @@ doSQL "${selectStatement}" | while read -r line ; do
 	   $( ((${PROdata})) && quote "${cartLabel}") \
 	   $( ((${PROdata})) && quote "${cartPublisher}") \
 	   $( ((${SCHEDCODES})) && getSchedCodes "${schedCodes}" "${fs}")
-    ((MARKDOWN)) && printf '|'
     printf "\n"
   else
     printf "%20s${fs}%06d$( ((INCLUDE_CUTS)) && print ${fs}%03d${fs}%${fwCutDesc}s)${fs}%5s${fs}%${fwTitle}s${fs}%${fwArtist}s${fs}%${fwAlbum}s${fs}%${fwLabel}s${fs}%${fwPub}s\n" \
