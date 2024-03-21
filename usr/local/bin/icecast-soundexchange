@@ -7,7 +7,7 @@ use Readonly;
 
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 18;
+Readonly my $vPATCH => 19;
 Readonly my $vHASH  => '$Hash$';
 
 use Carp;
@@ -190,7 +190,7 @@ sub main() {
                 next;
             }
 
-            say STDERR "ipAddress: ", $ipAddress, " + referer: ", $referer, " + agent: ", $agent if ($debug);
+            say STDERR q("ipAddress: ), $ipAddress, q(","referer: ), $referer, q(","agent: ), $agent, q(") if ($debug);
 
             # This time is actually the time the user disconnected
             # from the stream. We need to calculate the time at
@@ -206,7 +206,12 @@ sub main() {
                 sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $agent)
                 if ($verbose > 2);
 
-            my $entry = sprintf("%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $agent);
+            ## This sprintf() is per the NPR document (as of 2024-03-21) at
+            ## https://docs.google.com/document/d/e/2PACX-1vRLrP8UiGzBXDJtqaHnP5xjH5So-hNBRyUU_hlkPuQfcyIv_HwuJ-2hhtsWykvtTq2gHyjiXQVjjkrh/pub
+            ## I interpret the last bullet point ("Referrer/Client: Free text -
+            ## spaces are fine") as the "REFERER" field in the Icecast access
+            ## log.
+            my $entry = sprintf("%s\t%s\t%s\t%s\t%d\t%03d\t%s", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer);
 
             # collect the entries per-mountpoint
             push(@{ $mountpoints->{$loggedMountPoint} }, $entry);
