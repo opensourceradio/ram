@@ -7,7 +7,7 @@ use Readonly;
 
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 17;
+Readonly my $vPATCH => 18;
 Readonly my $vHASH  => '$Hash$';
 
 use Carp;
@@ -180,7 +180,7 @@ sub main() {
             my $statusCode       = $5;
             my $byteCount        = $6;
             my $referer          = $7;
-            my $client           = $8;
+            my $agent            = $8;
             my $duration         = $9;
             my $junk             = $10;
             my ($mday, $mon, $year) = split(/\//, $date);
@@ -190,7 +190,7 @@ sub main() {
                 next;
             }
 
-            say STDERR "ipAddress: $ipAddress + referer: $referer + client: $client" if ($debug);
+            say STDERR "ipAddress: ", $ipAddress, " + referer: ", $referer, " + agent: ", $agent if ($debug);
 
             # This time is actually the time the user disconnected
             # from the stream. We need to calculate the time at
@@ -203,10 +203,10 @@ sub main() {
             next if ($connectTime < $start && $connectTime > $end);
 
             say STDERR
-                sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client)
+                sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $agent)
                 if ($verbose > 2);
 
-            my $entry = sprintf("%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $client);
+            my $entry = sprintf("%s\t%s\t%s\t%s\t%d\t%03d\t%s/%s", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $agent);
 
             # collect the entries per-mountpoint
             push(@{ $mountpoints->{$loggedMountPoint} }, $entry);
