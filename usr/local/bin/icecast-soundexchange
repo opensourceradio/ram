@@ -7,7 +7,7 @@ use Readonly;
 
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 19;
+Readonly my $vPATCH => 20;
 Readonly my $vHASH  => '$Hash$';
 
 use Carp;
@@ -200,7 +200,7 @@ sub main() {
             $time -= $duration;
 
             my $connectTime = gmtime($time);
-            next if ($connectTime < $start && $connectTime > $end);
+            next if ($connectTime->epoch < $start || $connectTime->epoch > $end);
 
             say STDERR
                 sprintf("main: %s: %s-%s %s %d %s ->%s<- ->%s<-", $ipAddress, $connectTime->ymd, $connectTime->hms, $loggedMountPoint, $duration, $statusCode, $referer, $agent)
