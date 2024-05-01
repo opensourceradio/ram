@@ -7,7 +7,7 @@
 ##
 ## Produce SoundExchange Reports of Use from Icecast error logs.
 ##
-## Copyright 2022 David Klann <dklann@broadcasttool.com>
+## Copyright 2024 David Klann <dklann@broadcasttool.com>
 ##
 ##############################################################################
 ##############################################################################
@@ -21,7 +21,7 @@ use v5.20;
 use Readonly;
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 1;
+Readonly my $vPATCH => 2;
 Readonly my $vHASH => q($Hash$);
 
 use Data::Dumper;
@@ -473,7 +473,7 @@ sub show_version {
 
     ($hash = $vHASH) =~ s/\$Hash: //;
     # Handle "prerelease" versions.
-    $hash =~ s/\$Hash\$/prerelease/;
+    $hash =~ s/\$Hash$/prerelease/;
 
     my $version_string =
         $vMAJOR . "." .
@@ -498,8 +498,9 @@ B<rou-from-icecast-logs> - munge icecast logs into NPR soundexchange format
 
   rou-from-icecast-logs [ --help ] [ --man ] [ --debug ] [ --verbose ]
                         [ --log-directory (-l) <directory-path> ]
+                        [ --group-list (-g) <comma-separated-list> ]
                         [ --mount-points (-m) <comma-separated-list> ]
-                        [ --output-directory (-o) <full-path-to-a-directory> ]
+                        [ --output-dir (-o) <full-path-to-a-directory> ]
                         [ --zip-file (-z) <zip-file> ]
                         --start-date <start-date> --end-date <end-date>
 
@@ -566,7 +567,7 @@ The default is in the perl constant ICECASTLOGDIR (I</var/log/icecast>).
 name the Zip archive file in which to place the output files. There is
 no default.
 
-=item B<--groups (-g) E<lt>group1,group2,groupNE<gt>>
+=item B<--group-list (-g) E<lt>group1,group2,groupNE<gt>>
 
 a comma-separated list of Rivendell Groups. Song titles that are in
 these groups are reportable to SoundExchange. Default groups are
@@ -575,7 +576,7 @@ these groups are reportable to SoundExchange. Default groups are
 
 say $DEFAULT_GROUPS;
 
-=item B<--output-directory (-o) E<lt>full-path-to-a-directoryE<gt>>
+=item B<--output-dir (-o) E<lt>full-path-to-a-directoryE<gt>>
 
 Specify the directory name for the output files. This option is
 mutually exclusive with B<--zip-file>. That is, you may either request
