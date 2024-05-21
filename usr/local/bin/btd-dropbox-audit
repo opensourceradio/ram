@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=3
+declare -ri v_patch=4
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -393,8 +393,8 @@ typeset -a missing_path_ids
 missing_path_ids=( $(doSQL "select ID from DROPBOXES where PATH = '' or PATH is NULL") )
 if ((${#missing_path_ids} > 0)) ; then
   ${CAT} <<EOF >&2
-Missing PATH specification for DROPBOX IDs
-${(j:\n:)missing_path_ids}
+Missing PATH specification for DROPBOX IDs:
+${(j:, :)missing_path_ids}
 EOF
 fi
 
@@ -419,6 +419,7 @@ done
 print "Checking for missing dropbox directories (folders)..." >&2
 for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
   typeset path_spec_dir=${path_spec%/*}
+  [[ "${path_spec}" == "NULL" ]] && continue
   if ! [[ -d ${path_spec_dir} ]] ; then
     printf "Missing directory (%s) for dropbox PATH specifier: %s\n" \
 	   "${path_spec_dir}" "${path_spec}" >&2
