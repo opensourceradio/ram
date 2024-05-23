@@ -26,7 +26,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=3
-v_patch=2
+v_patch=3
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -158,9 +158,15 @@ exec 2> "/var/tmp/${0:t}${1:+-${1}}.err"
 
 ## JACK settings.
 ## See also (/usr/local/bin/) jackd-start
-typeset -ir RATE=$(doSQL "select SAMPLE_RATE from SYSTEM")
-typeset -ir PERIODS="${JACK_PERIODS:-1024}"
-typeset -ir NPERIODS="${JACK_NPERIODS:-2}"
+## Cheap hack to enable operation with Rivendell not installed.
+typeset -i RATE
+if [[ -d /etc/rivendell.d ]] ; then
+    RATE=$(doSQL "select SAMPLE_RATE from SYSTEM")
+else
+    RATE="${JACK_RATE:-44100}"
+fi
+typeset -i PERIODS="${JACK_PERIODS:-1024}"
+typeset -i NPERIODS="${JACK_NPERIODS:-2}"
 
 ## Log errors if insufficient arguments.
 if [[ -z "${1}" ]] ; then
