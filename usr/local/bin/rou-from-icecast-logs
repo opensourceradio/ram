@@ -21,7 +21,7 @@ use v5.20;
 use Readonly;
 Readonly my $vMAJOR => 0;
 Readonly my $vMINOR => 2;
-Readonly my $vPATCH => 2;
+Readonly my $vPATCH => 3;
 Readonly my $vHASH => q($Hash$);
 
 use Data::Dumper;
@@ -58,31 +58,31 @@ my $sx_entity_map = {
 my $sx_prr_rou_columns = {
     1 => {
         'heading'     => 'NAME_OF_SERVICE',
-            'description' => 'The code used to distinguish the category of transmission operated by the service.',
+	'description' => 'The code used to distinguish the category of transmission operated by the service.',
     },
     2 => {
         'heading'     => 'TRANSMISSION_CATEGORY',
-            'description' => 'The code used to distinguish the category of transmission operated by the service.',
+	'description' => 'The code used to distinguish the category of transmission operated by the service.',
     },
     3 => {
         'heading'     => 'ARTIST',
-            'description' => 'Name of the featured artist for each sound recording.',
+	'description' => 'Name of the featured artist for each sound recording.',
     },
     4 => {
         'heading'     => 'TITLE',
-            'description' => 'Title of the sound recording.',
+	'description' => 'Title of the sound recording.',
     },
     5 => {
         'heading'     => 'ISRC',
-            'description' => 'International Standard Recording Code (ISRC).',
+	'description' => 'International Standard Recording Code (ISRC).',
     },
     6 => {
         'heading'     => 'AIRED_COUNT',
-            'description' => 'The overall number of times a sound recording is offered regardless of the number of listeners receiving the sound recording.',
+	'description' => 'The overall number of times a sound recording is offered regardless of the number of listeners receiving the sound recording.',
     },
     7 => {
         'heading'     => 'LISTENERS',
-            'description' => 'Number of times that a sound recording is received by a unique listener.',
+	'description' => 'Number of times that a sound recording is received by a unique listener.',
     },
 };
 
@@ -299,12 +299,12 @@ sub main {
         next unless ($mp);
         foreach my $artist (sort(keys(%{$track_counter->{$mp}->{'artists'}}))) {
             if (!defined($track_counter->{$mp}->{'artists'}->{$artist})) {
-                say "MISSING ARTIST ", $artist, q( in $track_counter->{$mp}->{'artists'}) if ($verbose);
+                say STDERR "MISSING ARTIST ", $artist, q( in $track_counter->{$mp}->{'artists'}) if ($verbose);
                 next;
             }
             foreach my $title (sort(keys(%{$track_counter->{$mp}->{'artists'}->{$artist}}))) {
                 if (!defined($track_counter->{$mp}->{'artists'}->{$artist})) {
-                    say "MISSING TITLE ", $title, q( in $track_counter->{$mp}->{'artists'}->{$artist}) if ($verbose);
+                    say STDERR "MISSING TITLE ", $title, q( in $track_counter->{$mp}->{'artists'}->{$artist}) if ($verbose);
                     next;
                 }
                 printf STDERR "%s: '%s' by '%s': %d (playcount %d)\n", $mp, $title, $artist,
