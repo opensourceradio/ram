@@ -4,13 +4,18 @@
 This scheduler is intimately tied to Rivendell. It uses a "Reference"
 Service (Grid, Clocks, and Events) and an "Implementation" Service
 (Grid, Clocks, and Events) to generate Log "merge files" (Data Import
-files). The Reference Service is a "normal" Rivendell Service that one
-can use with the built-in Rivendell scheduler. The Implementation
-Service must include one or more Clocks containing one or more Events
-that specify "IMPORT: From Music". To avoid confusion, Clocks used in
-the Implementation should be enabled only for the Implementation
-Service. The Implementation Service is referred to as "merge" in this
-module, but may be named anything you prefer.
+files).
+
+The Reference Service is a "normal" Rivendell Service that one can use with the
+built-in Rivendell scheduler (this is the "Production" service in a default
+Rivendell installation).
+
+The Implementation Service must include one or more Clocks containing one or
+more Events that specify "IMPORT: From Music". To avoid confusion, Clocks used
+in the Implementation should be enabled only for the Implementation Service. The
+Implementation Service is referred to as "merge" in this module, but may be
+named anything you prefer. Logs produced from the Implementation Service are
+intended to be played in RDAirPlay.
 
 You must ensure that the Clocks used in your Reference Service include
 no Events that "IMPORT From Music". This would result in some weird
@@ -38,7 +43,7 @@ Service]):
 Set all other Offsets and Lengths to Zero.
 
 TODO: hour-of-day exclusion. Ensure that artists and tracks do not
-play in the same our as it did in the previous N days.
+play in the same hour as it did in the previous N days.
 
 TODO: "artist groups": Or "artist equivalents" (e.g., Lou Reed and
 Velvet Underground, Neil Young and CSNY, Mick Jagger and the Rolling
@@ -553,8 +558,7 @@ def main():
     RDLogManager.
 
     """
-    # Seed the list of artists and their when they were last scheduled
-    # from storage.
+    # Seed the list of artists and when they were last scheduled from storage.
     artist_list = Artists('sqlite', '//usr/local/etc/btd/artist_age.db', ARGS.artist_separation)
 
     # Use the counter in Batch() to get the number of each Scheduler
