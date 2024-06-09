@@ -50,7 +50,7 @@ sub show_version {
 
     ($hash = vHASH) =~ s/\$Hash: //;
     # Handle "prerelease" versions.
-    $hash =~ s/\$Hash\$/prerelease/;
+    $hash =~ s/\$Hash$/prerelease/;
 
     my $version_string =
 	vMAJOR . "." .
