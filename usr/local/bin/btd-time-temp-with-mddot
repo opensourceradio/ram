@@ -15,7 +15,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=2
+vPatch=3
 vHash='$Hash$'
 
 ##############################################################################
@@ -625,7 +625,7 @@ fi
 
 ## Use rdimport(1) to import the audio to the specified Cart.
 delete_source='--delete-source'
-if ((VERBOSE)) ; then
+if ((DEBUG)) ; then
   typeset -r delete_source=''
 fi
 ## We need to leave variables used as command line parameters unquoted otherwise
