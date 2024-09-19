@@ -1,11 +1,12 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2034,SC2048,SC2064,SC2069,SC2154,SC2207,SC2296,SC2312
+# shellcheck shell=bash disable=SC2016,SC2034,SC2048,SC2064,SC2069,SC2154,SC2155,SC2207,SC2296,SC2312
 # SC2016: Ignore things that look to shellcheck like parameter expansions.
 # SC2034: Ignore unused parameters (mainly version number)
 # SC2048: shellcheck conservative quoting recommendations
 # SC2064: I *want* parameters to expand at the time of setting the trap
 # SC2069: ZSH handles redirection specifiers differentley from BASH
 # SC2154: referenced parameters are set by the our_commands stuff.
+# SC2155: Declare and assign separately to avoid masking return values.
 # SC2207: ZSH mapfile is different from BASH
 # SC2296: ZSH parameter expansions *can* start with (
 # SC2312: I considered invoking commands separately...
@@ -27,8 +28,16 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=1
+v_patch=2
 v_hash='$Hash$'
+
+##############################################################################
+##############################################################################
+##
+## Locally defined subroutines
+##
+##############################################################################
+##############################################################################
 
 # usage shows how to use this command.
 function usage() {
@@ -52,6 +61,22 @@ $(${FMT} <<<"Use the option '--verbose' (short option: '-v') to have ${my_name} 
 $(${FMT} <<<"Use the option '--version' (short option: '-V') to have ${my_name} display its version number and terminate without performing a backup.")
 
 EOF
+}
+
+# db_pass() retrieves the database password from /etc/rd.conf.
+function db_pass() {
+  local -r db_conf="${RD_CONF:-/etc/rd.conf}"
+
+  if ! [[ -r "${db_conf}" ]] ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read '${db_conf}'. Cannot continue."
+    return 1
+  fi
+  if ! local db_pass="$(${SED} -e '1,/\[mySQL/d' -e '/^\[/,$d' "${db_conf}" | ${AWK} -F '=' '/^Password=/ {print $2}')" ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot extract database password from '${db_conf}'. Cannot continue."
+    return 1
+  fi
+  printf "%s" "${db_pass}"
+  return
 }
 
 ############# BEGIN external shell commands used in this script. #############
@@ -79,6 +104,14 @@ for C in ${our_commands[*]} ; do
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
+
+##############################################################################
+##############################################################################
+##
+## Script Main Line
+##
+##############################################################################
+##############################################################################
 
 VERBOSE=0
 SHOW_VERSION=0
@@ -128,6 +161,8 @@ else
   exit
 fi
 
+typeset db_version=$(doSQL "select DB from VERSION")
+
 # Current date and time.
 TODAY=$(strftime '%Y-%m-%d-%H%M%S' "${EPOCHSECONDS}")
 
@@ -176,30 +211,21 @@ databases=( Rivendell )
 # u=r,g=,o=
 umask 0377
 
-# Dump each database into two separate files: one with data and one
-# without (to recreate an empty database).
+# Dump each requested database, in order.
 for database in ${databases[*]} ; do
-  # Dump the database.
-  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${DUMPDIR}/${database}-${TODAY}.sql"
-  dbDumpVal=${?}
-  # Dump just the database schema.
-  ${MYSQLDUMP} --defaults-file="${MY_CNF}" --comments --dump-date --no-data --databases "${database}" > "${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql"
-  schemaDumpVal=${?}
+  database_dump_file="${DUMPDIR}/${database}-${db_version}-${TODAY}.sql"
 
-  # Sanity checks for the output files.
-  if [[ -f ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
-    if ! [[ -s ${DUMPDIR}/${database}-${TODAY}.sql ]] ; then
-      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql exists but is empty (${dbDumpVal})."
+  # Dump the database.
+  ${MYSQLDUMP} --no-defaults --host=127.0.0.1 --user=rduser --password="$(db_pass)" --comments --dump-date --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${database_dump_file}"
+  dbDumpVal=${?}
+
+  # Sanity checks for the output file.
+  if [[ -f "${database_dump_file}" ]] ; then
+    if ! [[ -s "${database_dump_file}" ]] ; then
+      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' exists but is empty (${dbDumpVal})."
     fi
   else
-    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: ${DUMPDIR}/${database}-${TODAY}.sql was not created (${dbDumpVal})."
-  fi
-  if [[ -f ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
-    if ! [[ -s ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql ]] ; then
-      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql exists but is empty (${schemaDumpVal})."
-    fi
-  else
-    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping Schema for ${database}: ${DUMPDIR}/${database}-SCHEMA-${TODAY}.sql was not created (${schemaDumpVal})."
+    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' was not created (${dbDumpVal})."
   fi
 done 2>&1 > "${DUMP_OUTPUT}"
 
@@ -210,7 +236,7 @@ if [[ -s "${DUMP_OUTPUT}" ]] ; then
   exit 1
 fi
 
-if ! ${TAR} --create --bzip2 --atime-preserve --directory="${TMPDIR}" --file "${TMPDIR}/mysql-backup-${TODAY}.tar.bz2" mysql ; then
+if ! ${TAR} --create --bzip2 --atime-preserve --directory="${TMPDIR}" --file "${TMPDIR}/mysql-backup-${db_version}-${TODAY}.tar.bz2" mysql ; then
   returnValue=${?}
   sendNotification "${0:t}" "${MAILTO}" DBDUMP-TARBALL "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${returnValue})."
   exit "${returnValue}"
@@ -230,7 +256,7 @@ if ! ${FIND} "${TMPDIR}" -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +"${K
   exit "${returnValue}"
 fi
 
-# successful purge, (optionally) make a backup of the backup (if
+# Successful purge, (optionally) make a backup of the backup (if
 # BACKUP_DIR is set).
 if [[ -n "${BACKUP_DIR}" ]] ; then
   if ! [[ -d "${BACKUP_DIR}" ]] ; then
