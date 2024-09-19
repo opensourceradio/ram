@@ -28,7 +28,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=3
+v_patch=4
 v_hash='$Hash$'
 
 ##############################################################################
@@ -150,6 +150,7 @@ fi
 # script to separate files.
 exec 1> "/var/tmp/${0:t}.out"
 exec 2> "/var/tmp/${0:t}.err"
+((VERBOSE)) && setopt xtrace
 
 # Prefer the "canonical" location of zsh-functions.
 if [[ -r /usr/bin/zsh-functions ]] ; then
