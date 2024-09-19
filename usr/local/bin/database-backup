@@ -26,7 +26,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=1
-vPatch=7
+vPatch=8
 # The '$' is not a parameter expansion here.
 # shellcheck disable=SC2016
 vHash='$Hash$'
@@ -62,6 +62,7 @@ done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
+# Prefer the "canonical" location of zsh-functions.
 if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
 elif [[ -r /usr/local/bin/zsh-functions ]] ; then
@@ -222,7 +223,7 @@ exit
 
 # Local Variables: ***
 # mode:shell-script ***
-# indent-tabs-mode: nil ***
+# indent-tabs-mode: f ***
 # sh-indentation: 2 ***
 # sh-basic-offset: 2 ***
 # sh-indent-for-do: 0 ***
