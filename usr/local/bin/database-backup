@@ -1,5 +1,6 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2034,SC2048,SC2064,SC2069,SC2154,SC2207,SC2296,SC2312
+# shellcheck shell=bash disable=SC2016,SC2034,SC2048,SC2064,SC2069,SC2154,SC2207,SC2296,SC2312
+# SC2016: Ignore things that look to shellcheck like parameter expansions.
 # SC2034: Ignore unused parameters (mainly version number)
 # SC2048: shellcheck conservative quoting recommendations
 # SC2064: I *want* parameters to expand at the time of setting the trap
@@ -24,12 +25,10 @@ zmodload zsh/datetime
 zmodload zsh/regex
 
 # This script complies with Semantic Versioning: http://semver.org/
-vMajor=0
-vMinor=2
-vPatch=1
-# The '$' is not a parameter expansion here.
-# shellcheck disable=SC2016
-vHash='$Hash$'
+v_major=0
+v_minor=2
+v_patch=1
+v_hash='$Hash$'
 
 # usage shows how to use this command.
 function usage() {
@@ -148,6 +147,19 @@ MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/rivendell}/.my.cnf-privileged}
 # To whom we should send email if anything breaks.
 MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
+## Stash the rsync exit codes from the manual page into the
+## associative array. The exit code number is the array index and the
+## textual description is its value.
+typeset -A rsync_exit_codes
+oIFS="${IFS}"
+IFS=$'=\n'
+# SC2190 (warning): Elements in associative arrays need index... (ZSH)
+# shellcheck disable=SC2190
+rsync_exit_codes=( $(MANWIDTH=999 ${MAN} rsync |
+                         ${SED} -e '1,/EXIT VALUES/d' -e '/ENVIRONMENT VARIABLES/,$d' -e '/^$/d' |
+                         ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}') )
+IFS="${oIFS}"
+
 trap "${RM} -f ${DUMP_OUTPUT}; exit" 0 1 2 3
 
 # Hang on to this many days of backups.
@@ -229,8 +241,10 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
     fi
   fi
   ${RSYNC} --archive --temp-dir="${TMPDIR}" --partial-dir=temp --delay-updates "${TMPDIR}"/mysql-backup-* "${BACKUP_DIR}"
-  rsyncReturnValue=${?}
-  if (( rsyncReturnValue == 0 || rsyncReturnValue == 23 || rsyncReturnValue == 24 )) ; then
+  rsync_exit_value=${?}
+  # Ignore rsync(1) exit codes 23 and 24. They indicate that some
+  # files were not transferred, but we do not care.
+  if (( rsync_exit_value == 0 || rsync_exit_value == 23 || rsync_exit_value == 24 )) ; then
     # We cannot use the --delete option to
     # rsync(1) because we are specifying
     # individual files. Delete the backups
@@ -242,37 +256,7 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
       exit "${returnValue}"
     fi
   else
-    # These error messages are straight from the
-    # rsync(1) manual page (for rsync version
-    # 3.1.1).
-    case "${rsyncReturnValue}" in
-      1) message="Syntax or usage error" ;;
-      2) message="Protocol incompatibility" ;;
-      3) message="Errors selecting input/output files, dirs" ;;
-      4) message="Requested action not supported (see rsync(1) manual page)." ;;
-      5) message="Error starting client-server protocol" ;;
-      6) message="Daemon unable to append to log-file" ;;
-      10) message="Error in socket I/O" ;;
-      11) message="Error in file I/O" ;;
-      12) message="Error in rsync protocol data stream" ;;
-      13) message="Errors with program diagnostics" ;;
-      14) message="Error in IPC code" ;;
-      20) message="Received SIGUSR1 or SIGINT" ;;
-      21) message="Some error returned by waitpid()" ;;
-      22) message="Error allocating core memory buffers" ;;
-      23) message="Partial transfer due to error (quiet)" ;;
-      24) message="Partial transfer due to vanished source files" ;;
-      25) message="The --max-delete limit stopped deletions" ;;
-      30) message="Timeout in data send/receive" ;;
-      35) message="Timeout waiting for daemon connection" ;;
-      *) message="Unknown rsync(1) return code" ;;
-    esac
-    if [[ "${message}" =~ .*\(quiet\)$ ]] ; then
-      ${LOGGER} -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue}."
-    else
-      sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC "Trouble with making a backup of the backup of the database (rsync ERROR ${rsyncReturnValue} - ${message})."
-    fi
-    ${LOGGER} -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned ${rsyncReturnValue} (${message})."
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}."
   fi
 fi
 
