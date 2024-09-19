@@ -25,21 +25,40 @@ zmodload zsh/regex
 
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
-vMinor=1
-vPatch=8
+vMinor=2
+vPatch=1
 # The '$' is not a parameter expansion here.
 # shellcheck disable=SC2016
 vHash='$Hash$'
 
-# Log STDOUT and STDERR of this script and all commands called by this
-# script to separate files.
-exec 1> "/var/tmp/${0:t}.out"
-exec 2> "/var/tmp/${0:t}.err"
+# usage shows how to use this command.
+function usage() {
+  local -r my_name="${1:t}"
+
+  ${CAT} <<EOF
+NAME
+
+${my_name}
+
+SYNOPSIS
+
+${my_name} [ --verbose (-v) ] [ --help (-h) ] [ --version (-V) ]
+
+DESCRIPTION
+
+$(${FMT} <<<"${my_name} creates a backup of the current Rivendell database.")
+
+$(${FMT} <<<"Use the option '--verbose' (short option: '-v') to have ${my_name} be chatty about its progress.")
+
+$(${FMT} <<<"Use the option '--version' (short option: '-V') to have ${my_name} display its version number and terminate without performing a backup.")
+
+EOF
+}
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 10 external commands.
+# This script uses these 11 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( find grep logger mkdir mktemp mysql mysqldump rm rsync tar )
+our_commands=( cat find fmt getopt logger mkdir mktemp mysqldump rm rsync tar )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -56,11 +75,49 @@ for C in ${our_commands[*]} ; do
     # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  # shellcheck disable=SC2296 # ZSH-specific expansion
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
+
+VERBOSE=0
+SHOW_VERSION=0
+
+if ! TEMP=$(${GETOPT} -o hVv --long help,version,verbose -n "${0:t}" -- "${@}") ; then
+  print "getopt(1) Fatal Error (${?}). Terminating..." >&2
+  return 1
+fi
+eval set -- "${TEMP}"
+while : ; do
+    # VERBOSE is used, but in a non-Bash way.
+    # shellcheck disable=SC2034
+    case "${1}" in
+        -h|--help) usage "${0}" ; exit ;;
+        -V|--version) SHOW_VERSION=1 ; shift ;;
+        -v|--verbose) ((VERBOSE += 1)) ; shift ;;
+        --) shift ; break ;;
+        *) print "${0:t}: getopt internal error!. Terminating..." >&2 ; return 1 ;;
+    esac
+done
+unset TEMP
+
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    # SC2016 (info): Expressions don't expand in single quotes... $Hash$ is not a parameter expansion.
+    # shellcheck disable=SC2016
+    [[ "${v_hash}" == '$Hash$' ]] &&
+        commit_hash="prerelase"
+    # SC2299: ZSH handles nested parameter expansion.
+    # shellcheck disable=SC2299
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
+fi
+
+# Log STDOUT and STDERR of this script and all commands called by this
+# script to separate files.
+exec 1> "/var/tmp/${0:t}.out"
+exec 2> "/var/tmp/${0:t}.err"
 
 # Prefer the "canonical" location of zsh-functions.
 if [[ -r /usr/bin/zsh-functions ]] ; then
@@ -89,7 +146,7 @@ DUMP_OUTPUT=$(${MKTEMP} --tmpdir="${TMPDIR}" mysqldump-output.XXXXXXXXXX)
 MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/rivendell}/.my.cnf-privileged}
 
 # To whom we should send email if anything breaks.
-MAILTO=${MAILTO:-"david.klann@broadcasttool.com"}
+MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 trap "${RM} -f ${DUMP_OUTPUT}; exit" 0 1 2 3
 
