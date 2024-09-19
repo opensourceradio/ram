@@ -28,7 +28,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=2
+v_patch=3
 v_hash='$Hash$'
 
 ##############################################################################
@@ -80,9 +80,9 @@ function db_pass() {
 }
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 11 external commands.
+# This script uses these 14 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( cat find fmt getopt logger mkdir mktemp mysqldump rm rsync tar )
+our_commands=( awk cat find fmt getopt logger man mkdir mktemp mysqldump rm rsync sed tar )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
