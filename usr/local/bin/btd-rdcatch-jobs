@@ -8,7 +8,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=2
+declare -ri v_patch=3
 declare -r v_hash='$Hash$'
 
 # usage shows how to use this command.
@@ -23,10 +23,10 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --status (-s) ]
-                                             [ --active (-a) ] [ --inactive (-i) ]
-                                             [ --macro (-m) ]
-                                             [ --verbose (-v) ]
-                                             [ --help (-h) ] [ --version (-V) ]
+                 [ --active (-a) ] [ --inactive (-i) ]
+                 [ --macro (-m) ]
+                 [ --verbose (-v) ]
+                 [ --help (-h) ] [ --version (-V) ]
 
 DESCRIPTION
 
