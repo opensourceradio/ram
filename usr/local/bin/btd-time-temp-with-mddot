@@ -15,7 +15,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=4
+vPatch=5
 vHash='$Hash$'
 
 ##############################################################################
@@ -431,9 +431,9 @@ zmodload zsh/datetime
 zmodload zsh/stat
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 13 external commands.
+# This script uses these 14 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( awk cat date ffmpeg grep logger mktemp mysql rdimport rm sed wget xmlstarlet )
+our_commands=( awk cat date ffmpeg grep logger man mktemp mysql rdimport rm sed wget xmlstarlet )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -623,10 +623,17 @@ if ! [[ -s "${current_time_and_temperature}" ]] ; then
   exit 4
 fi
 
+## Determine whether we can include the "--update-metadata" option to
+## rdimport(1).
+typeset update_metadata
+if ${MAN} rdimport | ${GREP} -q 'update-metadata' ; then
+  update_metadata='--update-metadata'
+fi
+
 ## Use rdimport(1) to import the audio to the specified Cart.
-delete_source='--delete-source'
+typeset delete_source='--delete-source'
 if ((DEBUG)) ; then
-  typeset -r delete_source=''
+  delete_source=''
 fi
 ## We need to leave variables used as command line parameters unquoted otherwise
 ## rdimport(1) interprets them as required parameters.
@@ -635,9 +642,10 @@ ${RDIMPORT} \
   ${VERBOSE:+'--verbose'} \
   --autotrim-level=-40 \
   --delete-cuts \
+  ${update_metadata} \
   ${delete_source} \
   --fix-broken-formats \
-  --set-string-title="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
+  --set-string-description="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
   --to-cart="${TO_CART}" \
   "${group_name}" \
   "${current_time_and_temperature}"
