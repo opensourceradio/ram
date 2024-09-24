@@ -43,7 +43,7 @@ v_hash='$Hash$'
 ##############################################################################
 
 # How to use this command.
-usage() {
+function usage() {
   local my_name="${1:t}"
 
   "${CAT}" << EOF
@@ -68,7 +68,7 @@ EOF
 }
 
 # Throw an error and return an unsuccessful return code.
-error() {
+function error() {
   local message="${1}"
 
   "${FMT}" >&2 <<EOF
@@ -82,7 +82,7 @@ EOF
 
 # valid_clock() checks the named Clock for validity. Returns true or
 # false based on the regex match test.
-valid_clock() {
+function valid_clock() {
   local defined_clocks="${1}" ; shift
   local requested_clock="${1}" ; shift
 
@@ -90,7 +90,7 @@ valid_clock() {
 }
 
 # show_clock() displays all the Events in the named Clock along with its title.
-show_clock() {
+function show_clock() {
   local full_name="${1}" ; shift
   local VERBOSE="${1}"
 
