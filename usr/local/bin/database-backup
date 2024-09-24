@@ -15,7 +15,7 @@
 ##
 ## database-backup
 ##
-## Backup all MySQL databases with aging. Optionally rsync(1) a copy
+## Backup the MySQL Rivendell database with aging. Optionally rsync(1) a copy
 ## of the backup to a separate location.
 ##
 ##############################################################################
@@ -28,7 +28,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=4
+v_patch=5
 v_hash='$Hash$'
 
 ##############################################################################
