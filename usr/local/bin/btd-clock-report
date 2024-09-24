@@ -1,12 +1,15 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC1105,SC2046,SC2079,SC2086,SC2089,SC2090,SC2154
+# shellcheck shell=bash disable=SC1105,SC2046,SC2048,SC2079,SC2086,SC2089,SC2090,SC2154,SC2296,SC2312
 # SC1105: using (( )) correctly for ZSH
 # SC2046: we do not care about the word splitting in unquoted $() expansion
+# SC2048: shellcheck aggressive quoting recommendations
 # SC2079: ZSH arithmetic expressions can do floating point
 # SC2086: all instances of parameters are double-quoted the way I want them
 # SC2089: quotes are working the way we want
 # SC2090: quotes are working the way we want
 # SC2154: reference parameters are set by ZSH for us
+# SC2296: ZSH param expansion can begin with (
+# SC2312: shellcheck aggressive 'invoke separately'
 
 ##############################################################################
 ##############################################################################
@@ -30,7 +33,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=3
-v_patch=2
+v_patch=4
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -47,12 +50,17 @@ usage() {
 $(${FMT} <<<"${my_name}: display events for the named Rivendell Clock (or all Clocks) on STDOUT (aka, the terminal)")
 
 Summary
-"${my_name}" [ --version (-V) ] --all || <Clock_Name> || "list"
+"${my_name}" [ --version (-V) ] [ --verbose (-v) ] [ --csv ]
+                 --service <Service_Name> || --all || <Clock_Name> || "list"
 
 Description
 $(${FMT} <<<"${my_name} formats and dumps the contents of the named Clock. Use the word 'list' to see a list of Clock names.")
 
 $(${FMT} <<<"The --all option causes ${my_name} to display all Rivendell Clocks to STDOUT.")
+
+$(${FMT} <<<"The --service <Service_Name> option causes ${my_name} to display all Rivendell Clocks for <Service_Name> to STDOUT (in hour-number order).")
+
+$(${FMT} <<<"The --csv option causes ${my_name} to display the output in comma separated values format.")
 
 $(${FMT} <<<"The --verbose option enables more chattiness in the operation. ${my_name} sends diagnostic output to the standard error (STDERR) channel.")
 
@@ -72,8 +80,8 @@ EOF
   return 254
 }
 
-# Check to be sure it is a valid Clock. Returns true or false based on
-# the regex match test
+# valid_clock() checks the named Clock for validity. Returns true or
+# false based on the regex match test.
 valid_clock() {
   local defined_clocks="${1}" ; shift
   local requested_clock="${1}" ; shift
@@ -81,28 +89,36 @@ valid_clock() {
   [[ "${defined_clocks}" =~ .*${requested_clock}.* ]]
 }
 
-# Display all the events in one clock along with its title.
+# show_clock() displays all the Events in the named Clock along with its title.
 show_clock() {
   local full_name="${1}" ; shift
   local VERBOSE="${1}"
 
   local query l_query c_query
-  local -i ev_name_width event_count length
-  local -i start_time event_end
-  local -i time_type
-  local event_name
+  local -i ev_name_width event_count cl_length
+  local -i cl_start_time event_end
+  local -i e_time_type
+  local cl_event_name
   local clk_name="${full_name// /_}_CLK"
 
   # The pre-version-300 clocks structure
   if okDatabaseStructure "${clk_name}:event_name+start_time+length" "${VERBOSE}" ; then
-    query="SELECT event_name,start_time,length FROM \`${clk_name}\` ORDER BY start_time ASC"
-    c_query="SELECT COUNT(*) FROM \`${clk_name}\`"
-    l_query="SELECT LENGTH(event_name) FROM \`${clk_name}\` ORDER BY LENGTH(event_name) DESC LIMIT 1"
+    query="select EVENT_NAME, START_TIME, LENGTH from \`${clk_name}\` order by START_TIME asc"
+    c_query="select count(*) from \`${clk_name}\`"
+    l_query="select max(length(EVENT_NAME)) from \`${clk_name}\`"
   # The post-version-300 clocks structure
-  elif okDatabaseStructure CLOCK_LINES:clock_name+event_name+start_time+length,EVENTS:time_type "${VERBOSE}" ; then
-    query="SELECT event_name,start_time,time_type,length FROM CLOCK_LINES join EVENTS on event_name = name WHERE clock_name='${full_name}' ORDER BY start_time ASC"
-    c_query="SELECT COUNT(*) FROM CLOCK_LINES WHERE clock_name='${full_name}'"
-    l_query="SELECT LENGTH(event_name) FROM CLOCK_LINES WHERE clock_name='${full_name}' ORDER BY LENGTH(event_name) DESC LIMIT 1"
+  elif okDatabaseStructure CLOCK_LINES:clock_name+event_name+start_time+length,EVENTS:time_type,EVENT_LINES:type+event_type+cart_number+trans_type+marker_comment,SERVICE_CLOCKS:clock_name+service_name "${VERBOSE}" ; then
+    query="select cl.EVENT_NAME, cl.START_TIME, cl.LENGTH, e.TIME_TYPE, "
+    query+="el.TYPE, el.EVENT_TYPE, el.CART_NUMBER, el.TRANS_TYPE, "
+    query+="ca.TITLE "
+    query+="from CLOCK_LINES as cl "
+    query+="join EVENTS as e on cl.EVENT_NAME = e.NAME "
+    query+="join EVENT_LINES as el on el.EVENT_NAME = e.NAME "
+    query+="join CART as ca on el.CART_NUMBER = ca.NUMBER "
+    query+="where cl.CLOCK_NAME='${full_name}' "
+    query+="order by START_TIME asc"
+    c_query="select count(*) from CLOCK_LINES where CLOCK_NAME='${full_name}'"
+    l_query="select max(length(EVENT_NAME)) from CLOCK_LINES where CLOCK_NAME='${full_name}'"
   else
     printf "Unknown database version '%s', unable to continue." $(rdDatabaseVersion)
     return 1
@@ -110,18 +126,50 @@ show_clock() {
 
   ev_name_width="$(doSQL ${l_query})"
   event_count="$(doSQL ${c_query})"
-  printf '%3d Events for Clock "%s"\n' "${event_count}" "${full_name//_/ }"
 
-  # doSQL() output is <TAB>-separated, set IFS to a single <TAB>.
-  IFS="	"
-  doSQL "${query}" | while read -r event_name start_time time_type length ; do
-    event_end=$((start_time + length))
-    printf "\t* %${ev_name_width}s at %5s for %5s (ending at %5s)\n" \
-	   "${event_name//_/ }" \
-	   $( { ((time_type)) && print 'T\c' ; } || print ' \c' )$(ms2HMS "${start_time}") \
-	   $(ms2HMS "${length}") \
-	   $(ms2HMS "${event_end}")
+  printf '%d Events for Clock "%s"\n' "${event_count}" "${full_name}"
+
+  # doSQL() output is <TAB>-separated, set IFS to <TAB> and <NEWLINE>.
+  oIFS="${IFS}"
+  IFS=$'\t\n'
+  ((VERBOSE)) && print "QUERY: ${query}" >&2
+
+  # SC2034: parameters are reserved for future use.
+  # shellcheck disable=SC2034
+  doSQL "${query}" | while read -r cl_event_name cl_start_time cl_length e_time_type el_type el_event_type el_cart_number el_trans_type ca_title ; do
+    event_end=$((cl_start_time + cl_length))
+    case "${e_time_type}" in
+      0) tt=' ' ;;
+      1) tt='H' ;;
+      255) tt='N' ;;
+      *) tt='?' ;;
+    esac
+    # see lib/rdlog_line.h
+    case "${el_trans_type}" in
+      0) ett='P' ;;
+      1) ett='G' ;;
+      2) ett='S' ;;
+      255) ett='N' ;;
+      *) ett='?' ;;
+    esac
+    if ((CSV)) ; then
+      printf ',"%s","%1s%5s","%5s",%d,"%s","%1s"\n' \
+	     "${cl_event_name}" \
+	     "${tt}" $(ms2HMS "${cl_start_time}") \
+	     $(ms2HMS "${event_end}") \
+	     "${el_cart_number}" \
+	     "${ca_title}" \
+	     "${ett}"
+    else
+      printf "\t* %${ev_name_width}s %1s%5s to %5s Cart: %06d (%s) Trans: %1s\n" \
+	     "${cl_event_name//_/ }" \
+	     "${tt}" $(ms2HMS "${cl_start_time}") \
+	     $(ms2HMS "${event_end}") \
+	     "${el_cart_number}" "${ca_title}" \
+	     "${ett}"
+    fi
   done
+  IFS="${oIFS}"
 
   return 0
 }
@@ -158,10 +206,15 @@ else
   exit $(error "Cannot find support library 'zsh-functions'. Please consult your astrologist!")
 fi
 
-BOLD="${bold_color}"
-NORM="${reset_color}"
+typeset BOLD="${bold_color}"
+typeset NORM="${reset_color}"
 
-if ! TEMP=$(${GETOPT} -o ahvV --long all,help,verbose,version -n ${0:t} -- "${@}") ; then
+typeset -i SHOW_VERSION=0
+typeset -i VERBOSE=0
+typeset -i CSV=0
+typeset SERVICE=""
+
+if ! TEMP=$(${GETOPT} -o ahvV --long all,csv,help,service:,verbose,version -n ${0:t} -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -170,59 +223,79 @@ while :
 do
   case "${1}" in
     -a|--all) SHOW_ALL=1 ; shift ;;
+    --csv) CSV=1 ; shift ;;
     -h|--help) usage ${0:t} ; exit ;;
-    -V|--version) show_version=1 ; shift ;;
-    -v|--verbose) VERBOSE=1 ; shift ;;
+    --service) SERVICE="${2}" ; shift 2 ;;
+    -V|--version) SHOW_VERSION=1 ; shift ;;
+    -v|--verbose) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
     *) echo "${BOLD}Internal error!${NORM}" ; exit 1 ;;
   esac
 done
 unset TEMP
 
-if ((show_version)) ; then
-  echo "${0##*/}: version ${v_major}.${v_minor}.${v_patch}-${${v_hash#\$Hash: }%$}"
-  exit 0
+if ((SHOW_VERSION)) ; then
+    typeset commit_hash="${v_hash}"
+    # SC2016 (info): Expressions don't expand in single quotes... $Hash$ is not a parameter expansion.
+    # shellcheck disable=SC2016
+    [[ "${v_hash}" == '$Hash$' ]] &&
+        commit_hash="prerelase"
+    # SC2299: ZSH handles nested parameter expansion.
+    # shellcheck disable=SC2299
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
 fi
 
-# IFS must be just <Tab> and <Newline>.
-IFS="	
-"
+typeset clock
 
-# Figure out which schema we are using for Clocks and Events.
+# IFS must be just <Tab> and <Newline>.
+IFS=$'\t\n'
+
+# Figure out which schema we are using for Clocks and Events,
+# and get the list of Clocks.
 typeset -a rivendell_clock_list
-if okDatabaseStructure CLOCKS:name,SERVICE_CLOCKS:hour+clock_name ; then
+if okDatabaseStructure CLOCKS:name,SERVICE_CLOCKS:hour+clock_name+service_name ; then
+  typeset query
+  query="select distinct c.NAME from CLOCKS as c "
+  query+="join SERVICE_CLOCKS as sc on c.NAME = sc.CLOCK_NAME "
+  # Limit the query to a specific service if requested.
+  if [[ -n "${SERVICE}" ]] ; then
+    query+="where SERVICE_NAME = '${SERVICE}' "
+  fi
+  query+="order by sc.SERVICE_NAME, sc.HOUR"
+  ((VERBOSE)) && printf "clock name query: '%s'\n" "${query}" >&2
   # SC2207: mapfile behaves differently in ZSH from Bash
   # shellcheck disable=SC2190,SC2207
-  rivendell_clock_list=( $(doSQL "SELECT name FROM CLOCKS order by name") )
+  rivendell_clock_list=( $(doSQL "${query}") )
 else
   # Don't really know what else to do here...
   printf "Unknown database schema version (%03d). I give up." $(rdDatabaseVersion)
   exit 1
 fi
+((VERBOSE)) && printf "Found %d Clocks\n" "${#rivendell_clock_list}" >&2
 
-if (( SHOW_ALL )) ; then  
+# Choices are either a) show a specific clock, b) show all clocks for
+# the named service, or c) all clocks.
+if ((SHOW_ALL)) || [[ -n "${SERVICE}" ]] ; then  
   # Display all the Clocks.
   for clock in ${rivendell_clock_list[*]} ; do
     show_clock "${clock}" "${VERBOSE}"
-    echo
+    ((CSV)) || print
   done
-elif [[ -n "${1}" ]] ; then
-  if [[ "${(L)1}" = 'list' ]] ; then
-    echo "Current list of CLOCKs:"
-    # (F) joins array elements with newline separator.
-    # SC2153: COLUMN is not a misspelling
-    # shellcheck disable=SC2153
-    echo "${(F)rivendell_clock_list}" | "${COLUMN}" -x -c "${COLUMNS}"
-    read -r clock\?"Enter a Clock to list: "
-  else
-    clock="${1}"
-  fi
-
-  if valid_clock "${rivendell_clock_list[*]}" "${clock}" ; then
-    show_clock "${clock}" "${VERBOSE}"
-  fi
+  exit
+elif [[ "${1}" == 'list' ]] ; then
+  echo "Current list of CLOCKs:"
+  # (F) joins array elements with newline separator.
+  # SC2153: COLUMN is not a misspelling
+  # shellcheck disable=SC2153
+  echo "${(F)rivendell_clock_list[*]}" | "${COLUMN}" -x -c "${COLUMNS}"
+  read -r clock\?"Enter a Clock to list: "
 else
-  usage "${0:t}"
+  clock="${1}"
+fi
+
+if valid_clock "${rivendell_clock_list[*]}" "${clock}" ; then
+  show_clock "${clock}" "${VERBOSE}"
 fi
     
 exit
