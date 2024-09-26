@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=4
+declare -ri v_patch=5
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -525,17 +525,17 @@ if ((CHECK_GROUPS)) ; then
       read -r low_cart high_cart <<<$(doSQL "select DEFAULT_LOW_CART, DEFAULT_HIGH_CART from GROUPS where NAME = '${group_name}'")
       # Skip groups with no cart number range.
       if (( (low_cart == 0) && (high_cart == 0) )) ; then
-	continue
+        continue
       fi
       group_capacity=$((high_cart - low_cart + 1))
-      ((VERBOSE)) && printf "Group: '%s': Cart capacity: %d\n" "${group_name}" "${group_capacity}" >&2
 
       typeset -i used=$(doSQL "select count(*) from CART where group_name = '${group_name}'")
+      ((VERBOSE)) && printf "Group: '%s': Cart capacity: %d, used: %d\n" "${group_name}" "${group_capacity}" "${used}">&2
       # Warn them if the group is above 90% capacity.
       # SC2079: (( )) doesn't support decimals [ZSH]
       # shellcheck disable=SC2079
       if ((used > (group_capacity * 0.9))) ; then
-	printf "Warning: Group: '%s' capacity: %d cart(s), used %d (start: %d end: %d)\n" "${group_name}" ${group_capacity} ${used} ${low_cart} ${high_cart} >&2
+        printf "Warning: Group: '%s' capacity: %d, used: %d (start: %d end: %d)\n" "${group_name}" ${group_capacity} ${used} ${low_cart} ${high_cart} >&2
       fi
     done
   fi
