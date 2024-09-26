@@ -49,13 +49,13 @@ function kill_with_privilege() {
       ${KILL} -"${sig}" "${proc_id}"
       ${SLEEP} 0.5
       if ! [[ -d "/proc/${proc_id}" ]] ; then
-	continue 2	# next proc_id in the for loop
+        continue 2      # next proc_id in the for loop
       fi
       ((VERBOSE)) && printf "No go; attempting to terminate process ID %d with privileges using signal SIG%s... " "${proc_id}" "${sig}" >&2
       ${SUDO} "${KILL}" -"${sig}" "${proc_id}"
       ${SLEEP} 0.5
       if ! [[ -d "/proc/${proc_id}" ]] ; then
-	continue 2	# next proc_id in the for loop
+        continue 2      # next proc_id in the for loop
       fi
       print
       ((count++))
@@ -281,23 +281,23 @@ for id in ${(k)path_specs[*]} ; do
 
   if ! ${GREP} -F -q "${path_specs[${id}]#*${myFS}}" <<<${(v)procs[*]} ; then
     printf "\tMissing dropbox process for dropbox ID %d ('%s', Cart # %d).\n" \
-	   "${id}" \
-	   "${path_specs[${id}]#*${myFS}}" \
-	   "${to_cart}" >&2
+           "${id}" \
+           "${path_specs[${id}]#*${myFS}}" \
+           "${to_cart}" >&2
     if ((INTERACTIVE)) ; then
       if get_yes_no "Restart dropboxes?" ${ANSWER_NO}; then
-	if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
-	  # The Rivendell v3 way to restart all dropboxes.
-	  ${SENDUSR1} "${pidof_rdservice}"
-	else
-	  # The pre-Rivendell v3 way to restart all dropboxes.
-	  kill_with_privilege "$(${PIDOF} rdcatchd)"
-	  # SC2046: we want the words of pidof to be split.
-	  # shellcheck disable=SC2046
-	  kill_with_privilege $(${PIDOF} rdimport)
-	fi
+        if pidof_rdservice="$(${PIDOF} 'rdservice')" ; then
+          # The Rivendell v3 way to restart all dropboxes.
+          ${SENDUSR1} "${pidof_rdservice}"
+        else
+          # The pre-Rivendell v3 way to restart all dropboxes.
+          kill_with_privilege "$(${PIDOF} rdcatchd)"
+          # SC2046: we want the words of pidof to be split.
+          # shellcheck disable=SC2046
+          kill_with_privilege $(${PIDOF} rdimport)
+        fi
 
-	print "Dropboxes have been restarted."
+        print "Dropboxes have been restarted."
       fi
     else
       printf '\tMight want to restart dropboxes as appropriate.\n' >&2
@@ -320,22 +320,22 @@ for proc_id in ${(k)procs[*]} ; do
     if ! ${GREP} -F -q "${process_path_spec}" <<<"${(v)path_specs[*]}" ; then
       printf "\tMissing dropbox for proccess with PATH specifier: %s\n" "${process_path_spec}" >&2
       if ((INTERACTIVE)) ; then
-	if get_yes_no "Terminate process ID ${proc_id}?" ${ANSWER_NO} ; then
-	  kill_with_privilege "${proc_id}"
-	  print "Done."
-	else
-	  printf "OK, but you probably want to terminate process ID %d\n." "${proc_id}"
-	fi
+        if get_yes_no "Terminate process ID ${proc_id}?" ${ANSWER_NO} ; then
+          kill_with_privilege "${proc_id}"
+          print "Done."
+        else
+          printf "OK, but you probably want to terminate process ID %d\n." "${proc_id}"
+        fi
       else
-	((VERBOSE)) && printf "Terminating process ID %s... " "${proc_id}" >&2
-	kill_with_privilege "${proc_id}"
-	((VERBOSE)) && print "done." >&2
+        ((VERBOSE)) && printf "Terminating process ID %s... " "${proc_id}" >&2
+        kill_with_privilege "${proc_id}"
+        ((VERBOSE)) && print "done." >&2
       fi
     fi
   else
     # Deal with dropboxes that are missing a Path Spec.
     printf "\tDropbox ID %d has no Path Spec. Where should it look for files to import?\n" \
-	   "${process_dropbox_id}"
+           "${process_dropbox_id}"
   fi
 done
 
@@ -352,35 +352,35 @@ for id in ${(k)path_specs[*]} ; do
     ## timestamp on the files. Delete "stale" entries from DROPBOX_PATHS.
     doSQL "select DROPBOX_ID, FILE_PATH, unix_timestamp(FILE_DATETIME) from DROPBOX_PATHS where DROPBOX_ID=${id}" |
       while read -r dropbox_id file_path file_datetime ; do
-	if ! [[ -r "${file_path}" ]] ; then
-	  delete_source=$(doSQL "select DELETE_SOURCE from DROPBOXES where ID=${dropbox_id}")
-	  # Warn about missing files only if this dropbox was supposed to preserve
-	  # the source files.
-	  if [[ "${delete_source}" =~ [Nn] ]] ; then
-	    ((VERBOSE)) && printf "Previously imported file '%s' does not exist, skipping 'staleness' check.\n" "${file_path}"
-	    continue
-	  fi
-	fi
-	((VERBOSE > 1)) && printf "\t--%s--%d--" "${file_path}" ${file_datetime} >&2
-	zstat -H file_stat "${file_path}"
-	((VERBOSE > 1)) && printf "%s--\n" "${file_stat[mtime]}" >&2
-	# Deal with the situation where the modification time of the file in the
-	# dropbox is newer than the timestamp in DROPBOX_PATHS.
-	if (( file_stat[mtime] > file_datetime )) ; then
-	  ((VERBOSE)) && printf "%s: %d > %d\n" "${file_path}" "${file_stat[atime]}" "${file_datetime}"
-	  if ((INTERACTIVE)) ; then
-	    if get_yes_no "Remove STALE '${file_path}' from DROPBOX_PATHS?" ${ANSWER_NO} ; then
-	      if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
-		printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
-	      fi
-	    fi
-	  else
-	    ((VERBOSE)) && printf "Deleting stale entry '%s' from DROPBOX_PATHS.\n" "${file_path}"
-	    if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
-	      printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
-	    fi
-	  fi
-	fi
+        if ! [[ -r "${file_path}" ]] ; then
+          delete_source=$(doSQL "select DELETE_SOURCE from DROPBOXES where ID=${dropbox_id}")
+          # Warn about missing files only if this dropbox was supposed to preserve
+          # the source files.
+          if [[ "${delete_source}" =~ [Nn] ]] ; then
+            ((VERBOSE)) && printf "Previously imported file '%s' does not exist, skipping 'staleness' check.\n" "${file_path}"
+            continue
+          fi
+        fi
+        ((VERBOSE > 1)) && printf "\t--%s--%d--" "${file_path}" ${file_datetime} >&2
+        zstat -H file_stat "${file_path}"
+        ((VERBOSE > 1)) && printf "%s--\n" "${file_stat[mtime]}" >&2
+        # Deal with the situation where the modification time of the file in the
+        # dropbox is newer than the timestamp in DROPBOX_PATHS.
+        if (( file_stat[mtime] > file_datetime )) ; then
+          ((VERBOSE)) && printf "%s: %d > %d\n" "${file_path}" "${file_stat[atime]}" "${file_datetime}"
+          if ((INTERACTIVE)) ; then
+            if get_yes_no "Remove STALE '${file_path}' from DROPBOX_PATHS?" ${ANSWER_NO} ; then
+              if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
+                printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+              fi
+            fi
+          else
+            ((VERBOSE)) && printf "Deleting stale entry '%s' from DROPBOX_PATHS.\n" "${file_path}"
+            if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
+              printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+            fi
+          fi
+        fi
       done
     IFS="${oIFS}"
     unset oIFS
@@ -422,7 +422,7 @@ for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
   [[ "${path_spec}" == "NULL" ]] && continue
   if ! [[ -d ${path_spec_dir} ]] ; then
     printf "Missing directory (%s) for dropbox PATH specifier: %s\n" \
-	   "${path_spec_dir}" "${path_spec}" >&2
+           "${path_spec_dir}" "${path_spec}" >&2
   fi
 done
 
@@ -447,12 +447,12 @@ for id in ${(k)path_specs[*]} ; do
       # shellcheck disable=SC2046
       read -r cart_title<<<$(doSQL "select TITLE from CART where NUMBER = ${to_cart}")
       if [[ -z "${cart_title}" ]] || [[ "${cart_title}" = '' ]] ; then
-	# The "\r \n" is in these printfs to clean up the "spinners" output.
-	printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
-	       "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+        # The "\r \n" is in these printfs to clean up the "spinners" output.
+        printf "\r \nMissing TITLE in Cart %d associated with dropbox ID %d, PATH '%s'\n" \
+               "${to_cart}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
       fi
       printf "\r \nNo CUTS for CART %d (TITLE: '%s', dropbox ID %d, PATH '%s')\n" \
-	     "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
+             "${to_cart}" "${cart_title}" "${id}" "${path_specs[${id}]#*${myFS}}" >&2
       unset cart_title
     fi
   fi
@@ -472,10 +472,10 @@ for proc_id in ${possibly_hung_xport_procs[*]} ; do
   typeset process_start_time=$(${DATE} --date="$(${PS} -p ${proc_id} --format 'lstart=')" +%s)
   if ((process_start_time < (CURRENT_TIME - ONE_DAY))) ; then
     printf "NOTICE: import process ID %d was started %s.\n" "${proc_id}" \
-	   "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
+           "$(strftime '%a, %d %b %Y %T %z' ${process_start_time})"
     if ((INTERACTIVE)) ; then
       if get_yes_no "Terminate process ID ${proc_id}?" ${ANSWER_NO} ; then
-	kill_with_privilege "${proc_id}"
+        kill_with_privilege "${proc_id}"
       fi
     else
       ((VERBOSE)) && printf "Killing process ID %s: " "${proc_id}" >&2
@@ -494,15 +494,15 @@ for id in ${(k)path_specs[*]} ; do
     log_specs=$(doSQL "select concat(LOG_TO_SYSLOG,'${myFS}',LOG_PATH) from DROPBOXES where ID=${id}")
     if [[ "${log_specs%${myFS}*}" =~ [Nn] ]] ; then
       if [[ -z "${log_specs#*${myFS}}" ]] ; then
-	printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-	       "${id}" "${path_specs[${id}]#*${myFS}}"
+        printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
+               "${id}" "${path_specs[${id}]#*${myFS}}"
       fi
     fi
   else
     log_path=$(doSQL "select LOG_PATH from DROPBOXES where ID=${id}")
     if [[ -z "${log_path}" ]] ; then
       printf "Warning: no logging configured for dropbox ID %d, path spec %s\n" \
-	     "${id}" "${path_specs[${id}]#*${myFS}}"
+             "${id}" "${path_specs[${id}]#*${myFS}}"
     fi
   fi
 done
@@ -573,31 +573,31 @@ if ((CHECK_STRANDED_FILES)) ; then
     x=1
     possibly_stranded=(
       $(${FIND} "${path_dir}" -maxdepth 1 -type f -iname "${path_spec_pattern}" -print | while read -r line ; do
-	  declare escaped_line=""
-	  escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
-	  [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
-	  [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
-	    print "${line}"
-	  ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
-	done)
+          declare escaped_line=""
+          escaped_line="$(print ${line} | perl -ne 's,([\[\]{}\?\&]),\\$1,g; print;')"
+          [[ "${escaped_line}" =~ (\.log|/@eaDir/) ]] && continue
+          [[ "${(v)file_history[*]}" =~ .*${escaped_line}.* ]] ||
+            print "${line}"
+          ((INTERACTIVE)) && printf "%c\r" "${spinners[$((x++ % spinner_count))]}" > /dev/tty
+        done)
     )
     if [[ -n "${possibly_stranded[*]}" ]] ; then
       if ((${#possibly_stranded[*]} == 1)) ; then
-	typeset thing='file'
-	typeset plural='s'
+        typeset thing='file'
+        typeset plural='s'
       else
-	typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
-	typeset plural=''
+        typeset thing=$(printf '%d files' "${#possibly_stranded[*]}")
+        typeset plural=''
       fi
       printf "Looking at dropbox %d with path spec '%s'\n" "${id}" "${path_specs[${id}]#*${myFS}}"
       printf "The following %s in dropbox folder '%s' (ID %d) appear%c to be stranded:\n" \
-	     "${thing}" "${path_dir}" "${id}" "${plural}"
+             "${thing}" "${path_dir}" "${id}" "${plural}"
       print "\t${(oj:\n\t:)possibly_stranded[*]}"
       if get_yes_no "Do you want to reset this dropbox?" ${ANSWER_NO} ; then
-	((VERBOSE)) && print "Resetting dropbox..." >&2
-	for file_path in ${possibly_stranded[*]} ; do
-	  doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'"
-	done
+        ((VERBOSE)) && print "Resetting dropbox..." >&2
+        for file_path in ${possibly_stranded[*]} ; do
+          doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'"
+        done
       fi
     fi
   done
