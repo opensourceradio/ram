@@ -118,8 +118,7 @@ function show_clock() {
     c_query="select count(*) from CLOCK_LINES where CLOCK_NAME='${full_name}'"
     l_query="select max(length(EVENT_NAME)) from CLOCK_LINES where CLOCK_NAME='${full_name}'"
   else
-    printf "Unknown database version '%s', unable to continue." $(rdDatabaseVersion)
-    return 1
+    return $(error $(printf "Unknown database version '%s', unable to continue." $(rdDatabaseVersion)))
   fi
 
   ev_name_width="$(doSQL ${l_query})"
