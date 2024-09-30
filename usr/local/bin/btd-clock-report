@@ -14,10 +14,8 @@
 ##############################################################################
 ##############################################################################
 ##
-## btd-clock-report - Display the events for the named Rivendell Clock on
+## btd-clock-report - Display the events for one or more Rivendell Clocks on
 ##                    stdout.
-##
-## Requires a Clock name as the sole argument on the command line.
 ##
 ##############################################################################
 ##############################################################################
@@ -76,7 +74,7 @@ function error() {
 ${RED}ERROR:${NORM} ${message}
 
 EOF
-  echo 254
+  printf '%d\n' 254
   return 254
 }
 
@@ -92,7 +90,7 @@ function valid_clock() {
 # show_clock() displays all the Events in the named Clock along with its title.
 function show_clock() {
   local full_name="${1}" ; shift
-  local VERBOSE="${1}"
+  local -i VERBOSE="${1}"
 
   local query l_query c_query
   local -i ev_name_width event_count cl_length
@@ -129,7 +127,8 @@ function show_clock() {
 
   printf '%d Events for Clock "%s"\n' "${event_count}" "${full_name}"
 
-  # doSQL() output is <TAB>-separated, set IFS to <TAB> and <NEWLINE>.
+  # doSQL() output is <TAB>-separated, set IFS to <TAB> and <NEWLINE> because
+  # some of the data may contain <SPACE>s.
   oIFS="${IFS}"
   IFS=$'\t\n'
   ((VERBOSE)) && print "QUERY: ${query}" >&2
@@ -138,13 +137,14 @@ function show_clock() {
   # shellcheck disable=SC2034
   doSQL "${query}" | while read -r cl_event_name cl_start_time cl_length e_time_type el_type el_event_type el_cart_number el_trans_type ca_title ; do
     event_end=$((cl_start_time + cl_length))
+    # see lib/rdlog_line.h: enum TimeType {Relative=0,Hard=1,NoTime=255};
     case "${e_time_type}" in
       0) tt=' ' ;;
       1) tt='H' ;;
       255) tt='N' ;;
       *) tt='?' ;;
     esac
-    # see lib/rdlog_line.h
+    # see lib/rdlog_line.h: enum TransType {Play=0,Segue=1,Stop=2,NoTrans=255};
     case "${el_trans_type}" in
       0) ett='P' ;;
       1) ett='G' ;;
@@ -269,8 +269,7 @@ if okDatabaseStructure CLOCKS:name,SERVICE_CLOCKS:hour+clock_name+service_name ;
   rivendell_clock_list=( $(doSQL "${query}") )
 else
   # Don't really know what else to do here...
-  printf "Unknown database schema version (%03d). I give up." $(rdDatabaseVersion)
-  exit 1
+  exit $(error "Unknown database schema version ($(rdDatabaseVersion)). I give up.")
 fi
 ((VERBOSE)) && printf "Found %d Clocks\n" "${#rivendell_clock_list}" >&2
 
@@ -284,11 +283,11 @@ if ((SHOW_ALL)) || [[ -n "${SERVICE}" ]] ; then
   done
   exit
 elif [[ "${1}" == 'list' ]] ; then
-  echo "Current list of CLOCKs:"
+  print "Current list of CLOCKs:"
   # (F) joins array elements with newline separator.
   # SC2153: COLUMN is not a misspelling
   # shellcheck disable=SC2153
-  echo "${(F)rivendell_clock_list[*]}" | "${COLUMN}" -x -c "${COLUMNS}"
+  print "${(F)rivendell_clock_list[*]}" | "${COLUMN}" -x -c "${COLUMNS}"
   read -r clock\?"Enter a Clock to list: "
 else
   clock="${1}"
