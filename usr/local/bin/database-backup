@@ -28,7 +28,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=5
+v_patch=6
 v_hash='$Hash$'
 
 ##############################################################################
@@ -51,33 +51,54 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --verbose (-v) ] [ --help (-h) ] [ --version (-V) ]
+                [ --rd-conf (-r) <Rivendell-configuation-file> ]
 
 DESCRIPTION
 
 $(${FMT} <<<"${my_name} creates a backup of the current Rivendell database.")
 
+$(${FMT} <<<"Specify an alternate Rivendell configuration file with the '--rd-conf <filename>' option (short option: '-r'). The <filename> argument must be a full path name to an existing Rivendell configuration file.")
+
 $(${FMT} <<<"Use the option '--verbose' (short option: '-v') to have ${my_name} be chatty about its progress.")
 
 $(${FMT} <<<"Use the option '--version' (short option: '-V') to have ${my_name} display its version number and terminate without performing a backup.")
 
+SEE ALSO
+
+rd.conf(5), mysql(1)
+
 EOF
 }
 
-# db_pass() retrieves the database password from /etc/rd.conf.
-function db_pass() {
+# db_param() retrieves the named database configuration parameter from
+# the "mySQL" section of /etc/rd.conf.
+function db_param() {
   local -r db_conf="${RD_CONF:-/etc/rd.conf}"
+  local -r db_parameter=${1:?"Need a database parameter to look up in '${db_conf}'"}
+
+  local -i return_value=0
 
   if ! [[ -r "${db_conf}" ]] ; then
     ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot read '${db_conf}'. Cannot continue."
     return 1
   fi
-  if ! local db_pass="$(${SED} -e '1,/\[mySQL/d' -e '/^\[/,$d' "${db_conf}" | ${AWK} -F '=' '/^Password=/ {print $2}')" ; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot extract database password from '${db_conf}'. Cannot continue."
+
+  if ! local db_param_value=$(${SED} -e '1,/\[mySQL/d' -e '/^\[/,$d' "${db_conf}" | ${AWK} -F '=' "BEGIN{IGNORECASE=1}/^${db_parameter}=/{print \$2}") ; then
+    return_value=${?}
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot extract database configuration parameter '${db_parameter}' from '${db_conf}' (${return_value}). Cannot continue."
     return 1
   fi
-  printf "%s" "${db_pass}"
+  printf "%s" "${db_param_value}"
   return
 }
+
+##############################################################################
+##############################################################################
+##
+## Script main line.
+##
+##############################################################################
+##############################################################################
 
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 14 external commands.
@@ -113,10 +134,11 @@ unset our_commands C D
 ##############################################################################
 ##############################################################################
 
-VERBOSE=0
-SHOW_VERSION=0
+typeset -i VERBOSE=0
+typeset -i SHOW_VERSION=0
+typeset RD_CONF="${RD_CONF:-/etc/rd.conf}"
 
-if ! TEMP=$(${GETOPT} -o hVv --long help,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o hr:Vv --long help,rd-conf:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -126,6 +148,7 @@ while : ; do
     # shellcheck disable=SC2034
     case "${1}" in
         -h|--help) usage "${0}" ; exit ;;
+        -r|--rd-conf) RD_CONF="${2}" ; shift 2 ;;
         -V|--version) SHOW_VERSION=1 ; shift ;;
         -v|--verbose) ((VERBOSE += 1)) ; shift ;;
         --) shift ; break ;;
@@ -146,13 +169,17 @@ if ((SHOW_VERSION)) ; then
     exit 0
 fi
 
-# Log STDOUT and STDERR of this script and all commands called by this
-# script to separate files.
-exec 1> "/var/tmp/${0:t}.out"
-exec 2> "/var/tmp/${0:t}.err"
+# Unless running in "very verbose" mode, direct STDOUT and STDERR of
+# this script and all commands called by this script to separate
+# files.
+if ((VERBOSE < 2)) ; then
+  exec 1> "/var/tmp/${0:t}.out"
+  exec 2> "/var/tmp/${0:t}.err"
+fi
 ((VERBOSE)) && setopt xtrace
 
 # Prefer the "canonical" location of zsh-functions.
+# This script uses 'doSQL' and 'sendNotification' from zsh-functions.
 if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
 elif [[ -r /usr/local/bin/zsh-functions ]] ; then
@@ -162,14 +189,15 @@ else
   exit
 fi
 
+# Use the Rivendell database version in the backup filename.
 typeset db_version=$(doSQL "select DB from VERSION")
 
-# Current date and time.
-TODAY=$(strftime '%Y-%m-%d-%H%M%S' "${EPOCHSECONDS}")
+# Also use the current date and time in the backup filename.
+typeset TODAY=$(strftime '%Y-%m-%d-%H%M%S' "${EPOCHSECONDS}")
 
-TMPDIR=${ROOT:-/}var/tmp
-DUMPDIR=${DUMPDIR:-${TMPDIR}/mysql}
-DUMP_OUTPUT=$(${MKTEMP} --tmpdir="${TMPDIR}" mysqldump-output.XXXXXXXXXX)
+typeset TMPDIR=${TMPDIR:-/var/tmp}
+typeset DUMPDIR=${DUMPDIR:-${TMPDIR}/mysql}
+typeset DUMP_OUTPUT=$(${MKTEMP} --tmpdir="${TMPDIR}" mysqldump-output.XXXXXXXXXX)
 
 # Optional: specify the name of an additional backup directory in
 # which to rsync(1) the backup tarball. It is best if this directory
@@ -177,17 +205,14 @@ DUMP_OUTPUT=$(${MKTEMP} --tmpdir="${TMPDIR}" mysqldump-output.XXXXXXXXXX)
 # ${DUMPDIR}.
 #BACKUP_DIR=${BACKUP_DIR:-${ROOT:-/}var/snd/rivendell-database-backup}
 
-# Database credentials. This is highly site specific.
-MY_CNF=${MY_CNF:-${HOME:-${ROOT:-/}home/rivendell}/.my.cnf-privileged}
-
 # To whom we should send email if anything breaks.
-MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
+typeset MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 ## Stash the rsync exit codes from the manual page into the
 ## associative array. The exit code number is the array index and the
 ## textual description is its value.
 typeset -A rsync_exit_codes
-oIFS="${IFS}"
+typeset oIFS="${IFS}"
 IFS=$'=\n'
 # SC2190 (warning): Elements in associative arrays need index... (ZSH)
 # shellcheck disable=SC2190
@@ -199,34 +224,47 @@ IFS="${oIFS}"
 trap "${RM} -f ${DUMP_OUTPUT}; exit" 0 1 2 3
 
 # Hang on to this many days of backups.
-KEEP=${KEEP:-31}
+typeset -i KEEP=${KEEP:-31}
 
 # Neither of these is fatal if they break.
 test -d "${DUMPDIR}" || ${MKDIR} -p "${DUMPDIR}"
 test -n "${BACKUP_DIR}" && { test -d "${BACKUP_DIR}" || ${MKDIR} -p "${BACKUP_DIR}" ; }
 
-# The list of all databases to backup.
-databases=( Rivendell )
+# The list of all databases to backup. Add more here if necessary.
+typeset -a databases
+databases=( "$(db_param 'Database')" )
 
 # Make the ouput files readable only by the owner.
 # u=r,g=,o=
 umask 0377
+
+# Assume commands are successful.
+typeset -i return_value=0
 
 # Dump each requested database, in order.
 for database in ${databases[*]} ; do
   database_dump_file="${DUMPDIR}/${database}-${db_version}-${TODAY}.sql"
 
   # Dump the database.
-  ${MYSQLDUMP} --no-defaults --host=127.0.0.1 --user=rduser --password="$(db_pass)" --comments --dump-date --single-transaction --add-drop-database --add-drop-table --databases "${database}" > "${database_dump_file}"
-  dbDumpVal=${?}
+  ${MYSQLDUMP} --no-defaults \
+               --host="$(db_param 'Hostname')" \
+               --user="$(db_param 'Loginname')" \
+               --password="$(db_param 'Password')" \
+               --comments \
+               --dump-date \
+               --single-transaction \
+               --add-drop-database \
+               --add-drop-table \
+               --databases "${database}" > "${database_dump_file}"
+  return_value=${?}
 
   # Sanity checks for the output file.
   if [[ -f "${database_dump_file}" ]] ; then
     if ! [[ -s "${database_dump_file}" ]] ; then
-      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' exists but is empty (${dbDumpVal})."
+      ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' exists but is empty (${return_value})."
     fi
   else
-    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' was not created (${dbDumpVal})."
+    ${LOGGER} -t "${0:t}" -p local7.err -i "Error dumping ${database}: '${database_dump_file}' was not created (${return_value})."
   fi
 done 2>&1 > "${DUMP_OUTPUT}"
 
@@ -238,23 +276,23 @@ if [[ -s "${DUMP_OUTPUT}" ]] ; then
 fi
 
 if ! ${TAR} --create --bzip2 --atime-preserve --directory="${TMPDIR}" --file "${TMPDIR}/mysql-backup-${db_version}-${TODAY}.tar.bz2" mysql ; then
-  returnValue=${?}
-  sendNotification "${0:t}" "${MAILTO}" DBDUMP-TARBALL "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${returnValue})."
-  exit "${returnValue}"
+  return_value=${?}
+  sendNotification "${0:t}" "${MAILTO}" DBDUMP-TARBALL "Could not create tarball for MySQL database dumps in directory '${TMPDIR}' (ERROR CODE ${return_value})."
+  exit "${return_value}"
 fi
 
 # clean up after archiving the database dumps
 if ! ${RM} -rf "${DUMPDIR}" ; then
-  returnValue=${?}
-  sendNotification "${0:t}" "${MAILTO}" DBDUMP-CLEANUP "Error removing '${DUMPDIR}' (ERROR CODE ${returnValue})."
-  exit "${returnValue}"
+  return_value=${?}
+  sendNotification "${0:t}" "${MAILTO}" DBDUMP-CLEANUP "Error removing '${DUMPDIR}' (ERROR CODE ${return_value})."
+  exit "${return_value}"
 fi
 
 # remove backup archives that are more than ${KEEP} days old
 if ! ${FIND} "${TMPDIR}" -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +"${KEEP}" -print -delete ; then
-  returnValue=${?}
-  sendNotification "${0:t}" "${MAILTO}" DBDUMP-AGING "Trouble removing backup archives (ERROR CODE ${returnValue})."
-  exit "${returnValue}"
+  return_value=${?}
+  sendNotification "${0:t}" "${MAILTO}" DBDUMP-AGING "Trouble removing backup archives (ERROR CODE ${return_value})."
+  exit "${return_value}"
 fi
 
 # Successful purge, (optionally) make a backup of the backup (if
@@ -262,13 +300,13 @@ fi
 if [[ -n "${BACKUP_DIR}" ]] ; then
   if ! [[ -d "${BACKUP_DIR}" ]] ; then
     if ! ${MKDIR} -p "${BACKUP_DIR}" ; then
-      returnValue=${?}
-      sendNotification "${0:t}" "${MAILTO}" DBDUMP-BACKUP_DIR "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${returnValue})."
-      exit "${returnValue}"
+      return_value=${?}
+      sendNotification "${0:t}" "${MAILTO}" DBDUMP-BACKUP_DIR "Backup directory '${BACKUP_DIR}' does not exist and could not create it. (ERROR CODE ${return_value})."
+      exit "${return_value}"
     fi
   fi
   ${RSYNC} --archive --temp-dir="${TMPDIR}" --partial-dir=temp --delay-updates "${TMPDIR}"/mysql-backup-* "${BACKUP_DIR}"
-  rsync_exit_value=${?}
+  typeset -i rsync_exit_value=${?}
   # Ignore rsync(1) exit codes 23 and 24. They indicate that some
   # files were not transferred, but we do not care.
   if (( rsync_exit_value == 0 || rsync_exit_value == 23 || rsync_exit_value == 24 )) ; then
@@ -278,9 +316,9 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
     # "manually".
     # As above: remove backup archives that are more than ${KEEP} days old
     if ! ${FIND} "${BACKUP_DIR}" -maxdepth 1 -iname mysql-backup-\*.tar.bz2 -mtime +"${KEEP}" -delete ; then
-      returnValue=${?}
-      sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC-CLEAN "Trouble deleting files from ${BACKUP_DIR} (${returnValue}). Seek professional help!"
-      exit "${returnValue}"
+      return_value=${?}
+      sendNotification "${0:t}" "${MAILTO}" DBDUMP-RSYNC-CLEAN "Trouble deleting files from ${BACKUP_DIR} (${return_value}). Seek professional help!"
+      exit "${return_value}"
     fi
   else
     ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}."
@@ -288,7 +326,6 @@ if [[ -n "${BACKUP_DIR}" ]] ; then
 fi
 
 exit
-
 # Local Variables: ***
 # mode:shell-script ***
 # indent-tabs-mode: f ***
