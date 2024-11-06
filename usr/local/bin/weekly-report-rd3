@@ -36,7 +36,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=15
+typeset -ir v_patch=16
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -511,8 +511,12 @@ selectCountStatement+="order by elr.EVENT_DATETIME"
 eventCount=$(doSQL "${selectCountStatement}")
 
 ## The report title.
-groupClause="$(if [[ ${groups[*]} =~ ^%$ ]] ; then print 'all Groups' ; else print 'Group(s) ' ${(j:, :)groups[*]} ; fi)"
-reportTitleText="Service: ${service}: ${eventCount} Event$( ((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
+if ((cart_number == 0)) ; then
+  groupClause="$(if [[ ${groups[*]} =~ ^%$ ]] ; then print 'all Groups' ; else print 'Group(s) ' ${(j:, :)groups[*]} ; fi)"
+  reportTitleText="Service: ${service}: ${eventCount} Event$( ((eventCount > 1)) && echo s) in ${groupClause} between ${reportStartDate} and ${reportEndDate}"
+else
+  reportTitleText="Service: ${service}: ${eventCount} Event$( ((eventCount > 1)) && echo s) for Cart ${cart_number} between ${reportStartDate} and ${reportEndDate}"
+fi
 ((CSV)) || print "${reportTitleText}\n"
 
 ## Get the maximum length of each of these columns.
