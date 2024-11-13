@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=5
+declare -ri v_patch=6
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -271,6 +271,14 @@ procs=($(PS_PERSONALITY=aix ${PS} -eo "%p$(print '\t\c')%a" | ${GREP} -v "${GREP
 typeset -A path_specs
 path_specs=($(doSQL "select ID, concat(TO_CART,'${myFS}',PATH) from DROPBOXES where STATION_NAME='${station}' order by TO_CART"))
 ((VERBOSE > 1)) && printf "path_specs:\n%s\n" "${(v)path_specs[*]}" >&2
+
+# Check the PATH spec for missing filenames or wildcard specifiers.
+print "Checking for dropbox PATH specifiers missing filename..." >&2
+for path_spec in ${(v)path_specs[*]#*${myFS}} ; do
+  if [[ -d "${path_spec}" ]] ; then
+    printf 'PATH specifier "%s" is invalid. It is a directory.\n' "${path_spec}" >&2
+  fi
+done
 
 # Check if all defined dropbox processes are running.
 print "Checking for running processes for all dropboxes..." >&2
