@@ -1,8 +1,10 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2034,SC2154,SC2190,SC2207,SC2296,SC2299,SC2312
+# shellcheck shell=bash disable=SC2016,SC2034,SC2128,SC2154,SC2179,SC2190,SC2207,SC2296,SC2299,SC2312
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # SC2034: shellcheck does not know about ZSH param expansions.
+# SC2128 (warning): Expanding an array without an index only gives the first element. (ZSH)
 # SC2154: the only "unassigned" parameters *should be* upper case command names.
+# SC2179 (warning): Use array+=("item") to append items to an array. (ZSH)
 # SC2190: ZSH associative arrays work differently from Bash associative arrays.
 # SC2207: mapfile or read -a are Bash-isms.
 # SC2296: ZSH params CAN start with '('.
@@ -18,8 +20,8 @@
 
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
-declare -ri v_minor=1
-declare -ri v_patch=2
+declare -ri v_minor=2
+declare -ri v_patch=1
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -42,8 +44,9 @@ ${my_name}
 SYNOPSIS
 
 ${my_name} [ --long (-l) ] [ --notes (-n) ]
-                   [ --group (-g) ] [ --verbose (-v) ]
-                   [ --help (-h) ] [ --version (-V) ]
+                   [ --group (-g) <Group_Name[,...]> ]
+                   [ --pretty (-p) ]
+                   [ --help (-h) ] [ --verbose (-v) ] [ --version (-V) ]
 
 DESCRIPTION
 
@@ -51,9 +54,11 @@ $(${FMT} <<<"${my_name} lists Rivendell Macro Carts. It also optionally lists de
 
 $(${FMT} <<<"Specify '--long' (short option: '-l') to have ${my_name} show the details of the Macro Cart.")
 
-$(${FMT} <<<"Specify '--group' (short option: '-g') to have ${my_name} show the Group in which the Macro Cart belongs.")
+$(${FMT} <<<"Specify '--group <Group_Name[,...]>' (short option: '-g') to have ${my_name} show Macro Carts in the Group(s) specified. Separate multiple Group names with ',' (comma).")
 
 $(${FMT} <<<"Specify '--notes' (short option: '-n') to have ${my_name} show the Notes associated with the Macro Cart.")
+
+$(${FMT} <<<"Specify '--pretty' (short option: '-p') to have ${my_name} 'pretty-print' the contents of the Macro Cart.")
 
 $(${FMT} <<<"Specify '--verbose' (short option: '-v') to have ${my_name} be 'chatty' about its progress.")
 
@@ -84,7 +89,7 @@ fi
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 4 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( cat fmt getopt sed )
+our_commands=( cat fmt getopt perl )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -98,28 +103,26 @@ typeset C D
 for C in ${our_commands[*]} ; do
   # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
   for D in ${path} ; do
-    # shellcheck disable=SC2140,SC2086 # we need the quotes
+    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
-# cartColumns must be set to a SQL SELECT string representing the
-# column names from the Rivendell table "CART". Default is to be brief
-# with the output.
-typeset cartColumns="NUMBER,TITLE"
-
-# Command line switches.
+# Command line options.
+typeset GROUP
+typeset -i LONG=0
 typeset -i NOTES=0
-typeset -i GROUP=0
+typeset -i PRETTY=0
 
 # With the "-l (--long)" option, display the contents of the macro as
 # well as the number and title.
 # With the "-n (--notes)" option, display the cart notes (if any)
 # as well as the other stuff.
-if ! TEMP=$(${GETOPT} -o hglnVv --long help,group,long,notes,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o hg:lnpVv --long help,group:,long,notes,pretty,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -129,9 +132,10 @@ while : ; do
   # shellcheck disable=SC2034
   case "${1}" in
     -h|--help) usage "${0}" ; exit ;;
-    -g|--grou*) GROUP=1 ; shift ;;
-    -l|--long) cartColumns="${cartColumns},MACROS" ; shift ;;
+    -g|--grou*) GROUP="${2}" ; shift 2 ;;
+    -l|--long) LONG=1 ; shift ;;
     -n|--note*) NOTES=1 ; shift ;;
+    -p|--pretty) PRETTY=1 ; shift ;;
     -V|--version) SHOW_VERSION=1 ; shift ;;
     -v|--verbose) ((VERBOSE += 1)) ; shift ;;
     --) shift ; break ;;
@@ -148,24 +152,40 @@ if ((SHOW_VERSION)) ; then
     exit 0
 fi
 
-# Place the Group first in the query.
-if ((GROUP)) ; then
-  cartColumns="GROUP_NAME,${cartColumns}"
-fi
-
-# Place the Notes last in the query.
-if ((NOTES)) ; then
-  cartColumns="${cartColumns},NOTES"
-fi
-
 # Accept a single cart number on the command line (after options) to display
 # that CART.
 condition=${1:+" and NUMBER = ${1}"}
 
+typeset group_list
+if [[ -n "${GROUP}" ]] ; then
+  group_list="'${(j:',':)${(s:,:)GROUP}[*]}'"
+fi
+
+# SC2178 (warning): Variable was used as an array but is now assigned a string. (ZSH)
+# shellcheck disable=SC2178
+typeset query="select concat("
+[[ -n "${GROUP}" ]] && query+="GROUP_NAME, ': ', "
+query+="NUMBER, ': ', TITLE, '^_^'"
+((LONG)) && query+=", MACROS"
+((NOTES)) && query+=", replace(NOTES, '\n', ' ')"
+query+=")"
+query+=" from CART "
+query+="where TYPE = 2 "
+[[ -n "${GROUP}" ]] && query+="and GROUP_NAME in ( ${group_list} ) "
+query+="${condition} "
+query+="order by "
+[[ -n "${GROUP}" ]] && query+="GROUP_NAME, "
+query+="NUMBER"
+
 # Macros are stored in the database with TYPE set to 2.
 # Run the query through sed(1) to make multi-line NOTES more visually appealing.
-doSQL "select ${cartColumns} from CART where TYPE = 2${condition}" | ${SED} -e 's,\\n,\
-,g'
+if ((PRETTY && LONG)) ; then
+  doSQL "${query}" | ${PERL} -ne 's{!}{!\n  }g;' -e 's{\^_\^}{\n  }g; print'
+elif ((LONG)) ; then
+  doSQL "${query}" | ${PERL} -ne 's{!}{!  }g;' -e 's{\^_\^}{ }g; print'
+else
+  doSQL "${query}" | ${PERL} -ne 's{\^_\^}{}g; print'
+fi
 
 exit
 
