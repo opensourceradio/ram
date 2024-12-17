@@ -8,7 +8,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=5
+declare -ri v_patch=6
 declare -r v_hash='$Hash$'
 
 # usage shows how to use this command.
@@ -151,24 +151,30 @@ if ((INACTIVE)) ; then
     if ((MACRO)) ; then
 	query+="AND r.TYPE = 1 "
     fi
+    if [[ -n "${STATION}" ]] ; then
+	query+="and r.STATION_NAME = '${STATION}' "
+    fi
 fi
 if ((ACTIVE)) ; then
     query+="where r.IS_ACTIVE = 'y' "
     if ((MACRO)) ; then
 	query+="AND r.TYPE = 1 "
     fi
+    if [[ -n "${STATION}" ]] ; then
+	query+="and r.STATION_NAME = '${STATION}' "
+    fi
 fi
 if ((MACRO && !(INACTIVE || ACTIVE))) ; then
     query+="where r.TYPE = 1 "
 fi
-if [[ -n "${STATION}" ]] ; then
-    query+="and r.STATION_NAME = '${STATION}' "
+if [[ -n "${STATION}" ]] && ! ((MACRO || INACTIVE || ACTIVE)) ; then
+    query+="where r.STATION_NAME = '${STATION}' "
 fi
 query+="order by r.START_TIME"
 
 # SC2128 (warning): Expanding an array without an index only gives the first element. [ZSH]
 # shellcheck disable=SC2128
-if [[ -z "${NO_PAGER}" ]] ; then
+if ((NO_PAGER)) ; then
     ${MYSQL} --table Rivendell -e "${query}"
 else
     ${MYSQL} --table Rivendell -e "${query}" | ${PAGER:-less} -RCiP "Viewing RDCatch jobs?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
