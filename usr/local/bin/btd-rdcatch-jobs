@@ -8,7 +8,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=3
+declare -ri v_patch=4
 declare -r v_hash='$Hash$'
 
 # usage shows how to use this command.
@@ -25,6 +25,7 @@ SYNOPSIS
 ${my_name} [ --status (-s) ]
                  [ --active (-a) ] [ --inactive (-i) ]
                  [ --macro (-m) ]
+                 [ --no-pager ]
                  [ --verbose (-v) ]
                  [ --help (-h) ] [ --version (-V) ]
 
@@ -37,6 +38,8 @@ $(${FMT} <<<"Specify '--status' (short option: '-s') to have ${my_name} also dis
 $(${FMT} <<<"Specify '--active' (short option: '-a') to have ${my_name} display only active tasks. The default is to display all tasks.")
 
 $(${FMT} <<<"Specify '--inactive' (short option: '-i') to have ${my_name} display only inactive tasks. This is mutually exclusive of the -a option.")
+
+$(${FMT} <<<"Specify '--no-pager' (no short option) to have ${my_name} display tasks without page-at-a-time output. The default is to display output using the app named in the environment variable PAGER, or /usr/bin/less if that variable is not set.")
 
 $(${FMT} <<<"Use the option '--macro' (short option: '-m') to have ${my_name} display only Macro tasks.")
 
@@ -74,9 +77,10 @@ typeset -i STATUS=0
 typeset -i VERBOSE=0
 typeset -i ACTIVE=0
 typeset -i INACTIVE=0
-typeset -m MACRO=0
+typeset -i MACRO=0
+typeset -i NO_PAGER=0
 
-if ! TEMP=$(${GETOPT} -o ahimsVv --long active,help,inactive,macro,status,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o ahimsVv --long active,help,inactive,macro,no-pager,status,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -89,6 +93,7 @@ while : ; do
 	-h|--help) usage "${0}" ; exit ;;
 	-i|--inactive) ACTIVE=0 ; INACTIVE=1 ; shift ;;
 	-m|--macro) MACRO=1 ; shift ;;
+	--no-pager) NO_PAGER=1 ; shift ;;
 	-s|--status) STATUS=1 ; shift ;;
 	-V|--version) SHOW_VERSION=1 ; shift ;;
 	-v|--verbose) ((VERBOSE += 1)) ; shift ;;
@@ -152,6 +157,10 @@ query+="order by r.START_TIME"
 
 # SC2128 (warning): Expanding an array without an index only gives the first element. [ZSH]
 # shellcheck disable=SC2128
-${MYSQL} Rivendell -e "${query}"
+if [[ -z "${NO_PAGER}" ]] ; then
+    ${MYSQL} --table Rivendell -e "${query}"
+else
+    ${MYSQL} --table Rivendell -e "${query}" | ${PAGER:-less} -RCiP "Viewing RDCatch jobs?e (End of Output).\. Press <q> to quit, <PgDown> and <PgUP> to scroll, <g> to -Beginning-, <G> to -End-\."
+fi
 
 exit
