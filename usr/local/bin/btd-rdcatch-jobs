@@ -8,7 +8,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=7
+declare -ri v_patch=8
 declare -r v_hash='$Hash$'
 
 # usage shows how to use this command.
@@ -141,8 +141,14 @@ query+="as 'S|M|T|W|R|F|S', "
 if ((STATUS)) ; then
     query+="lpad(coalesce(nullif(r.EXIT_TEXT, ''), 'No news, good news'), 20, ' ') as 'STATUS', "
 fi
-query+="if(r.TYPE=1, rpad(lpad(r.MACRO_CART, 6, '0'), 10, '.'), r.CUT_NAME) as 'MACRO / CUT', "
-query+="concat(substr(if(r.TYPE=1, c.MACROS, r.URL), 1, 41), if(length(if(r.TYPE=1, c.MACROS, r.URL)) > 41, '...', '')) as 'MACROS / URL', "
+typeset macro_cut_column_heading="   CUT    "
+typeset macros_url_column_heading="    URL     "
+if ((MACRO)) ; then
+    macro_cut_column_heading="MACRO CART"
+    macros_url_column_heading="   MACROS   "
+fi
+query+="if(r.TYPE=1, rpad(lpad(r.MACRO_CART, 6, '0'), 10, '.'), r.CUT_NAME) as '${macro_cut_column_heading}', "
+query+="concat(substr(if(r.TYPE=1, c.MACROS, r.URL), 1, 41), if(length(if(r.TYPE=1, c.MACROS, r.URL)) > 41, '...', '')) as '${macros_url_column_heading}', "
 query+="concat(substr(r.DESCRIPTION, 1, 41), if(length(r.DESCRIPTION) > 41, '...', '')) as 'DESCRIPTION' "
 query+="from RECORDINGS r "
 query+="left join CART c on c.NUMBER = r.MACRO_CART "
