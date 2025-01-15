@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=1
+declare -ri v_patch=2
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -98,9 +98,9 @@ function run_post_gen_hooks() {
 }
 
 ############# BEGIN external shell commands used in this script. #############
-# This script uses these 12 external commands.
+# This script uses these 13 external commands.
 # Look for them in their upper case, parameter expanded form.
-our_commands=( chmod cp fmt getopt logger man mktemp perl rdlogmanager rm sed zsh )
+our_commands=( awk chmod fmt getopt logger man mktemp perl rdlogmanager rm rsync sed zsh )
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
@@ -117,7 +117,7 @@ for C in ${our_commands[*]} ; do
     # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
     [[ -x "${D}/${C}" ]] && { eval "${(U)C//-/_}"="${D}/${C}" ; break ; }
   done
-  # shellcheck disable=SC2296 # ZSH-specific expansion
+  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
   [[ -x $(eval print \$"${(U)C//-/_}") ]] || { print "Cannot find ${C}! Done."; return 1 ; }
 done
 unset our_commands C D
@@ -184,7 +184,7 @@ declare -A rdlogmanager_exit_values
 oIFS="${IFS}"
 IFS=$'\t\n'
 rdlogmanager_exit_values=(
-  $(${MAN} rdlogmanager |
+  $(MANWIDTH=999 ${MAN} rdlogmanager |
       ${SED} -e '1,/EXIT VALUES/d' \
 	     -e '/^BUGS/,$d' \
 	     -e '/^$/d' |
@@ -192,6 +192,19 @@ rdlogmanager_exit_values=(
 )
 IFS="${oIFS}"
 unset oIFS
+
+## Stash the rsync exit codes from the manual page into the
+## associative array. The exit code number is the array index and the
+## textual description is its value.
+typeset -A rsync_exit_codes
+typeset oIFS="${IFS}"
+IFS=$'=\n'
+# SC2190 (warning): Elements in associative arrays need index... (ZSH)
+# shellcheck disable=SC2190
+rsync_exit_codes=( $(MANWIDTH=999 ${MAN} rsync |
+                         ${SED} -e '1,/EXIT VALUES/d' -e '/ENVIRONMENT VARIABLES/,$d' -e '/^$/d' |
+                         ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}') )
+IFS="${oIFS}"
 
 declare -ri right_now=${EPOCHSECONDS}
 declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
@@ -330,15 +343,23 @@ done > "${output_file}"
 # writeable by the user ID running this script. See parameter 'RnRmlOwner' in
 # /etc/rd.conf if running from RDCatch.
 typeset -r final_output_file="~rd/Desktop/RD-Log-Generate.txt"
-if [[ -d "${final_output_file%/*}" ]] ; then
-  if ${CP} "${output_file}" "${final_output_file}" ; then
-    ${CHMOD} a+r "${final_output_file}"
-    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ${final_output_file}."
-  else
-    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: unable to copy output file to '${final_output_file}' (${?})."
-  fi
-else
+if ! [[ -d "${final_output_file%/*}" ]] ; then
   ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' does not exist. See '${output_file}'."
+  exit 3
+fi
+if ! [[ -w "${final_output_file%/*}" ]] ; then
+  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' is NOT writeable. See '${output_file}'."
+  exit 2
+fi
+
+${RSYNC} --archive "${output_file}" "${final_output_file}"
+typeset -i rsync_exit_value=${?}
+if (( rsync_exit_value == 0 )) ; then
+  ${CHMOD} a+r "${final_output_file}"
+  ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ${final_output_file}."
+else
+  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}; did not copy output file to '${final_output_file}'."
+  exit 1
 fi
 
 # Send email to the addresses in $MAILTO with the same output as is on
