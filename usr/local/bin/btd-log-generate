@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=2
+declare -ri v_patch=3
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -338,11 +338,11 @@ done > "${output_file}"
 #
 # BUG ALERT: This works only for Rivendell installations that follow the
 # "reference" installation methodology (Rivendell's Linux user is "rd").
-#
+v#
 # BUG ALERT: The directory for ${final_output_file} must already exist and be
 # writeable by the user ID running this script. See parameter 'RnRmlOwner' in
 # /etc/rd.conf if running from RDCatch.
-typeset -r final_output_file="~rd/Desktop/RD-Log-Generate.txt"
+typeset final_output_file="/home/rd/Desktop/RD-Log-Generate.txt"
 if ! [[ -d "${final_output_file%/*}" ]] ; then
   ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' does not exist. See '${output_file}'."
   exit 3
