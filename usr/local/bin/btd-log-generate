@@ -338,7 +338,7 @@ done > "${output_file}"
 #
 # BUG ALERT: This works only for Rivendell installations that follow the
 # "reference" installation methodology (Rivendell's Linux user is "rd").
-v#
+#
 # BUG ALERT: The directory for ${final_output_file} must already exist and be
 # writeable by the user ID running this script. See parameter 'RnRmlOwner' in
 # /etc/rd.conf if running from RDCatch.
