@@ -15,7 +15,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 vMajor=0
 vMinor=3
-vPatch=5
+vPatch=6
 vHash='$Hash$'
 
 ##############################################################################
@@ -215,7 +215,10 @@ mddot_get_observation() {
   ## MD DOT API base URL.
   local -r url_base="https://chart.maryland.gov/DataFeeds/GetRwisXml"
   local raw_observation_data
-  local current_temperature
+  # air_temp is intentionally not an integer because MDDOT includes
+  # the unit (F or C).
+  local air_temp
+  local -i current_temperature
 
   local -r url="${url_base}"
 
@@ -238,12 +241,12 @@ mddot_get_observation() {
 		    --value-of id --output " " \
 		    --value-of "lastUpdate div 1000" --output " " \
 		    --value-of airTemp --nl |
-      ${AWK} "/^${LOCATION} /{print \$2 \" \" \$3}" | read -r last_update current_temperature ; then
+      ${AWK} "/^${LOCATION} /{print \$2 \" \" \$3}" | read -r last_update air_temp ; then
     ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: Unable to extract 'airTemp' from '${raw_observation_data}'."
     print ""
     return 103
   fi
-  ((VERBOSE)) && print "last_update: ${last_update} current_temperature: ${current_temperature}" >&2
+  ((VERBOSE)) && print "last_update: ${last_update} air_temp: ${air_temp}" >&2
 
   ## Return an empty string with an error if the observation time is more than
   ## two hours old.
@@ -253,8 +256,17 @@ mddot_get_observation() {
     return 99
   fi
 
+  ## Return an empty string with an error if airTemp is insane.
+  if ! [[ "${air_temp%F}" =~ [[:digit:]]{1,} ]] ; then
+    ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: MD DOT airTemp for location '${LOCATION}' is not an integer: '${air_temp%F}'."
+    print ""
+    return 98
+  fi
+
   # The MD DOT adds an "F" suffix to the current air temperature. Drop it.
-  printf "%d" ${current_temperature%F}
+  current_temperature=${air_temp%F}
+
+  printf "%d" ${current_temperature}
 }
 
 ## Get data from an HTTP API with error checking.
@@ -612,11 +624,19 @@ if ! ((DEBUG)) ; then
   trap "${RM} -f ${current_time_and_temperature}" 0 1 2 3
 fi
 
-## Use ffmpeg to concatenate and transcode the time and temperature audio files
-## into a PCM file with the sample rate that matches the system setting in
-## Rivendell.
-((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: ffmpeg: 'concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}'"
-${FFMPEG} -y -loglevel quiet -i "concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}" -c pcm_s16le -ar "${sample_rate}" "${current_time_and_temperature}"
+## Use ffmpeg to concatenate and transcode the time and temperature
+## audio files into a PCM file with the sample rate that matches the
+## system setting in Rivendell.
+##
+## Per discussion with Doug Schuetz on 2025-01-17, disregard the
+## temperature when it is Zero.
+if ((current_temperature == 0)) ; then
+  ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: ffmpeg: '${TIME_DIR}/${hour_minute}'"
+  ${FFMPEG} -y -loglevel quiet -i "${TIME_DIR}/${hour_minute}" -c pcm_s16le -ar "${sample_rate}" "${current_time_and_temperature}"
+else
+  ((VERBOSE)) && ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.notice -i "NOTICE: ffmpeg: 'concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}'"
+  ${FFMPEG} -y -loglevel quiet -i "concat:${TIME_DIR}/${hour_minute}|${TEMPERATURE_DIR}/${current_temperature}" -c pcm_s16le -ar "${sample_rate}" "${current_time_and_temperature}"
+fi
 
 if ! [[ -s "${current_time_and_temperature}" ]] ; then
   ${LOGGER} "${LOGGER_VERBOSE}" -t "${0:t}" -p local7.error -i "ERROR: created an empty audio file that was supposed to have the time and temperature."
@@ -635,6 +655,15 @@ typeset delete_source='--delete-source'
 if ((DEBUG)) ; then
   delete_source=''
 fi
+
+## Set the cut description based on whether we "know" the current
+## temperature (Zero == "do not know").
+typeset cut_description
+if ((current_temperature == 0)) ; then
+  cut_description="$(strftime '%I:%M %p' ${CURRENT_TIME}) (temperature unavailable)."
+else
+  cut_description="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})"
+fi
 ## We need to leave variables used as command line parameters unquoted otherwise
 ## rdimport(1) interprets them as required parameters.
 # shellcheck disable=SC2248
@@ -645,7 +674,7 @@ ${RDIMPORT} \
   ${update_metadata} \
   ${delete_source} \
   --fix-broken-formats \
-  --set-string-description="${current_temperature} degrees at $(strftime '%I:%M %p' ${CURRENT_TIME})" \
+  --set-string-description="${cut_description}" \
   --to-cart="${TO_CART}" \
   "${group_name}" \
   "${current_time_and_temperature}"
