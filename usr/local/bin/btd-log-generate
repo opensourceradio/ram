@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=3
+declare -ri v_patch=4
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -89,6 +89,7 @@ function run_post_gen_hooks() {
     for hook in "${btd_log_generate_hook_dir}"/* ; do
       # Skip files starting with "." and "_".
       [[ "${hook:t}" =~ ^[._] ]] && continue
+      ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: running post gen hooks for '${log_name}'."
       if ! ${ZSH} "${hook}" ${DEBUG:+--debug} "${log_name}" ; then
 	return_value="${?}"
       fi
@@ -176,8 +177,6 @@ else
   exit 3
 fi
 
-((DEBUG)) && setopt xtrace
-
 # Extract the exit values (keys) and their messages (values) from
 # rdlogmanager(1) into the associative array.
 declare -A rdlogmanager_exit_values
@@ -206,12 +205,15 @@ rsync_exit_codes=( $(MANWIDTH=999 ${MAN} rsync |
                          ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}') )
 IFS="${oIFS}"
 
+((DEBUG)) && setopt xtrace
+
 declare -ri right_now=${EPOCHSECONDS}
 declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 # Gather all the Services from Rivendell unless they asked for a
 # specific Service. services is an associative array indexed by the
-# service name. The value is the log name "template".
+# service name. The value is the log name "template". We use the
+# template in run_post_gen_hooks.
 # SC2178: ZSH supports appending to string parameters using the "+=" operator.
 # shellcheck disable=SC2178
 declare query="select NAME,NAME_TEMPLATE from SERVICES "
@@ -236,15 +238,14 @@ unset oIFS
 
 declare output_file
 if ! output_file=$(${MKTEMP}) ; then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "Error trying to create temporary file. Cannot continue."
+  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: unable to create temporary file (${?}). Cannot continue."
   exit 3
 fi
-# No changes to the value of the parameter.
-declare -r output_file
 
+# Keep the output file if we are called with --debug.
 # SC2064: I want this trap argument to expand now.
 # shellcheck disable=SC2064
-trap "${RM} -f '${output_file}' ; exit ;" 0 1 2 3
+((DEBUG)) || trap "${RM} -f '${output_file}' ; exit ;" 0 1 2 3
 
 # Get the current full weekday name (%A) (but permit setting it in the calling
 # environment for testing).
@@ -295,6 +296,7 @@ if [[ "${(L)today}" =~ friday ]] && [[ -z "${END_DATE}" ]] ; then
   # But only if we have a Start Date and it is Today (which is Friday).
   if [[ -n "${START_DATE}" ]] && ((START_DATE == today_seconds)) ; then
     DAYS=3
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: today is Friday, generating logs for ${DAYS} days."
   fi
 fi
 
@@ -317,18 +319,19 @@ declare -ri end_day_offset=$(( (end_date_seconds - today_seconds - one_day) / on
 #   merge traffic (-t)
 #   merge music (-m)
 #   day spec (-d) is "tomorrow" (0) unless ${START_DATE} or ${DAYS} are specified
+# This for loop captures stdout from rdlogmanager, but not stderr.
 for (( day_offset = start_day_offset; day_offset <= end_day_offset; day_offset++ )) ; do
   # This "(ok)" parameter expansion flag says to return the keys (k) in sorted
   # (o) order.
   for service in ${(ok)services[*]} ; do
-    printf "Generating log for Service '%s'.\n" "${service}"
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: Generating log for Service '${service}' with day offset: ${day_offset}."
     if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1 ; then
       declare -i exit_code="${?}"
       ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (day: ${day_offset}) exited with value ${exit_code} (${rdlogmanager_exit_values[${exit_code}]})"
     fi
     if ((exit_code == 0)) ; then
       if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """${start_date_seconds}")" ; then
-	${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks returned with non-zero value: ${?}"
+	${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks() returned with non-zero value: ${?}"
       fi
     fi
   done
