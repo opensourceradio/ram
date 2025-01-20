@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=4
+declare -ri v_patch=5
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$(( 60 * 60 * 24))
@@ -165,8 +165,8 @@ if [[ -f "${tmp_file_stderr}" ]] && ! [[ -w "${tmp_file_stderr}" ]] ; then
   ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stderr}'. Unable to continue."
   exit 2
 fi
-exec 1> "${tmp_file_stdout}"
-exec 2> "${tmp_file_stderr}"
+((DEBUG)) || exec 1> "${tmp_file_stdout}"
+((DEBUG)) || exec 2> "${tmp_file_stderr}"
 
 if [[ -r /usr/bin/zsh-functions ]] ; then
   source /usr/bin/zsh-functions
@@ -209,6 +209,8 @@ IFS="${oIFS}"
 
 declare -ri right_now=${EPOCHSECONDS}
 declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
+
+${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: starting log generation."
 
 # Gather all the Services from Rivendell unless they asked for a
 # specific Service. services is an associative array indexed by the
@@ -372,6 +374,8 @@ if [[ -s "${output_file}" ]] ; then
 else
   sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "rdlogmanager(1) created no output. Did it run? Better check on it."
 fi
+
+${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: complete, normal exit."
 
 exit
 
