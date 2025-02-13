@@ -36,7 +36,7 @@ colors
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 typeset -ir v_major=0
 typeset -ir v_minor=2
-typeset -ir v_patch=16
+typeset -ir v_patch=17
 # shellcheck disable=SC2016
 typeset -r v_hash='$Hash$'
 
@@ -81,6 +81,7 @@ ${myName:t} [ --start-date (-S) YYYY-MM-DD [HH:MM:SS] ]
                   [ --service (-s) Service-Name (or "list") ]
                   [ --workstation (-w) Workstation-Name ]
                   [ --schedcodes Code[,Code,...] (or "list") ]
+                  [ --cart-type <Type> ]
                   [ --csv (-c) ]
                   [ --cuts (-C) ]
                   [ --pro-data (-p) ]
@@ -112,6 +113,10 @@ that have any of the Scheduler Codes "Code,..." assigned (separate
 multiple Codes with commas). You may use the word "list" to list and
 choose from the available Scheduler Codes. This option also causes the
 output to include all Rivendell Scheduler Codes for each Cart.
+
+Use --cart-type <Type> to limit the report to the specified
+type. Possible values for <Type> are "macro" (or 2) and "audio" (or
+1). This option applies only when also specifying the '--all' option.
 
 The --pro-data (-p) option tells ${myName:t} to include performance
 rights organization (PRO) data (such as artist, album, and record
@@ -173,6 +178,23 @@ function getSchedCodes() {
   # SC2295: overly aggressive quoting recommendation
   # shellcheck disable=SC2295
   print ${newCodes%${fieldSeparator}}
+}
+
+## normalizeCartType takes a flexible specification for Cart Type and returns
+## an integer representing the cart type. See lib/rdcart.h for reference.
+function normalizeCartType() {
+  local type="${1}"
+
+  local actualType=""
+
+  case "${type}" in
+    1|audio|music) actualType=1 ;;
+    2|macro|pgm|command|cmd) actualType=2 ;;
+    *) actual_type=1 ;;
+  esac
+
+  printf '%s' "${actualType}"
+  return
 }
 
 ## maxLength finds the longest string in the requested column name for proper
@@ -272,8 +294,9 @@ typeset -i INCLUDE_CUTS=0
 # invocation.
 typeset -i PROdata=0
 typeset -i cart_number=0
+typeset cartType=''
 
-if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,cart:,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
+if ! TEMP=$(${GETOPT} -o acChg:s:S:e:pw:Vv --long all,cart:,cart-type:,csv,cuts,help,group:,schedcodes:,service:,start-date:,end-date:,pro-data,workstation:,version,verbose -n "${0:t}" -- "${@}") ; then
   print "getopt(1) Fatal Error (${?}). Terminating..." >&2
   return 1
 fi
@@ -282,6 +305,7 @@ while : ; do
   case "${1}" in
     -a|--all) group=ALL_GROUPS ; shift ;;
     --cart) cart_number="${2}" ; shift 2 ;;
+    --cart-type) cartType="${2}" ; shift 2 ;;
     -c|--csv) CSV=1 ; shift ;;
     -C|--cut*) INCLUDE_CUTS=1 ; shift ;;
     -g|--grou*) group=${2} ; shift 2 ;;
@@ -464,6 +488,14 @@ if [[ "${stationName}" = 'all' ]] ; then
 fi
 ((VERBOSE)) && printf "%s: reporting on Workstation %s\n" "${0:t}" "${stationName//\%/all}" >&2
 
+## Set the cart type constraint.
+typeset cartTypeConstraint=''
+if [[ -n "${cartType}" ]] ; then
+  cartType=$(normalizeCartType "${cartType}")
+  cartTypeConstraint=" and c.TYPE = ${cartType}"
+  ((VERBOSE)) && printf '%s: reporting on Carts of type %s.\n' "${0:t}" "${cartType}" >&2
+fi
+
 ## List the Scheduler Codes and prompt for one (or more) to use in this report.
 if [[ "${schedCodes}" = 'list' ]] ; then
   echo "Current Scheduler Codes:" >&2
@@ -496,7 +528,7 @@ selectCountStatement+="where elr.CART_NUMBER in "
 if ((cart_number > 0)) ; then
   selectCountStatement+="(${cart_number}) "
 else
-  selectCountStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") "
+  selectCountStatement+="(select NUMBER from CART as c where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})"${cartTypeConstraint}) "
 fi
 selectCountStatement+="${schedCodesAndClause} "
 selectCountStatement+="and elr.SERVICE_NAME = '${service}' "
@@ -553,7 +585,7 @@ else
 fi
 
 ## Find all matching Events in ELR_LINES.
-if okDatabaseStructure ELR_LINES:EVENT_DATETIME+CUT_NUMBER+ARTIST+ALBUM+TITLE+LENGTH+STATION_NAME,CART:NUMBER+GROUP_NAME,CART_SCHED_CODES:SCHED_CODE ; then
+if okDatabaseStructure ELR_LINES:EVENT_DATETIME+CUT_NUMBER+ARTIST+ALBUM+TITLE+LENGTH+STATION_NAME,CART:NUMBER+TYPE+GROUP_NAME,CART_SCHED_CODES:SCHED_CODE ; then
   selectStatement="select elr.EVENT_DATETIME, elr.TITLE, lpad(c.NUMBER,6,'0'), elr.LENGTH/1000 "
   ((INCLUDE_CUTS)) && selectStatement+=", lpad(elr.CUT_NUMBER,3,'0'), elr.DESCRIPTION "
   ((PROdata)) && selectStatement+=", elr.ARTIST, elr.ALBUM, elr.LABEL, elr.PUBLISHER "
@@ -565,7 +597,7 @@ if okDatabaseStructure ELR_LINES:EVENT_DATETIME+CUT_NUMBER+ARTIST+ALBUM+TITLE+LE
   if ((cart_number > 0)) ; then
     selectStatement+="(${cart_number}) "
   else
-    selectStatement+="(select NUMBER from CART where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})") "
+    selectStatement+="(select NUMBER from CART as c where GROUP_NAME ${whereClauseOp} "$(quoteGroupsForQuery ${groups[*]})"${cartTypeConstraint}) "
   fi
   selectStatement+="and elr.SERVICE_NAME = '${service}' "
   selectStatement+="and elr.STATION_NAME like '${stationName}' "
