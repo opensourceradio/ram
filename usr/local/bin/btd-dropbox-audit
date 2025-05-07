@@ -20,7 +20,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=6
+declare -ri v_patch=7
 declare -r v_hash='$Hash$'
 
 ##########################################################################################
@@ -134,7 +134,7 @@ $(${FMT} <<<"${my_name} takes specific action in cases where it makes sense and 
 
   * terminates any 'hung' import processes")
 
-  * removes 'stale' import history records
+  * clears 'stale' import history records from the Rivendell database
 
 $(${FMT} <<<"Specify '--interactive' (short option: '-i') to have ${my_name} prompt before taking any action.")
 
@@ -347,7 +347,7 @@ for proc_id in ${(k)procs[*]} ; do
   fi
 done
 
-# Check for and remove 'stale' filenames in DROPBOX_PATHS.
+# Check for and clear 'stale' filenames in DROPBOX_PATHS.
 typeset -i dropbox_path_count
 print "Checking for 'stale' filenames in DROPBOX_PATHS table..." >&2
 for id in ${(k)path_specs[*]} ; do
@@ -377,15 +377,15 @@ for id in ${(k)path_specs[*]} ; do
         if (( file_stat[mtime] > file_datetime )) ; then
           ((VERBOSE)) && printf "%s: %d > %d\n" "${file_path}" "${file_stat[atime]}" "${file_datetime}"
           if ((INTERACTIVE)) ; then
-            if get_yes_no "Remove STALE '${file_path}' from DROPBOX_PATHS?" ${ANSWER_NO} ; then
+            if get_yes_no "Clear STALE '${file_path}' from database table 'DROPBOX_PATHS' (this does not remove any files)?" ${ANSWER_NO} ; then
               if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
-                printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+                printf "Unable to 'delete from DROPBOX_PATHS where FILE_PATH = %s'. Please seek additional help.\n" "${file_path}" >&2
               fi
             fi
           else
-            ((VERBOSE)) && printf "Deleting stale entry '%s' from DROPBOX_PATHS.\n" "${file_path}"
+            ((VERBOSE)) && printf "Clearing STALE entry '%s' from DROPBOX_PATHS.\n" "${file_path}"
             if ! doSQL "delete from DROPBOX_PATHS where FILE_PATH = '${file_path}'" ; then
-              printf "Unable to delete DROPBOX_PATH row for '%s'. Please seek additional help.\n" "${file_path}" >&2
+              printf "Unable to 'delete from DROPBOX_PATHS where FILE_PATH = %s'. Please seek additional help.\n" "${file_path}" >&2
             fi
           fi
         fi
