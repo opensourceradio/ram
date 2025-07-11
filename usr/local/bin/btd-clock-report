@@ -31,7 +31,7 @@ colors
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=3
-v_patch=4
+v_patch=5
 # SC2016: $Hash is not a variable, it's a token that gets replaced by git(1)
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -274,14 +274,24 @@ fi
 
 # Choices are either a) show a specific clock, b) show all clocks for
 # the named service, or c) all clocks.
-if ((SHOW_ALL)) || [[ -n "${SERVICE}" ]] ; then  
+if ((SHOW_ALL)) ; then
   # Display all the Clocks.
   for clock in ${rivendell_clock_list[*]} ; do
     show_clock "${clock}" "${VERBOSE}"
     ((CSV)) || print
   done
   exit
-elif [[ "${1}" == 'list' ]] ; then
+fi
+if [[ -n "${SERVICE}" ]] ; then
+  # Display all the Clocks.
+  for clock in ${rivendell_clock_list[*]} ; do
+    show_clock "${clock}" "${VERBOSE}"
+    ((CSV)) || print
+  done
+  exit
+fi
+
+if [[ "${1}" == 'list' ]] ; then
   print "Current list of CLOCKs:"
   # (F) joins array elements with newline separator.
   # SC2153: COLUMN is not a misspelling
