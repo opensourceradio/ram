@@ -28,7 +28,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=1
-v_patch=1
+v_patch=2
 # SC2016: Hash is not a shell variable.
 # shellcheck disable=SC2016
 v_hash='$Hash$'
@@ -137,6 +137,17 @@ if [[ -z "${2}" ]] ; then
     exit 3
 fi
 typeset jack_device="${2}"
+
+## Log a Notice and exit if JACK is not running.
+typeset -a jack_pids
+# SC2034 (warning): jack_pids appears unused. [ZSH]
+# SC2207 (warning): Prefer mapfile or read -a... [ZSH]
+# shellcheck disable=SC2034,SC2207
+jack_pids=( $(pidof jackd) )
+if ((#jack_pids < 1)) ; then
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i \
+	      "NOTICE: jackd seems not running. No use in continuing."
+fi
 
 # Do we need to run?
 if ${JACK_LSP} | ${GREP} -q "${jack_device}" ; then
