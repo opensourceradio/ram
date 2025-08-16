@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-'''btd-library-duplicates.py searches for potentially duplicate CARTS in a Rivendell Library.
-It writes the possible duplicates to standard output unless directed otherwise with
-the command line option '--output <FILE>'. It can also write an Excel-compatible
-spreadsheet file using the '--excel' option.
+'''btd-library-duplicates.py searches for potentially duplicate CARTS
+in a Rivendell Library. It writes the possible duplicates to standard
+output unless directed otherwise with the command line option
+'--output <FILE>'. It can write CSV formatted output, and can also
+write an Excel-compatible spreadsheet file using the '--excel'
+option. Run with --help for all the options.
 
-This is a complete hack! You need to set the Rivendell database parameters below
-(starting at the line with "cnx = mysql.connector.connect(").
 '''
 
 import sys
@@ -20,8 +20,7 @@ def my_print(*p_args, **p_kwargs):
     print(*p_args, **p_kwargs, file=sys.stderr)
 
 def main():
-    '''Identify potentially duplicate Carts in a Rivendell library.
-    Output to stdout, a file, or an Excel spreadsheet.'''
+    '''main is the primary entry point for the script.'''
 
     output_file = sys.stdout
     csvfile = None
