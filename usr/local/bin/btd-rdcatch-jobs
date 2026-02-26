@@ -8,10 +8,10 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=1
-declare -ri v_patch=9
+declare -ri v_patch=10
 declare -r v_hash='$Hash$'
 
-# updated: Thu Feb 26 11:34:57 AM 2026 CST
+# updated: Thu Feb 26 11:43:07 AM 2026 CST
 
 # usage shows how to use this command.
 function usage() {
@@ -77,7 +77,7 @@ function db_param() {
 ############# BEGIN external shell commands used in this script. #############
 # This script uses these 7 external commands.
 # Look for them in their upper case, parameter expanded form.
-0
+our_commands=(awk cat fmt getopt logger mysql sed)
 # Find the executables we need; this uses some basic shell and a ZSH trick:
 # the (U) in the eval says to evaluate the parameter as all upper case
 # letters. This snippet generates shell parameters representing the upper case
