@@ -18,6 +18,9 @@
 ## Backup the MySQL Rivendell database with aging. Optionally rsync(1) a copy
 ## of the backup to a separate location.
 ##
+## NOTICE: this script is intended to be run on a system with
+## Rivendell installed! It reads /etc/rd.conf for database parameters.
+##
 ##############################################################################
 
 # In which we find strftime() and $EPOCHSECONDS.
@@ -28,7 +31,7 @@ zmodload zsh/regex
 # This script complies with Semantic Versioning: http://semver.org/
 v_major=0
 v_minor=2
-v_patch=7
+v_patch=8
 v_hash='$Hash$'
 
 ##############################################################################
