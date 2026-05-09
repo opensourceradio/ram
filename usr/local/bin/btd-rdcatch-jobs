@@ -11,7 +11,7 @@ declare -ri v_minor=1
 declare -ri v_patch=10
 declare -r v_hash='$Hash$'
 
-# updated: Thu Feb 26 11:43:07 AM 2026 CST
+# updated: Thu Feb 26 11:43:07 2026 CST
 
 # usage shows how to use this command.
 function usage() {
