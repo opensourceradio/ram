@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=3
-declare -ri v_patch=6
+declare -ri v_patch=7
 declare -r v_hash='$Hash$'
 
 declare -ir one_day=$((60 * 60 * 24))
@@ -334,7 +334,7 @@ declare -ri today_seconds=$(strftime -r %F $(strftime %F ${right_now}))
 # not have an End Date.
 if [[ "${(L)today}" = friday ]] && [[ -z "${END_DATE}" ]]; then
   # But only if we have a Start Date and it is Today (which is Friday).
-  if [[ -n "${START_DATE}" ]] && ((START_DATE == today_seconds)); then
+  if [[ -n "${start_date_seconds}" ]] && ((start_date_seconds == today_seconds)); then
     DAYS=3
     ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: today is Friday, generating logs for ${DAYS} days."
   fi
