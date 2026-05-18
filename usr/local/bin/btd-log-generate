@@ -27,12 +27,12 @@
 zmodload zsh/datetime
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -ri v_major=0
-declare -ri v_minor=3
-declare -ri v_patch=7
-declare -r v_hash='$Hash$'
+declare -i v_major=0
+declare -i v_minor=3
+declare -i v_patch=8
+declare v_hash='$Hash$'
 
-declare -ir one_day=$((60 * 60 * 24))
+declare -i one_day=$((60 * 60 * 24))
 
 declare -i DEBUG=0
 declare -i SHOW_VERSION=0
@@ -48,9 +48,9 @@ declare -i DAYS=1
 btd_log_generate_hook_dir="/usr/local/etc/btd/log-generate-hooks.d"
 
 function usage() {
-  local my_name="${1:t}"
+    local my_name="${1:t}"
 
-  cat << EOF
+    cat << EOF
 ${my_name} [ --days (-d) <number-of-days> ]
                  [ --start (-s) <date> ] [ --end (-e) <date> ]
                  [ --service <NAME>[,<NAME>...] ]
@@ -82,20 +82,20 @@ EOF
 
 # run_post_gen_hooks runs the script "hooks" on the named log.
 function run_post_gen_hooks() {
-  local -r log_name="${1}"
-  local -i return_value=0
-  if [[ -d "${btd_log_generate_hook_dir}" ]]; then
-    # Run all post log-generation hooks.
-    for hook in "${btd_log_generate_hook_dir}"/*; do
-      # Skip files starting with "." and "_".
-      [[ "${hook:t}" =~ ^[._] ]] && continue
-      ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: running post gen hooks for '${log_name}'."
-      if ! ${ZSH} "${hook}" ${DEBUG:+--debug} "${log_name}"; then
-        return_value="${?}"
-      fi
-    done
-  fi
-  return "${return_value}"
+    local -r log_name="${1}"
+    local -i return_value=0
+    if [[ -d "${btd_log_generate_hook_dir}" ]]; then
+        # Run all post log-generation hooks.
+        for hook in "${btd_log_generate_hook_dir}"/*; do
+            # Skip files starting with "." and "_".
+            [[ "${hook:t}" =~ ^[._] ]] && continue
+            ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: running post gen hooks for '${log_name}'."
+            if ! ${ZSH} "${hook}" ${DEBUG:+--debug} "${log_name}"; then
+                return_value="${?}"
+            fi
+        done
+    fi
+    return "${return_value}"
 }
 
 ############# BEGIN external shell commands used in this script. #############
@@ -113,106 +113,106 @@ typeset C D
 # SC2048: shellcheck overly aggressive quote recommendation.
 # shellcheck disable=SC2048
 for C in ${our_commands[*]}; do
-  # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
-  for D in ${path}; do
-    # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
-    [[ -x "${D}/${C}" ]] && {
-      eval "${(U)C//-/_}"="${D}/${C}"
-      break
+    # shellcheck disable=SC2154 # ZSH: ${path} is set by the shell.
+    for D in ${path}; do
+        # shellcheck disable=SC2140,SC2086,SC2296 # we need the quotes, ZSH-specific expansion
+        [[ -x "${D}/${C}" ]] && {
+            eval "${(U)C//-/_}"="${D}/${C}"
+            break
+        }
+    done
+    # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
+    [[ -x $(eval print \$"${(U)C//-/_}") ]] || {
+        print "Cannot find ${C}! Done."
+        return 1
     }
-  done
-  # shellcheck disable=SC2296,SC2312 # ZSH-specific expansion
-  [[ -x $(eval print \$"${(U)C//-/_}") ]] || {
-    print "Cannot find ${C}! Done."
-    return 1
-  }
 done
 unset our_commands C D
 ############## END external shell commands used in this script. ##############
 
 if ! TEMP=$(${GETOPT} -o Dd:e:fhs:v --long debug,days:,force,help,hook-dir:,version,service:,start:,end: -n "${0:t}" -- "${@}"); then
-  print "getopt(1) Fatal Error (${?}). Terminating." >&2
-  return 1
+    print "getopt(1) Fatal Error (${?}). Terminating." >&2
+    return 1
 fi
 eval set -- "${TEMP}"
 while :; do
-  case "${1}" in
-    -d | --days)
-      DAYS=${2}
-      shift 2
-      ;;
-    -f | --force)
-      unset PRESERVE
-      shift
-      ;;
-    --hook-dir)
-      btd_log_generate_hook_dir="${2}"
-      shift 2
-      ;;
-    --service)
-      SERVICE=${2}
-      shift 2
-      ;;
-    -s | --start)
-      START_DATE=${2}
-      shift 2
-      ;;
-    -e | --end)
-      END_DATE=${2}
-      shift 2
-      ;;
-    -D | --debug)
-      DEBUG=1
-      shift
-      ;;
-    -h | --help)
-      usage "${0}"
-      exit
-      ;;
-    -v | --vers*)
-      SHOW_VERSION=1
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      echo 'Internal error!'
-      exit 1
-      ;;
-  esac
+    case "${1}" in
+        -d | --days)
+            DAYS=${2}
+            shift 2
+            ;;
+        -f | --force)
+            unset PRESERVE
+            shift
+            ;;
+        --hook-dir)
+            btd_log_generate_hook_dir="${2}"
+            shift 2
+            ;;
+        --service)
+            SERVICE=${2}
+            shift 2
+            ;;
+        -s | --start)
+            START_DATE=${2}
+            shift 2
+            ;;
+        -e | --end)
+            END_DATE=${2}
+            shift 2
+            ;;
+        -D | --debug)
+            DEBUG=1
+            shift
+            ;;
+        -h | --help)
+            usage "${0}"
+            exit
+            ;;
+        -v | --vers*)
+            SHOW_VERSION=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo 'Internal error!'
+            exit 1
+            ;;
+    esac
 done
 unset TEMP
 
 if ((SHOW_VERSION)); then
-  typeset commit_hash="${v_hash}"
-  [[ "${v_hash}" == '$Hash$' ]] &&
-    commit_hash="prerelase"
-  print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
-  exit 0
+    typeset commit_hash="${v_hash}"
+    [[ "${v_hash}" == '$Hash$' ]] &&
+        commit_hash="prerelase"
+    print "${0:t}: version ${v_major}.${v_minor}.${v_patch}-${${commit_hash#\$Hash: }%$}"
+    exit 0
 fi
 
 typeset tmp_file_stdout=/var/tmp/${0:t}-${USER}.out
 typeset tmp_file_stderr=/var/tmp/${0:t}-${USER}.err
 if [[ -f "${tmp_file_stdout}" ]] && ! [[ -w "${tmp_file_stdout}" ]]; then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stdout}'. Unable to continue."
-  exit 1
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stdout}'. Unable to continue."
+    exit 1
 fi
 if [[ -f "${tmp_file_stderr}" ]] && ! [[ -w "${tmp_file_stderr}" ]]; then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stderr}'. Unable to continue."
-  exit 2
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stderr}'. Unable to continue."
+    exit 2
 fi
 ((DEBUG)) || exec 1> "${tmp_file_stdout}"
 ((DEBUG)) || exec 2> "${tmp_file_stderr}"
 
 if [[ -r /usr/bin/zsh-functions ]]; then
-  source /usr/bin/zsh-functions
+    source /usr/bin/zsh-functions
 elif [[ -r /usr/local/bin/zsh-functions ]]; then
-  source /usr/local/bin/zsh-functions
+    source /usr/local/bin/zsh-functions
 else
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
-  exit 3
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot continue without zsh-functions! (Error: ${?})"
+    exit 3
 fi
 
 # Extract the exit values (keys) and their messages (values) from
@@ -221,11 +221,11 @@ declare -A rdlogmanager_exit_values
 oIFS="${IFS}"
 IFS=$'\t\n'
 rdlogmanager_exit_values=(
-  $(MANWIDTH=999 ${MAN} rdlogmanager |
-    ${SED} -e '1,/EXIT VALUES/d' \
-      -e '/^BUGS/,$d' \
-      -e '/^$/d' |
-    ${PERL} -ne 'chomp; ($v, $m) = split(" ", $_, 2); printf qq(%d\t%s\n), $v, $m;')
+    $(MANWIDTH=999 ${MAN} rdlogmanager |
+        ${SED} -e '1,/EXIT VALUES/d' \
+            -e '/^BUGS/,$d' \
+            -e '/^$/d' |
+        ${PERL} -ne 'chomp; ($v, $m) = split(" ", $_, 2); printf qq(%d\t%s\n), $v, $m;')
 )
 IFS="${oIFS}"
 unset oIFS
@@ -239,14 +239,14 @@ IFS=$'=\n'
 # SC2190 (warning): Elements in associative arrays need index... (ZSH)
 # shellcheck disable=SC2190
 rsync_exit_codes=($(MANWIDTH=999 ${MAN} rsync |
-  ${SED} -e '1,/EXIT VALUES/d' -e '/ENVIRONMENT VARIABLES/,$d' -e '/^$/d' |
-  ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}'))
+    ${SED} -e '1,/EXIT VALUES/d' -e '/ENVIRONMENT VARIABLES/,$d' -e '/^$/d' |
+    ${AWK} -F'[[:space:]]{2,}' '{print $2 "=\"" $3 "\""}'))
 IFS="${oIFS}"
 
 ((DEBUG)) && setopt xtrace
 
-declare -ri right_now=${EPOCHSECONDS}
-declare -r MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
+declare -i right_now=${EPOCHSECONDS}
+declare MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: starting log generation."
 
@@ -258,11 +258,11 @@ ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: starting log generation.
 # shellcheck disable=SC2178
 declare query="select NAME,NAME_TEMPLATE from SERVICES "
 if [[ -n "${SERVICE}" ]]; then
-  SERVICE=($(print ${SERVICE//,/ }))
-  # SC2027: shellcheck does not quite understand quoting for ZSH.
-  # SC2179: ZSH supports appending to string parameters using the "+=" operator.
-  # shellcheck disable=SC2027,SC2179
-  query+=" where NAME in ($(print "'"${(j:',':)SERVICE}"'")) "
+    SERVICE=($(print ${SERVICE//,/ }))
+    # SC2027: shellcheck does not quite understand quoting for ZSH.
+    # SC2179: ZSH supports appending to string parameters using the "+=" operator.
+    # shellcheck disable=SC2027,SC2179
+    query+=" where NAME in ($(print "'"${(j:',':)SERVICE}"'")) "
 fi
 # SC2179: ZSH supports appending to string parameters using the "+=" operator.
 # shellcheck disable=SC2179
@@ -278,8 +278,8 @@ unset oIFS
 
 declare output_file
 if ! output_file=$(${MKTEMP}); then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: unable to create temporary file (${?}). Cannot continue."
-  exit 3
+    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: unable to create temporary file (${?}). Cannot continue."
+    exit 3
 fi
 
 # Keep the output file if we are called with --debug.
@@ -291,10 +291,10 @@ fi
 # environment for testing).
 # SC2034: today *is* used, in a ZSH way.
 # shellcheck disable=SC2034
-declare -r today=${TODAY:-$(strftime "%A" "${right_now}")}
+declare today=${TODAY:-$(strftime "%A" "${right_now}")}
 
 # With no command line options, Logs are generated for tomorrow.
-declare -r tomorrow_YYYYMMDD=$(strftime "%F" $((right_now + one_day)))
+declare tomorrow_YYYYMMDD=$(strftime "%F" $((right_now + one_day)))
 declare -i tomorrow_seconds=$(strftime -r "%F" "${tomorrow_YYYYMMDD}")
 
 declare -i start_date_seconds
@@ -302,42 +302,42 @@ declare -i end_date_seconds
 
 # Set the start date to tomorrow if not specified on the command line.
 if [[ -n "${START_DATE}" ]]; then
-  if ! [[ "${START_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]]; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of Start Date '${START_DATE}'. I quit."
-    exit
-  fi
-  start_date_seconds=$(strftime -r "%F" "${START_DATE}")
-  tomorrow_seconds=$((start_date_seconds + one_day))
+    if ! [[ "${START_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]]; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of Start Date '${START_DATE}'. I quit."
+        exit
+    fi
+    start_date_seconds=$(strftime -r "%F" "${START_DATE}")
+    tomorrow_seconds=$((start_date_seconds + one_day))
 else
-  start_date_seconds="${tomorrow_seconds}"
+    start_date_seconds="${tomorrow_seconds}"
 fi
 
 # Set the end date to the same as the start date if not specified on
 # the command line.
 if [[ -n "${END_DATE}" ]]; then
-  if ! [[ "${END_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]]; then
-    ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of End Date '${END_DATE}'. I quit."
-    exit
-  fi
-  end_date_seconds=$(strftime -r "%F" "${END_DATE}")
+    if ! [[ "${END_DATE}" =~ [[:digit:]]{4}(-[[:digit:]]{2}){2} ]]; then
+        ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Cannot make sense of End Date '${END_DATE}'. I quit."
+        exit
+    fi
+    end_date_seconds=$(strftime -r "%F" "${END_DATE}")
 else
-  end_date_seconds="${start_date_seconds}"
+    end_date_seconds="${start_date_seconds}"
 fi
 
 # Get today's date (in seconds-since-epoch) at midnight. We use this to
 # calculate the days offset for rdlogmanager(1).
 # SC2046: shellcheck's aggressive quoting suggestions.
 # shellcheck disable=SC2046
-declare -ri today_seconds=$(strftime -r %F $(strftime %F ${right_now}))
+declare -i today_seconds=$(strftime -r %F $(strftime %F ${right_now}))
 
 # Create Logs for Saturday, Sunday and Monday if ${today} is Friday and we do
 # not have an End Date.
 if [[ "${(L)today}" = friday ]] && [[ -z "${END_DATE}" ]]; then
-  # But only if we have a Start Date and it is Today (which is Friday).
-  if [[ -n "${start_date_seconds}" ]] && ((start_date_seconds == today_seconds)); then
-    DAYS=3
-    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: today is Friday, generating logs for ${DAYS} days."
-  fi
+    # But only if we have a Start Date and it is Today (which is Friday).
+    if [[ -n "${start_date_seconds}" ]] && ((start_date_seconds == today_seconds)); then
+        DAYS=3
+        ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: today is Friday, generating logs for ${DAYS} days."
+    fi
 fi
 
 # Set the end date if they requested to generate logs for a specific number of
@@ -345,11 +345,11 @@ fi
 # rdlogmanger's zero-means-tomorrow paradigm. Note: DAYS takes precedence over
 # END_DATE.
 if ((DAYS > 1)); then
-  end_date_seconds=$((start_date_seconds + (one_day * (DAYS - 1))))
+    end_date_seconds=$((start_date_seconds + (one_day * (DAYS - 1))))
 fi
 
-declare -ri start_day_offset=$(((start_date_seconds - today_seconds - one_day) / one_day))
-declare -ri end_day_offset=$(((end_date_seconds - today_seconds - one_day) / one_day))
+declare -i start_day_offset=$(((start_date_seconds - today_seconds - one_day) / one_day))
+declare -i end_day_offset=$(((end_date_seconds - today_seconds - one_day) / one_day))
 ((DEBUG)) && { : 'start_date_seconds: '${start_date_seconds}' today_seconds: '${today_seconds}' start_day_offset: '${start_day_offset}' end_day_offset: '${end_day_offset}; }
 
 # For each day offset and for each service found:
@@ -361,20 +361,20 @@ declare -ri end_day_offset=$(((end_date_seconds - today_seconds - one_day) / one
 #   day spec (-d) is "tomorrow" (0) unless ${START_DATE} or ${DAYS} are specified
 # This for loop captures stdout from rdlogmanager, but not stderr.
 for ((day_offset = start_day_offset; day_offset <= end_day_offset; day_offset++)); do
-  # This "(ok)" parameter expansion flag says to return the keys (k) in sorted
-  # (o) order.
-  for service in ${(ok)services[*]}; do
-    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: Generating log for Service '${service}' with day offset: ${day_offset}."
-    if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1; then
-      declare -i exit_code="${?}"
-      ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (day: ${day_offset}) exited with value ${exit_code} (${rdlogmanager_exit_values[${exit_code}]})"
-    fi
-    if ((exit_code == 0)); then
-      if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """${start_date_seconds}")"; then
-        ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks() returned with non-zero value: ${?}"
-      fi
-    fi
-  done
+    # This "(ok)" parameter expansion flag says to return the keys (k) in sorted
+    # (o) order.
+    for service in ${(ok)services[*]}; do
+        ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: Generating log for Service '${service}' with day offset: ${day_offset}."
+        if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1; then
+            declare -i exit_code="${?}"
+            ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (day: ${day_offset}) exited with value ${exit_code} (${rdlogmanager_exit_values[${exit_code}]})"
+        fi
+        if ((exit_code == 0)); then
+            if ! run_post_gen_hooks "$(strftime """${services[${service}]}""" """${start_date_seconds}")"; then
+                ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: run_post_gen_hooks() returned with non-zero value: ${?}"
+            fi
+        fi
+    done
 done > "${output_file}"
 
 # Save a copy in the user "rd"'s Desktop folder if such a folder exists.
@@ -385,32 +385,32 @@ done > "${output_file}"
 # BUG ALERT: The directory for ${final_output_file} must already exist and be
 # writeable by the user ID running this script. See parameter 'RnRmlOwner' in
 # /etc/rd.conf if running from RDCatch.
-typeset final_output_file="/home/rd/Desktop/RD-Log-Generate.txt"
+typeset final_output_file="/home/rd/Desktop/RD-Log-Generate-${SERVICE:-all}.txt"
 if ! [[ -d "${final_output_file%/*}" ]]; then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' does not exist. See '${output_file}'."
-  exit 3
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' does not exist. See '${output_file}'."
+    exit 3
 fi
 if ! [[ -w "${final_output_file%/*}" ]]; then
-  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' is NOT writeable. See '${output_file}'."
-  exit 2
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: '${final_output_file%/*}' is NOT writeable. See '${output_file}'."
+    exit 2
 fi
 
 ${RSYNC} --archive "${output_file}" "${final_output_file}"
 typeset -i rsync_exit_value=${?}
 if ((rsync_exit_value == 0)); then
-  ${CHMOD} a+r "${final_output_file}"
-  ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ${final_output_file}."
+    ${CHMOD} a+r "${final_output_file}"
+    ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: copied output file to ${final_output_file}."
 else
-  ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}; did not copy output file to '${final_output_file}'."
-  exit 1
+    ${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: rsync returned '${rsync_exit_value}': ${rsync_exit_codes[${rsync_exit_value}]}; did not copy output file to '${final_output_file}'."
+    exit 1
 fi
 
 # Send email to the addresses in $MAILTO with the same output as is on
 # the desktop.
 if [[ -s "${output_file}" ]]; then
-  sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "Rivendell Logs have been generated." "${output_file}"
+    sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "Rivendell Logs have been generated." "${output_file}"
 else
-  sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "rdlogmanager(1) created no output. Did it run? Better check on it."
+    sendNotification "${0:t}" "${MAILTO}" LOG-GENERATE "rdlogmanager(1) created no output. Did it run? Better check on it."
 fi
 
 ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: complete, normal exit."
@@ -420,8 +420,8 @@ exit
 # Local Variables: ***
 # mode:shell-script ***
 # indent-tabs-mode: f ***
-# sh-indentation: 2 ***
-# sh-basic-offset: 2 ***
+# sh-indentation: 4 ***
+# sh-basic-offset: 4 ***
 # sh-indent-for-do: 0 ***
 # sh-indent-after-do: + ***
 # sh-indent-comment: t ***
