@@ -29,7 +29,7 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 typeset -i v_major=0
 typeset -i v_minor=3
-typeset -i v_patch=8
+typeset -i v_patch=9
 typeset v_hash='$Hash$'
 
 typeset -i one_day=$((60 * 60 * 24))
@@ -206,7 +206,9 @@ if [[ -f "${tmp_file_stderr}" ]] && ! [[ -w "${tmp_file_stderr}" ]]; then
     exit 2
 fi
 ((DEBUG)) || exec 1> "${tmp_file_stdout}"
+${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: writing standard output to '${tmp_file_stdout}'."
 ((DEBUG)) || exec 2> "${tmp_file_stderr}"
+${LOGGER} --stderr -t "${0:t}" -p local7.notice -i "NOTICE: writing error output to '${tmp_file_stderr}'."
 
 if [[ -r /usr/bin/zsh-functions ]]; then
     source /usr/bin/zsh-functions
