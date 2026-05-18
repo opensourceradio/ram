@@ -195,8 +195,8 @@ if ((SHOW_VERSION)); then
     exit 0
 fi
 
-typeset tmp_file_stdout=/var/tmp/${0:t}-${USER}.out
-typeset tmp_file_stderr=/var/tmp/${0:t}-${USER}.err
+typeset tmp_file_stdout=/var/tmp/${0:t}-${USERNAME}.out
+typeset tmp_file_stderr=/var/tmp/${0:t}-${USERNAME}.err
 if [[ -f "${tmp_file_stdout}" ]] && ! [[ -w "${tmp_file_stdout}" ]]; then
     ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: Unable to write output record '${tmp_file_stdout}'. Unable to continue."
     exit 1
