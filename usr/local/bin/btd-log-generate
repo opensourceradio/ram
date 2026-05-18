@@ -27,22 +27,24 @@
 zmodload zsh/datetime
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -i v_major=0
-declare -i v_minor=3
-declare -i v_patch=8
-declare v_hash='$Hash$'
+typeset -i v_major=0
+typeset -i v_minor=3
+typeset -i v_patch=8
+typeset v_hash='$Hash$'
 
-declare -i one_day=$((60 * 60 * 24))
+typeset -i one_day=$((60 * 60 * 24))
 
-declare -i DEBUG=0
-declare -i SHOW_VERSION=0
+typeset -i DEBUG=0
+typeset -i SHOW_VERSION=0
+
+typeset START_DATE END_DATE
 
 # Do not overwrite existing log by default (see options below).
 # Sigh, rdlogmanager(1) has an "unusual" sense of "force" vs "preserve".
-declare PRESERVE="-P"
+typeset PRESERVE="-P"
 
 # Default number of days for which to generate Logs.
-declare -i DAYS=1
+typeset -i DAYS=1
 
 # Location of "hook" scripts -- run after log generation.
 btd_log_generate_hook_dir="/usr/local/etc/btd/log-generate-hooks.d"
@@ -217,7 +219,7 @@ fi
 
 # Extract the exit values (keys) and their messages (values) from
 # rdlogmanager(1) into the associative array.
-declare -A rdlogmanager_exit_values
+typeset -A rdlogmanager_exit_values
 oIFS="${IFS}"
 IFS=$'\t\n'
 rdlogmanager_exit_values=(
@@ -245,8 +247,8 @@ IFS="${oIFS}"
 
 ((DEBUG)) && setopt xtrace
 
-declare -i right_now=${EPOCHSECONDS}
-declare MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
+typeset -i right_now=${EPOCHSECONDS}
+typeset MAILTO=${MAILTO:-"dklann@broadcasttool.com"}
 
 ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: starting log generation."
 
@@ -256,7 +258,7 @@ ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: starting log generation.
 # template in run_post_gen_hooks.
 # SC2178: ZSH supports appending to string parameters using the "+=" operator.
 # shellcheck disable=SC2178
-declare query="select NAME,NAME_TEMPLATE from SERVICES "
+typeset query="select NAME,NAME_TEMPLATE from SERVICES "
 if [[ -n "${SERVICE}" ]]; then
     SERVICE=($(print ${SERVICE//,/ }))
     # SC2027: shellcheck does not quite understand quoting for ZSH.
@@ -269,14 +271,14 @@ fi
 query+="order by NAME"
 oIFS="${IFS}"
 IFS=$'\t\n'
-declare -A services
+typeset -A services
 # SC2129: query contains a string, it is not an array.
 # shellcheck disable=SC2128
 services=($(doSQL "${query}"))
 IFS="${oIFS}"
 unset oIFS
 
-declare output_file
+typeset output_file
 if ! output_file=$(${MKTEMP}); then
     ${LOGGER} --stderr -t "${0:t}" -p local7.err -i "ERROR: unable to create temporary file (${?}). Cannot continue."
     exit 3
@@ -291,14 +293,14 @@ fi
 # environment for testing).
 # SC2034: today *is* used, in a ZSH way.
 # shellcheck disable=SC2034
-declare today=${TODAY:-$(strftime "%A" "${right_now}")}
+typeset today=${TODAY:-$(strftime "%A" "${right_now}")}
 
 # With no command line options, Logs are generated for tomorrow.
-declare tomorrow_YYYYMMDD=$(strftime "%F" $((right_now + one_day)))
-declare -i tomorrow_seconds=$(strftime -r "%F" "${tomorrow_YYYYMMDD}")
+typeset tomorrow_YYYYMMDD=$(strftime "%F" $((right_now + one_day)))
+typeset -i tomorrow_seconds=$(strftime -r "%F" "${tomorrow_YYYYMMDD}")
 
-declare -i start_date_seconds
-declare -i end_date_seconds
+typeset -i start_date_seconds
+typeset -i end_date_seconds
 
 # Set the start date to tomorrow if not specified on the command line.
 if [[ -n "${START_DATE}" ]]; then
@@ -328,7 +330,7 @@ fi
 # calculate the days offset for rdlogmanager(1).
 # SC2046: shellcheck's aggressive quoting suggestions.
 # shellcheck disable=SC2046
-declare -i today_seconds=$(strftime -r %F $(strftime %F ${right_now}))
+typeset -i today_seconds=$(strftime -r %F $(strftime %F ${right_now}))
 
 # Create Logs for Saturday, Sunday and Monday if ${today} is Friday and we do
 # not have an End Date.
@@ -348,8 +350,8 @@ if ((DAYS > 1)); then
     end_date_seconds=$((start_date_seconds + (one_day * (DAYS - 1))))
 fi
 
-declare -i start_day_offset=$(((start_date_seconds - today_seconds - one_day) / one_day))
-declare -i end_day_offset=$(((end_date_seconds - today_seconds - one_day) / one_day))
+typeset -i start_day_offset=$(((start_date_seconds - today_seconds - one_day) / one_day))
+typeset -i end_day_offset=$(((end_date_seconds - today_seconds - one_day) / one_day))
 ((DEBUG)) && { : 'start_date_seconds: '${start_date_seconds}' today_seconds: '${today_seconds}' start_day_offset: '${start_day_offset}' end_day_offset: '${end_day_offset}; }
 
 # For each day offset and for each service found:
@@ -366,7 +368,7 @@ for ((day_offset = start_day_offset; day_offset <= end_day_offset; day_offset++)
     for service in ${(ok)services[*]}; do
         ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: Generating log for Service '${service}' with day offset: ${day_offset}."
         if ! ${RDLOGMANAGER} -s "${service}" -g -t -m -d "${day_offset}" ${PRESERVE} 2>&1; then
-            declare -i exit_code="${?}"
+            typeset -i exit_code="${?}"
             ${LOGGER} --stderr -t "${0:t}" -p local7.info -i "INFO: ${RDLOGMANAGER} (day: ${day_offset}) exited with value ${exit_code} (${rdlogmanager_exit_values[${exit_code}]})"
         fi
         if ((exit_code == 0)); then
