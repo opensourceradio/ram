@@ -1,19 +1,20 @@
 #!/bin/zsh
-# shellcheck shell=bash disable=SC2016,SC2154,SC2179,SC2312
-# SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
-# SC2154 (warning): <VAR> is referenced but not assigned. [ZSH]
-# SC2179 (warning): Use array+=("item") to append items to an array. [ZSH]
-# SC2312 (info): Consider invoking this command separately to avoid masking its return value (or use '|| true' to ignore).
+# shellcheck shell=bash disable=SC2016,SC2086,SC2154,SC2179,SC2312
+## SC2086 (info): Double quote to prevent globbing and word splitting.
+## SC2016 (info): Expressions don't expand in single quotes, use double quotes for that.
+## SC2154 (warning): <VAR> is referenced but not assigned. [ZSH]
+## SC2179 (warning): Use array+=("item") to append items to an array. [ZSH]
+## SC2312 (info): Consider invoking this command separately to avoid masking its return value...
 
-# This script complies with Semantic Versioning: http://semver.org/
-declare -ri v_major=0
-declare -ri v_minor=1
-declare -ri v_patch=10
-declare -r v_hash='$Hash$'
+## This script complies with Semantic Versioning: http://semver.org/
+typeset -i v_major=0
+typeset -i v_minor=1
+typeset -i v_patch=11
+typeset v_hash='$Hash$'
 
-# updated: Thu Feb 26 11:43:07 2026 CST
+# updated: Wed Jun 10 07:51:23 2026 CDT
 
-# usage shows how to use this command.
+## usage shows how to use this command.
 function usage() {
     local -r my_name="${1:t}"
 
@@ -29,6 +30,7 @@ ${my_name} [ --status (-s) ]
                  [ --macro (-m) ] [ --status (s) ]
                  [ --station <Workstation> ]
                  [ --no-pager ]
+                 [ --no-table ]
                  [ --verbose (-v) ]
                  [ --help (-h) ] [ --version (-V) ]
 
@@ -48,11 +50,13 @@ $(${FMT} <<< "Specify '--station' (no short option) to have ${my_name} display t
 
 $(${FMT} <<< "Specify '--no-pager' (no short option) to have ${my_name} display tasks without page-at-a-time output. The default is to display output using the app named in the environment variable PAGER, or /usr/bin/less if that variable is not set.")
 
+$(${FMT} <<< "Specify '--no-table' (no short option) to have ${my_name} display the list of tasks without MariaDB table formatting.")
+
 EOF
 }
 
-# db_param() retrieves the named database configuration parameter from
-# the "mySQL" section of /etc/rd.conf.
+## db_param() retrieves the named database configuration parameter
+## from the "mySQL" section of /etc/rd.conf.
 function db_param() {
     local -r db_parameter=${1:?"Need a database parameter to look up in '${db_conf}'"}
     local -r db_conf="${RD_CONF:-/etc/rd.conf}"
@@ -107,9 +111,10 @@ typeset -i ACTIVE=0
 typeset -i INACTIVE=0
 typeset -i MACRO=0
 typeset -i NO_PAGER=0
+typeset -i NO_TABLE=0
 typeset STATION
 
-if ! TEMP=$(${GETOPT} -o ahimsVv --long active,help,inactive,macro,no-pager,station:,status,version,verbose -n "${0:t}" -- "${@}"); then
+if ! TEMP=$(${GETOPT} -o ahimsVv --long active,help,inactive,macro,no-pager,no-table,station:,status,version,verbose -n "${0:t}" -- "${@}"); then
     print "getopt(1) Fatal Error (${?}). Terminating..." >&2
     return 1
 fi
@@ -138,6 +143,10 @@ while :; do
             ;;
         --no-pager)
             NO_PAGER=1
+            shift
+            ;;
+        --no-table)
+            NO_TABLE=1
             shift
             ;;
         --station)
@@ -178,9 +187,17 @@ if ((SHOW_VERSION)); then
     exit 0
 fi
 
-# id,start_time,station_name,r.type,is_active,if(r.type=1,rpad(lpad(macro_cart,6,'0'),10,' '),cut_name),if(r.type=1,macros,url) from RECORDINGS r left join CART c on number = macro_cart
+## table_output is an array in order for multiple args to be presented
+## to mysql(1) as individual arguments.
+typeset -a table_output
+table_output=("--table")
+if ((NO_TABLE)); then
+    table_output=("--skip-column-names" "--silent")
+fi
 
-# SC2178 (warning): Variable was used as an array but is now assigned a string. [ZSH]
+## id,start_time,station_name,r.type,is_active,if(r.type=1,rpad(lpad(macro_cart,6,'0'),10,' '),cut_name),if(r.type=1,macros,url) from RECORDINGS r left join CART c on number = macro_cart
+
+## SC2178 (warning): Variable was used as an array but is now assigned a string. [ZSH]
 # shellcheck disable=SC2178
 query="select "
 query+="r.ID, "
@@ -238,11 +255,11 @@ if [[ -n "${STATION}" ]] && ! ((MACRO || INACTIVE || ACTIVE)); then
 fi
 query+="order by r.START_TIME"
 
-# SC2128 (warning): Expanding an array without an index only gives the first element. [ZSH]
+## SC2128 (warning): Expanding an array without an index only gives the first element. [ZSH]
 # shellcheck disable=SC2128
 if ((NO_PAGER)); then
     ${MYSQL} --no-defaults \
-        --table \
+        ${table_output} \
         --host="$(db_param 'Hostname')" \
         --user="$(db_param 'Loginname')" \
         --password="$(db_param 'Password')" \
@@ -250,7 +267,7 @@ if ((NO_PAGER)); then
         -e "${query}"
 else
     ${MYSQL} --no-defaults \
-        --table \
+        ${table_output} \
         --host="$(db_param 'Hostname')" \
         --user="$(db_param 'Loginname')" \
         --password="$(db_param 'Password')" \
