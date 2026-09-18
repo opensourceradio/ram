@@ -23,7 +23,7 @@
 # This script complies with Semantic Versioning: http://semver.org/
 declare vMajor=0
 declare vMinor=2
-declare vPatch=14
+declare vPatch=15
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
