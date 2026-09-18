@@ -43,9 +43,8 @@ API_HOSTS=(api.cloudflare.com api.digitalocean.com)
 declare -r API_HOST='api.digitalocean.com'
 
 # The D.O. API key is expected to be on the only non-comment line in this file.
-# ShellCheck does not seem to know about read-only variables.
-# shellcheck disable=SC2155
-declare DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && grep -v '^#' ${HOME}/.config/doctl/api-access)
+declare DO_API_KEY
+DO_API_KEY=$([[ -r ${HOME}/.config/doctl/api-access ]] && grep -v '^#' ${HOME}/.config/doctl/api-access)
 # Also support the API key in .ini format (used for letsencrypt certbot with the
 # dns-digitalocean plugin). Added 2024-01-18.
 if [[ -z "${DO_API_KEY}" ]]; then
@@ -247,19 +246,19 @@ if [[ -z "${THE_HOST_NAME}" ]]; then
     usage
     exit 2
 fi
-((VERBOSE)) && printf "%s: setting DNS records for %s\n" "${0##*/}" "${THE_HOST_NAME}"
+((VERBOSE)) && printf "%s: setting DNS records for %s\n" "${0##*/}" "${THE_HOST_NAME}" >&2
 
 # This hostname/domain was the original purpose of this script.
 DOMAIN="${DOMAIN:-btd.support}"
 
 # Ensure the parent directory of ${IP_ADDRESS_CACHE} exists and is writeable.
 if ! [[ -d "${IP_ADDRESS_CACHE%/*}" ]]; then
-    printf "%s: ERROR: missing '%s'. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}"
+    printf "%s: ERROR: missing '%s'. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}" >&2
     usage
     exit 3
 fi
 if ! [[ -w "${IP_ADDRESS_CACHE%/*}" ]]; then
-    printf "%s: ERROR: '%s' is not writeable. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}"
+    printf "%s: ERROR: '%s' is not writeable. Cannot continue." "${0##*/}" "${IP_ADDRESS_CACHE%/*}" >&2
     usage
     exit 4
 fi
@@ -288,7 +287,9 @@ fi
 # Hit the server at WHATS_MY_IP_URL to get the current public IPv4 and IPv6
 # addresses.
 current_ipv4=$(curl --ipv4 --connect-timeout 5 --silent -o - "${WHATS_MY_IP_URL}")
+((VERBOSE)) && printf '%s: current_ipv4: %s\n' "${0##*/}" "${current_ipv4}" >&2
 current_ipv6=$(curl --ipv6 --connect-timeout 5 --silent -o - "${WHATS_MY_IP_URL}")
+((VERBOSE)) && printf '%s: current_ipv6: %s\n' "${0##*/}" "${current_ipv6}" >&2
 
 # Empty IP address cache: create it with the IPv4 (and optionally, the IPv6)
 # address.
