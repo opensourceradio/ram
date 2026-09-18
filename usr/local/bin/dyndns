@@ -169,6 +169,7 @@ function get_domain_record_id() {
     while ((x < 100)); do
         if [[ $(printf '%s' "${json_string}" | jq ".domain_records[${x}].${key}") =~ .*${value}.* ]]; then
             if [[ $(printf '%s' "${json_string}" | jq ".domain_records[${x}].type") =~ .*${type}.* ]]; then
+                ((VERBOSE)) && printf '%s: found domain_record type: %s value: %s\n' "${0##*/}" "${type}" "${value}" >&2
                 printf '%s' "${json_string}" | jq ".domain_records[${x}].id"
             fi
             break
@@ -246,7 +247,7 @@ if [[ -z "${THE_HOST_NAME}" ]]; then
     usage
     exit 2
 fi
-((VERBOSE)) && printf "%s: setting DNS records for %s\n" "${0##*/}" "${THE_HOST_NAME}" >&2
+((VERBOSE)) && printf "%s: setting DNS record for %s\n" "${0##*/}" "${THE_HOST_NAME}" >&2
 
 # This hostname/domain was the original purpose of this script.
 DOMAIN="${DOMAIN:-btd.support}"
@@ -346,14 +347,15 @@ if ((FORCE)) || [[ "${cached_ip_list[0]}" != "${current_ipv4}" ]]; then
         printf "Would have %sadded '%s' to '%s'.\n" "$( ((FORCE)) && echo 'forcefully ')" "${current_ipv4}" "${IP_ADDRESS_CACHE}"
     else
         printf '%s\n' "${current_ipv4}" > "${IP_ADDRESS_CACHE}"
+	((VERBOSE)) && printf '%s: saved current_ipv4: %s to %s.\n' "${0##*/}" "${current_ipv4}" "${IP_ADDRESS_CACHE}" >&2
     fi
 
     # Get the 'A' record ID from D.O. This is a fatal error because we
     # only know how to *update* existing records (as of this version of
     # the script).
     # TODO: create a new A record if it does not exist.
-    # https://docs.digitalocean.com/reference/api/api-reference/#operation/get_domain_record
-    # (documentation link updated Tue May 10 06:28:40 AM CDT 2022)
+    # https://docs.digitalocean.com/reference/api/reference/domain-records/#domains_get_record
+    # (documentation link updated Fri Sep 18 17:19:48 2026 CDT)
     if ! A_RECORD_ID=$(get_domain_record_id "${DOMAIN_JSON}" 'A' 'name' "${THE_HOST_NAME}"); then
         printf '%s: FATAL: unable to get domain "A" record ID.\n' "${0##*/}" >&2
         exit 1
