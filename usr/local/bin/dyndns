@@ -21,26 +21,26 @@
 ##############################################################################
 
 # This script complies with Semantic Versioning: http://semver.org/
-declare -r vMajor=0
-declare -r vMinor=2
-declare -r vPatch=14
+declare vMajor=0
+declare vMinor=2
+declare vPatch=14
 # We can do this in one step in ZSH, but Bash needs 2 statements
 # And we do *not* want $Hash expanded yet.
 # shellcheck disable=SC2016
-declare -r vHash='$Hash$'
-declare -r vvHash="${vHash#\$Hash: }"
+declare vHash='$Hash$'
+declare vvHash="${vHash#\$Hash: }"
 
 declare DOMAIN=''
 declare THE_HOST_NAME=''
-declare -r WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
+declare WHATS_MY_IP_URL='https://whatsmyip.btd.support/'
 
 # See API_BASE_ROUTE below for the API route.
-declare -r API_PROTO='https'
+declare API_PROTO='https'
 declare -a API_HOSTS
 # SC2034: reserved for future use.
 # shellcheck disable=SC2034
 API_HOSTS=(api.cloudflare.com api.digitalocean.com)
-declare -r API_HOST='api.digitalocean.com'
+declare API_HOST='api.digitalocean.com'
 
 # The D.O. API key is expected to be on the only non-comment line in this file.
 declare DO_API_KEY
@@ -54,7 +54,7 @@ if [[ -z "${DO_API_KEY}" ]]; then
     printf '%s: ERROR: Missing API Key. Cannot continue.\n' "${0##*/}" >&2
     exit 10
 fi
-declare -r IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
+declare IP_ADDRESS_CACHE='/var/cache/public/last-known-public-ip'
 declare -i VERBOSE=0
 declare -i INTERACTIVE=0
 declare -i DRY_RUN=0
@@ -272,7 +272,7 @@ fi
 ((VERBOSE > 1)) && set -o xtrace
 ((VERBOSE > 2)) && set -o errtrace functrace
 
-declare -r API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
+declare API_BASE_ROUTE="/v2/domains/${DOMAIN}/records"
 
 # Our last-known public IP address(es) is(are) cached in local storage. The
 # cache consists of one or (at most) two lines. The first line must be the
