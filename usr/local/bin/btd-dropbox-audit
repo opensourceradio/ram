@@ -20,8 +20,10 @@ zmodload zsh/datetime
 # This script complies with Semantic Versioning: http://semver.org/
 declare -ri v_major=0
 declare -ri v_minor=2
-declare -ri v_patch=9
+declare -ri v_patch=10
 declare -r v_hash='$Hash$'
+
+# updated: Thu Nov 05 11:21:05 2026 CST
 
 ##########################################################################################
 ##########################################################################################
@@ -143,7 +145,7 @@ $(${FMT} <<< "Specify '--no' (short option: '-n') to answer 'No' to all prompts.
 
 $(${FMT} <<< "Specify '--stranded-files' (short option: '-s') to have ${my_name} look for and report on files in dropbox directories that have not been imported.")
 
-$(${FMT} <<< "Specify '--metadata' (short option: '-m') to have ${my_name} compare dropbox metadata patterns with the files in the dropbox folders. Note that this is useful only when files actually exist in the dropbox folders, that is, the "Delete source files" option is NOT set.")
+$(${FMT} <<< "Specify '--metadata' (short option: '-m') to have ${my_name} compare dropbox metadata patterns with the files in the dropbox folders. Note that this is useful only when files actually exist in the dropbox folders, that is, the 'Delete source files' option is NOT set.")
 
 EOF
 }
